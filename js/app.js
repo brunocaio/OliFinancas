@@ -19,6 +19,8 @@ window.App = {
   loggedUser: "bruno",
   quickTxType: "EXPENSE",
   projectionGroupMode: "ACCOUNT",
+  expandedTreeKeys: {},
+  expandedArchiveKeys: {},
   quoteIndex: 0,
   txFilter: {
     search: "",
@@ -55,8 +57,11 @@ window.App = {
   },
 
   upgradeStateToLatest(stateObj) {
-    if (!stateObj || stateObj.version === "1.2.0-oli") return false;
-    stateObj.version = "1.2.0-oli";
+    if (!stateObj || stateObj.version === "1.3.0-oli") return false;
+    stateObj.version = "1.3.0-oli";
+
+    if (!stateObj.settings) stateObj.settings = {};
+    if (!stateObj.settings.cardCustomMeta) stateObj.settings.cardCustomMeta = {};
 
     const individualSubIds = ["sub_lazer_geral", "sub_parceladas", "sub_transporte_app", "sub_jogos", "sub_autocuidado", "sub_analise", "sub_chatgpt", "sub_adobe", "sub_anuidade", "sub_outros"];
     if (Array.isArray(stateObj.subcategories)) {
@@ -65,20 +70,61 @@ window.App = {
           s.defaultOwnership = "INDIVIDUAL_BRUNO";
         }
       });
+      if (!stateObj.subcategories.some(s => s.id === "sub_feira_cc")) {
+        stateObj.subcategories.push({
+          id: "sub_feira_cc",
+          categoryId: "cat_alimentacao",
+          name: "Feira (Conta Corrente / Pix)",
+          defaultOwnership: "COLLECTIVE",
+          defaultAccountId: "cc_bruno",
+          defaultMeta: 0.00,
+          isFixed: false,
+          keywords: []
+        });
+      }
     }
+
     if (Array.isArray(stateObj.projections)) {
       stateObj.projections.forEach(p => {
         if (p.id === "proj_lazer" || p.id === "proj_parceladas") {
           p.ownership = "INDIVIDUAL_BRUNO";
         }
       });
+      if (!stateObj.projections.some(p => p.id === "proj_manut_itau")) {
+        stateObj.projections.push({
+          id: "proj_manut_itau",
+          monthYear: "2026-11",
+          subcategoryId: "sub_manut_carro",
+          title: "Manutenção Carro (Itaú)",
+          plannedAmount: 130.40,
+          accountId: "card_itau_bruno",
+          ownership: "COLLECTIVE",
+          isFixed: false,
+          dueDay: 19
+        });
+      }
+      if (!stateObj.projections.some(p => p.id === "proj_outros_itau")) {
+        stateObj.projections.push({
+          id: "proj_outros_itau",
+          monthYear: "2026-11",
+          subcategoryId: "sub_outros",
+          title: "Outros Itaú",
+          plannedAmount: 33.70,
+          accountId: "card_itau_bruno",
+          ownership: "INDIVIDUAL_BRUNO",
+          isFixed: false,
+          dueDay: 19
+        });
+      }
     }
-    if (Array.isArray(stateObj.transactions)) {
-      stateObj.transactions.forEach(t => {
-        if (t.id === "tx_nu_10" || t.id === "tx_nu_14") {
-          t.ownership = "INDIVIDUAL_BRUNO";
-        }
-      });
+
+    // Atualiza as transações iniciais da seed caso ainda estejam no formato antigo para mostrar múltiplos itens na árvore [+]
+    if (Array.isArray(stateObj.transactions) && stateObj.transactions.some(t => t.id === "tx_nu_1")) {
+      const userAddedTxs = stateObj.transactions.filter(t => !t.id.startsWith("tx_rec_") && !t.id.startsWith("tx_cc_") && !t.id.startsWith("tx_nu_") && !t.id.startsWith("tx_it_"));
+      stateObj.transactions = [
+        ...JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA.transactions)),
+        ...userAddedTxs
+      ];
     }
     return true;
   },
@@ -295,7 +341,38 @@ window.App = {
 
     const expenseTxs = filteredTxs.filter(t => t.type === "EXPENSE");
     const totalActualExpenses = expenseTxs.reduce((acc, t) => acc + Number(t.amount), 0);
-    const totalPlannedExpenses = filteredProjs.reduce((acc, p) => acc + Number(p.plannedAmount), 0);
+
+    const byAccount = this.state.accounts
+      .filter(acc => {
+        if (userFilter === "bruno") return acc.ownerId === "bruno";
+        if (userFilter === "nubia") return acc.ownerId === "nubia";
+        return true;
+      })
+      .map(acc => {
+        const accTxs = monthTxs.filter(t => t.type === "EXPENSE" && t.accountId === acc.id);
+        const accProjs = monthProjs.filter(p => p.accountId === acc.id);
+        const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
+        const plannedSum = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+        let planned = plannedSum;
+        let isArbitrated = false;
+        if (acc.type === "CREDIT_CARD") {
+          const metaInfo = this.getCardMetaInfo(monthYear, acc.id);
+          planned = metaInfo.effectiveMeta;
+          isArbitrated = metaInfo.isArbitrated;
+        }
+        return {
+          account: acc,
+          actual,
+          planned,
+          plannedSum,
+          isArbitrated,
+          txCount: accTxs.length
+        };
+      });
+
+    const totalPlannedExpenses = byAccount
+      .filter(item => item.account.type !== "INVESTMENT")
+      .reduce((s, item) => s + Number(item.planned), 0);
 
     const collectiveActual = expenseTxs
       .filter(t => t.ownership === "COLLECTIVE")
@@ -341,26 +418,6 @@ window.App = {
     const brunoFairShare = totalHouseholdCollective * brunoShareRatio;
     const nubiaFairShare = totalHouseholdCollective * nubiaShareRatio;
     const brunoNetCredit = paidByBrunoCollective - brunoFairShare;
-
-    const byAccount = this.state.accounts
-      .filter(acc => {
-        if (userFilter === "bruno") return acc.ownerId === "bruno";
-        if (userFilter === "nubia") return acc.ownerId === "nubia";
-        return true;
-      })
-      .map(acc => {
-        const accTxs = monthTxs.filter(t => t.type === "EXPENSE" && t.accountId === acc.id);
-        const accProjs = monthProjs.filter(p => p.accountId === acc.id);
-        const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
-        const planned = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-        return {
-          account: acc,
-          actual,
-          planned: acc.monthlyTarget > 0 ? acc.monthlyTarget : planned,
-          plannedSum: planned,
-          txCount: accTxs.length
-        };
-      });
 
     return {
       totalIncome,
@@ -748,79 +805,10 @@ window.App = {
       `;
     }
 
-    // 2. Cartões & Contas (filtrados pelo usuário ativo)
-    const accContainer = document.getElementById("dashboard-accounts-grid");
-    if (accContainer) {
-      const visibleAccounts = summary.byAccount.filter(
-        item => item.actual > 0 || item.planned > 0 || item.account.type !== "INVESTMENT"
-      );
-
-      accContainer.innerHTML = visibleAccounts
-        .map(item => {
-          const acc = item.account;
-          const pct = item.planned > 0 ? Math.round((item.actual / item.planned) * 100) : 0;
-          return `
-            <div class="p-3.5 rounded-xl bg-[#f9faf7] border border-[#e6ece0] hover:border-lime-600/40 transition">
-              <div class="flex items-center justify-between mb-1.5">
-                <div class="flex items-center gap-2">
-                  <span class="w-2.5 h-2.5 rounded-full" style="background:${acc.color}"></span>
-                  <span class="font-bold text-xs text-stone-800">${acc.name}</span>
-                </div>
-                ${acc.dueDay ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-stone-200/70 text-stone-600 font-semibold">Dia ${acc.dueDay}</span>` : ""}
-              </div>
-              <div class="flex items-baseline justify-between">
-                <span class="text-base font-extrabold text-stone-900">${this.formatBRL(item.actual)}</span>
-                <span class="text-[11px] text-stone-500">Meta: ${this.formatBRL(item.planned)}</span>
-              </div>
-              <div class="mt-2 w-full bg-stone-200/70 h-1.5 rounded-full overflow-hidden">
-                <div class="h-full ${pct > 100 ? "bg-rose-500" : "bg-lime-600"}" style="width:${Math.min(pct, 100)}%"></div>
-              </div>
-            </div>
-          `;
-        })
-        .join("");
-    }
-
-    // 3. Últimos 6 Lançamentos na Home
-    const recentContainer = document.getElementById("home-recent-transactions");
-    if (recentContainer) {
-      const recentTxs = [...summary.filteredTxs]
-        .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate))
-        .slice(0, 6);
-
-      if (recentTxs.length === 0) {
-        recentContainer.innerHTML = `
-          <div class="py-8 text-center text-xs text-stone-400">
-            Nenhum lançamento registrado neste filtro ainda. Use o campo acima para lançar!
-          </div>
-        `;
-      } else {
-        recentContainer.innerHTML = recentTxs
-          .map(tx => {
-            const sub = this.getSubcategory(tx.subcategoryId);
-            const acc = this.getAccount(tx.accountId);
-            return `
-              <div class="py-2.5 flex items-center justify-between gap-3 text-xs">
-                <div class="flex items-center gap-3 min-w-0">
-                  <span class="text-[11px] font-bold text-stone-400 w-10 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
-                  <div class="truncate">
-                    <div class="font-bold text-stone-800 truncate">${tx.description}</div>
-                    <div class="text-[11px] text-stone-400">${sub.name} • ${acc.name}</div>
-                  </div>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <span class="font-extrabold ${tx.type === "INCOME" ? "text-lime-700" : "text-stone-900"}">
-                    ${tx.type === "INCOME" ? "+" : "-"}${this.formatBRL(tx.amount)}
-                  </span>
-                  <button onclick="App.deleteTransaction('${tx.id}')" class="p-1 text-stone-300 hover:text-rose-600 transition" title="Excluir">
-                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                  </button>
-                </div>
-              </div>
-            `;
-          })
-          .join("");
-      }
+    // 2. Renderiza a Estrutura de Metas & Gastos (Conta Corrente + Cartões por Categoria com Árvore [+]) na Home
+    const homeTreeContainer = document.getElementById("home-structured-budget-container");
+    if (homeTreeContainer) {
+      homeTreeContainer.innerHTML = this.buildStructuredBudgetHTML(monthYear);
     }
   },
 
@@ -986,207 +974,782 @@ window.App = {
   },
 
   // ==========================================================================
-  // ABA 2: METAS (PREVISTO VS. REALIZADO)
+  // ESTRUTURA DE METAS & GASTOS EM ÁRVORE [+]:
+  // 1) CONTA CORRENTE (CARTÕES + CONTAS DÉBITO)
+  // 2) CARTÕES DE CRÉDITO SEPARADOS POR CARTÃO E CATEGORIA (COM ARQUIVAMENTO AUTOMÁTICO)
   // ==========================================================================
-  setProjectionGroupMode(mode) {
-    this.projectionGroupMode = mode;
+  getCardMetaInfo(monthYear, cardAccountId) {
+    const monthProjs = this.state.projections.filter(
+      p => p.monthYear === monthYear && p.accountId === cardAccountId
+    );
+    const categoriesSum = monthProjs.reduce((s, p) => s + Number(p.plannedAmount || 0), 0);
+    const customMap = (this.state.settings && this.state.settings.cardCustomMeta) || {};
+    const key = `${monthYear}__${cardAccountId}`;
+    const customVal = customMap[key];
+    const isArbitrated = typeof customVal === "number" && customVal > 0;
+    return {
+      categoriesSum,
+      customVal: isArbitrated ? customVal : null,
+      effectiveMeta: isArbitrated ? customVal : categoriesSum,
+      isArbitrated
+    };
+  },
+
+  promptCardCustomMeta(cardAccountId) {
+    const monthYear = this.state.settings.activeMonth;
+    const acc = this.getAccount(cardAccountId);
+    const info = this.getCardMetaInfo(monthYear, cardAccountId);
+    const currentInput = info.isArbitrated ? String(info.customVal) : "";
+    const msg =
+      `Meta da fatura "${acc.name}" (${this.getMonthLabel(monthYear)}):\n\n` +
+      `• Soma automática das categorias do cartão: ${this.formatBRL(info.categoriesSum)}\n\n` +
+      `Digite um valor se quiser arbitrar um teto manual (ex: 10000), ou deixe em branco / 0 para usar a soma automática das categorias:`;
+
+    const raw = prompt(msg, currentInput);
+    if (raw === null) return;
+
+    if (!this.state.settings.cardCustomMeta) {
+      this.state.settings.cardCustomMeta = {};
+    }
+    const key = `${monthYear}__${cardAccountId}`;
+    const cleaned = raw.replace(",", ".").trim();
+    const val = parseFloat(cleaned);
+
+    if (!cleaned || isNaN(val) || val <= 0) {
+      delete this.state.settings.cardCustomMeta[key];
+      this.saveState(true);
+      this.renderAll();
+      this.showToast(`🫒 Meta de "${acc.name}" voltou para a soma automática (${this.formatBRL(info.categoriesSum)})!`, "info");
+    } else {
+      this.state.settings.cardCustomMeta[key] = val;
+      this.saveState(true);
+      this.renderAll();
+      this.showToast(`🫒 Meta de "${acc.name}" arbitrada em ${this.formatBRL(val)}!`, "success");
+    }
+  },
+
+  resetCardCustomMeta(cardAccountId) {
+    const monthYear = this.state.settings.activeMonth;
+    const acc = this.getAccount(cardAccountId);
+    if (this.state.settings && this.state.settings.cardCustomMeta) {
+      delete this.state.settings.cardCustomMeta[`${monthYear}__${cardAccountId}`];
+    }
+    this.saveState(true);
+    this.renderAll();
+    const info = this.getCardMetaInfo(monthYear, cardAccountId);
+    this.showToast(`🫒 Meta de "${acc.name}" usando soma automática (${this.formatBRL(info.categoriesSum)})!`, "info");
+  },
+
+  toggleTreeRow(treeKey) {
+    this.expandedTreeKeys[treeKey] = !this.expandedTreeKeys[treeKey];
     this.renderAll();
   },
 
-  renderProjectionsTab(summary, monthYear) {
-    const container = document.getElementById("projections-groups-container");
-    if (!container) return;
+  expandAllTrees(expand = true, accountPrefix = null) {
+    const monthYear = this.state.settings.activeMonth;
+    this.state.accounts.forEach(acc => {
+      if (accountPrefix && acc.id !== accountPrefix) return;
+      this.state.subcategories.forEach(sub => {
+        const key = `${acc.id}__${sub.id}`;
+        if (expand) {
+          const hasTx = this.state.transactions.some(
+            t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === acc.id && t.subcategoryId === sub.id
+          );
+          if (hasTx) this.expandedTreeKeys[key] = true;
+        } else {
+          delete this.expandedTreeKeys[key];
+        }
+      });
+    });
+    this.renderAll();
+  },
 
-    const btnAcc = document.getElementById("btn-proj-group-account");
-    const btnCat = document.getElementById("btn-proj-group-category");
-    if (btnAcc && btnCat) {
-      btnAcc.className = `px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-        this.projectionGroupMode === "ACCOUNT" ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:text-stone-900"
-      }`;
-      btnCat.className = `px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-        this.projectionGroupMode === "CATEGORY" ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:text-stone-900"
-      }`;
+  toggleArchiveDrawer(drawerKey) {
+    this.expandedArchiveKeys[drawerKey] = !this.expandedArchiveKeys[drawerKey];
+    this.renderAll();
+  },
+
+  setCategoryMeta(accountId, subcategoryId, rawValue) {
+    const monthYear = this.state.settings.activeMonth;
+    const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
+    const sub = this.getSubcategory(subcategoryId);
+    const acc = this.getAccount(accountId);
+
+    const existingProjs = this.state.projections.filter(
+      p => p.monthYear === monthYear && p.accountId === accountId && p.subcategoryId === subcategoryId
+    );
+
+    if (existingProjs.length > 0) {
+      existingProjs[0].plannedAmount = val;
+      for (let i = 1; i < existingProjs.length; i++) {
+        existingProjs[i].plannedAmount = 0;
+      }
+    } else if (val > 0) {
+      this.state.projections.push({
+        id: "proj_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+        monthYear,
+        subcategoryId,
+        title: sub.name,
+        plannedAmount: val,
+        accountId,
+        ownership: this.resolveDefaultOwnership(subcategoryId, acc.ownerId),
+        isFixed: Boolean(sub.isFixed),
+        dueDay: acc.dueDay || 10
+      });
     }
 
-    const monthProjs = this.state.projections.filter(p => {
-      if (p.monthYear !== monthYear) return false;
-      if (this.activeUserFilter === "ALL") return true;
-      const acc = this.getAccount(p.accountId);
-      if (this.activeUserFilter === "bruno") {
-        return acc.ownerId === "bruno" || p.ownership === "INDIVIDUAL_BRUNO";
-      }
-      if (this.activeUserFilter === "nubia") {
-        return acc.ownerId === "nubia" || p.ownership === "INDIVIDUAL_NUBIA";
-      }
+    this.saveState(true);
+    this.renderAll();
+    if (val === 0) {
+      this.showToast(`🫒 Meta de "${sub.name}" zerada (se não houver gastos, será arquivada).`, "info");
+    } else {
+      this.showToast(`🫒 Meta de "${sub.name}" atualizada para ${this.formatBRL(val)}!`, "success");
+    }
+  },
+
+  promptActivateArchivedCategory(accountId, subcategoryId) {
+    const sub = this.getSubcategory(subcategoryId);
+    const acc = this.getAccount(accountId);
+    const defaultVal = sub.defaultMeta > 0 ? String(sub.defaultMeta) : "100";
+    const raw = prompt(`Definir meta mensal para "${sub.name}" em ${acc.name} (R$):`, defaultVal);
+    if (raw === null) return;
+    const val = parseFloat(raw.replace(",", "."));
+    if (isNaN(val) || val <= 0) {
+      this.showToast("Informe um valor maior que zero para desarquivar a categoria.", "error");
+      return;
+    }
+    this.setCategoryMeta(accountId, subcategoryId, val);
+  },
+
+  quickLaunchInCategory(accountId, subcategoryId) {
+    const sub = this.getSubcategory(subcategoryId);
+    const accSelect = document.getElementById("quick-tx-account");
+    const subSelect = document.getElementById("quick-tx-subcategory");
+    const descInput = document.getElementById("quick-tx-desc");
+    const amountInput = document.getElementById("quick-tx-amount");
+
+    if (this.currentTab !== "dashboard") {
+      this.openTransactionModal({
+        type: "EXPENSE",
+        description: sub.name,
+        amount: "",
+        accountId,
+        subcategoryId,
+        ownership: this.resolveDefaultOwnership(subcategoryId, this.getAccount(accountId).ownerId)
+      });
+      return;
+    }
+
+    if (accSelect) accSelect.value = accountId;
+    if (subSelect) subSelect.value = subcategoryId;
+    this.onQuickSubcategoryChange(subcategoryId);
+    if (descInput && !descInput.value) descInput.value = sub.name.split("(")[0].trim();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => {
+      if (amountInput) amountInput.focus();
+    }, 250);
+  },
+
+  getSpreadsheetCellColor(actual, meta) {
+    if (meta <= 0 && actual > 0) {
+      return {
+        actualClass: "bg-amber-50/90 text-amber-900 border border-amber-200/80",
+        metaClass: "bg-stone-50 text-stone-500 border border-stone-200/70"
+      };
+    }
+    if (actual > meta && meta > 0) {
+      return {
+        actualClass: "bg-rose-50/90 text-rose-800 border border-rose-200/80",
+        metaClass: "bg-rose-100/70 text-rose-900 border border-rose-200"
+      };
+    }
+    if (Math.abs(actual - meta) < 0.05 && meta > 0) {
+      return {
+        actualClass: "bg-amber-50/90 text-amber-900 border border-amber-200/80",
+        metaClass: "bg-amber-50/90 text-amber-900 border border-amber-200/80"
+      };
+    }
+    return {
+      actualClass: "bg-emerald-50/90 text-emerald-900 border border-emerald-200/80",
+      metaClass: "bg-emerald-50/70 text-emerald-800 border border-emerald-200/70"
+    };
+  },
+
+  buildCategoryTreeRowsHTML(accountId, items, monthYear) {
+    if (items.length === 0) {
+      return `
+        <tr>
+          <td colspan="4" class="py-6 px-4 text-center text-xs text-stone-400">
+            Nenhuma categoria com meta ou lançamento ativo neste bloco.
+          </td>
+        </tr>
+      `;
+    }
+
+    return items
+      .map(item => {
+        const treeKey = `${accountId}__${item.sub.id}`;
+        const isExpanded = Boolean(this.expandedTreeKeys[treeKey]);
+        const txCount = item.txs.length;
+        const colors = this.getSpreadsheetCellColor(item.actual, item.meta);
+        const diff = item.meta - item.actual;
+
+        const treeChildrenHTML = isExpanded
+          ? `
+            <tr class="bg-[#f8faf5] border-b border-stone-200/70">
+              <td colspan="4" class="px-4 sm:px-6 py-3">
+                <div class="pl-3 sm:pl-5 border-l-2 border-lime-600/40 space-y-1.5">
+                  <div class="flex items-center justify-between text-[11px] font-bold text-stone-500 pb-1 border-b border-stone-200/60">
+                    <span>Árvore de Lançamentos • ${item.sub.name} (${txCount})</span>
+                    <button
+                      type="button"
+                      onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
+                      class="text-lime-800 hover:text-lime-950 bg-lime-100 hover:bg-lime-200/80 px-2.5 py-0.5 rounded-lg font-bold transition"
+                    >
+                      + Novo lançamento aqui
+                    </button>
+                  </div>
+                  ${
+                    txCount === 0
+                      ? `<div class="py-2 text-xs text-stone-400 italic">└─ Nenhum lançamento registrado ainda nesta categoria no mês (Meta: ${this.formatBRL(item.meta)}).</div>`
+                      : item.txs
+                          .map((tx, idx) => {
+                            const branchChar = idx === txCount - 1 ? "└─" : "├─";
+                            const instTag = tx.installmentTotal > 1
+                              ? `<span class="px-1.5 py-0.5 rounded bg-stone-200/80 text-stone-700 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
+                              : "";
+                            return `
+                              <div class="flex items-center justify-between gap-2 py-1 text-xs hover:bg-white/80 rounded-lg px-2 transition">
+                                <div class="flex items-center gap-2 min-w-0">
+                                  <span class="font-mono text-lime-700 font-bold select-none">${branchChar}</span>
+                                  <span class="text-[11px] text-stone-400 font-semibold w-11 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
+                                  <span class="font-semibold text-stone-800 truncate">${tx.description}</span>
+                                  ${instTag}
+                                  ${this.getOwnershipBadge(tx.ownership)}
+                                </div>
+                                <div class="flex items-center gap-2 shrink-0">
+                                  <span class="font-extrabold text-stone-900">${this.formatBRL(tx.amount)}</span>
+                                  <button
+                                    type="button"
+                                    onclick="App.deleteTransaction('${tx.id}')"
+                                    class="p-1 text-stone-300 hover:text-rose-600 transition"
+                                    title="Excluir lançamento"
+                                  >
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                  </button>
+                                </div>
+                              </div>
+                            `;
+                          })
+                          .join("")
+                  }
+                </div>
+              </td>
+            </tr>
+          `
+          : "";
+
+        return `
+          <tr class="border-b border-stone-100 hover:bg-stone-50/90 transition group">
+            <td class="py-2.5 px-3 sm:px-4">
+              <div class="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onclick="App.toggleTreeRow('${treeKey}')"
+                  class="w-6 h-6 rounded-lg flex items-center justify-center font-extrabold text-xs border transition shrink-0 ${
+                    isExpanded
+                      ? "bg-lime-700 text-white border-lime-700 shadow-2xs"
+                      : "bg-white hover:bg-lime-50 text-stone-700 border-stone-300"
+                  }"
+                  title="${isExpanded ? "Recolher lançamentos" : "Abrir árvore com cada lançamento"}"
+                >
+                  ${isExpanded ? "&minus;" : "+"}
+                </button>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onclick="App.toggleTreeRow('${treeKey}')"
+                      class="font-bold text-stone-800 hover:text-lime-800 text-xs sm:text-sm text-left transition"
+                    >
+                      ${item.sub.name}
+                    </button>
+                    ${this.getOwnershipBadge(item.ownership)}
+                    ${
+                      txCount > 0
+                        ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-500">${txCount} ${txCount === 1 ? "item" : "itens"}</span>`
+                        : `<span class="text-[10px] font-medium text-stone-400">0 itens</span>`
+                    }
+                  </div>
+                </div>
+              </div>
+            </td>
+
+            <!-- Coluna REALIZADO (Estilo Planilha) -->
+            <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
+              <div class="inline-block w-full px-2.5 py-1.5 rounded-lg font-extrabold text-xs sm:text-sm text-right ${colors.actualClass}">
+                ${this.formatBRL(item.actual)}
+              </div>
+            </td>
+
+            <!-- Coluna META (Editável direto na célula) -->
+            <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
+              <div class="relative flex items-center justify-end">
+                <input
+                  type="number"
+                  step="0.01"
+                  value="${Number(item.meta).toFixed(2)}"
+                  onchange="App.setCategoryMeta('${accountId}', '${item.sub.id}', this.value)"
+                  title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
+                  class="w-full rounded-lg px-2.5 py-1.5 text-right font-extrabold text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
+                />
+              </div>
+            </td>
+
+            <!-- Coluna SALDO / AÇÃO RÁPIDA -->
+            <td class="py-2.5 px-3 sm:px-4 text-right whitespace-nowrap w-24 sm:w-32">
+              <div class="flex items-center justify-end gap-1.5">
+                <span class="text-xs font-bold ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+                  ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
+                </span>
+                <button
+                  type="button"
+                  onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
+                  class="opacity-70 group-hover:opacity-100 p-1 rounded-lg hover:bg-lime-100 text-lime-800 transition"
+                  title="Adicionar lançamento nesta categoria"
+                >
+                  <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          ${treeChildrenHTML}
+        `;
+      })
+      .join("");
+  },
+
+  buildArchiveDrawerHTML(drawerKey, accountId, archivedSubs) {
+    if (!archivedSubs || archivedSubs.length === 0) return "";
+    const isOpen = Boolean(this.expandedArchiveKeys[drawerKey]);
+
+    return `
+      <div class="border-t border-stone-200/70 bg-stone-50/70 px-4 py-2.5">
+        <button
+          type="button"
+          onclick="App.toggleArchiveDrawer('${drawerKey}')"
+          class="w-full flex items-center justify-between text-xs text-stone-500 hover:text-stone-800 font-semibold transition"
+        >
+          <span class="flex items-center gap-2">
+            <i data-lucide="archive" class="w-3.5 h-3.5 text-stone-400"></i>
+            <span>Categorias Arquivadas sem meta e sem lançamento (${archivedSubs.length})</span>
+          </span>
+          <span class="font-bold text-lime-700">${isOpen ? "Ocultar [-]" : "Ver arquivadas [+]"}</span>
+        </button>
+        ${
+          isOpen
+            ? `
+              <div class="mt-3 pt-2.5 border-t border-stone-200/60 flex flex-wrap gap-2">
+                ${archivedSubs
+                  .map(
+                    sub => `
+                      <div class="inline-flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs text-stone-600 shadow-2xs">
+                        <span class="font-semibold text-stone-700">${sub.name}</span>
+                        <span class="text-[10px] text-stone-400">(0,00 / 0,00)</span>
+                        <button
+                          type="button"
+                          onclick="App.promptActivateArchivedCategory('${accountId}', '${sub.id}')"
+                          class="ml-1 px-2 py-0.5 rounded-lg bg-lime-50 hover:bg-lime-100 text-lime-800 font-bold text-[11px] transition"
+                          title="Definir uma meta para desarquivar"
+                        >
+                          + Meta
+                        </button>
+                        <button
+                          type="button"
+                          onclick="App.quickLaunchInCategory('${accountId}', '${sub.id}')"
+                          class="px-1.5 py-0.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-[11px] transition"
+                          title="Fazer um lançamento nesta categoria"
+                        >
+                          + Lançar
+                        </button>
+                      </div>
+                    `
+                  )
+                  .join("")}
+              </div>
+            `
+            : ""
+        }
+      </div>
+    `;
+  },
+
+  buildStructuredBudgetHTML(monthYear) {
+    const userFilter = this.activeUserFilter;
+    const userLabel = userFilter === "bruno" ? "BRUNO" : userFilter === "nubia" ? "NÚBIA" : "CASAL (BRUNO & NÚBIA)";
+
+    const monthTxs = this.state.transactions.filter(
+      t => t.competenceMonth === monthYear && t.type === "EXPENSE"
+    );
+    const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
+
+    // Filtra contas correntes e cartões do usuário ativo
+    const checkingAccounts = this.state.accounts.filter(acc => {
+      if (acc.type !== "CHECKING") return false;
+      if (userFilter === "bruno") return acc.ownerId === "bruno";
+      if (userFilter === "nubia") return acc.ownerId === "nubia";
       return true;
     });
 
-    const monthTxs = this.state.transactions.filter(t => t.competenceMonth === monthYear && t.type === "EXPENSE");
+    const creditCards = this.state.accounts.filter(acc => {
+      if (acc.type !== "CREDIT_CARD") return false;
+      if (userFilter === "bruno") return acc.ownerId === "bruno";
+      if (userFilter === "nubia") return acc.ownerId === "nubia";
+      return true;
+    });
 
-    const enrichedProjs = monthProjs.map(proj => {
-      const linkedTxs = monthTxs.filter(t => {
-        if (t.projectionId) return t.projectionId === proj.id;
-        return t.subcategoryId === proj.subcategoryId && (!proj.accountId || t.accountId === proj.accountId);
-      });
-      const actualAmount = linkedTxs.reduce((s, t) => s + Number(t.amount), 0);
-      const diff = Number(proj.plannedAmount) - actualAmount;
-      const pct = proj.plannedAmount > 0 ? Math.round((actualAmount / proj.plannedAmount) * 100) : (actualAmount > 0 ? 100 : 0);
+    const primaryCheckingId = checkingAccounts[0] ? checkingAccounts[0].id : "cc_bruno";
+    const checkingIds = checkingAccounts.map(a => a.id);
 
+    // 1A. Resumo dos Cartões de Crédito no topo (Bloco CONTA CORRENTE)
+    const cardSummaryRows = creditCards.map(card => {
+      const cardTxs = monthTxs.filter(t => t.accountId === card.id);
+      const actual = cardTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const metaInfo = this.getCardMetaInfo(monthYear, card.id);
       return {
-        ...proj,
-        actualAmount,
-        diff,
-        pct,
-        linkedTxs,
-        sub: this.getSubcategory(proj.subcategoryId),
-        acc: this.getAccount(proj.accountId)
+        card,
+        actual,
+        meta: metaInfo.effectiveMeta,
+        categoriesSum: metaInfo.categoriesSum,
+        isArbitrated: metaInfo.isArbitrated
       };
     });
 
-    let groups = [];
-    if (this.projectionGroupMode === "ACCOUNT") {
-      for (const acc of this.state.accounts) {
-        const items = enrichedProjs.filter(p => p.accountId === acc.id);
-        if (items.length > 0) {
-          groups.push({
-            id: acc.id,
-            title: acc.name,
-            subtitle: acc.dueDay ? `Vencimento Dia ${acc.dueDay}` : "Débito em Conta / PIX",
-            color: acc.color,
-            items
-          });
-        }
+    const totalCardsActual = cardSummaryRows.reduce((s, r) => s + r.actual, 0);
+    const totalCardsMeta = cardSummaryRows.reduce((s, r) => s + r.meta, 0);
+
+    // 1B. Categorias da Conta Corrente (Débito / Pix)
+    const expenseSubcategories = this.state.subcategories.filter(s => {
+      const cat = this.getCategory(s.categoryId);
+      return cat && cat.type === "EXPENSE";
+    });
+
+    const activeCheckingItems = [];
+    const archivedCheckingSubs = [];
+
+    expenseSubcategories.forEach(sub => {
+      const subTxs = monthTxs.filter(t => checkingIds.includes(t.accountId) && t.subcategoryId === sub.id);
+      const subProjs = monthProjs.filter(p => checkingIds.includes(p.accountId) && p.subcategoryId === sub.id);
+      const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+
+      if (actual > 0 || meta > 0) {
+        const targetAccId = (subProjs[0] && subProjs[0].accountId) || (subTxs[0] && subTxs[0].accountId) || primaryCheckingId;
+        const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id);
+        activeCheckingItems.push({
+          sub,
+          accountId: targetAccId,
+          actual,
+          meta,
+          txs: subTxs,
+          ownership
+        });
+      } else if (checkingIds.includes(sub.defaultAccountId)) {
+        archivedCheckingSubs.push(sub);
       }
-    } else {
-      for (const cat of this.state.categories.filter(c => c.type === "EXPENSE")) {
-        const items = enrichedProjs.filter(p => p.sub.categoryId === cat.id);
-        if (items.length > 0) {
-          groups.push({
-            id: cat.id,
-            title: cat.name,
-            subtitle: `${items.length} item(ns) planejado(s)`,
-            color: cat.color,
-            items
-          });
-        }
-      }
-    }
+    });
 
-    let html = groups
-      .map(g => {
-        const groupPlanned = g.items.reduce((s, i) => s + Number(i.plannedAmount), 0);
-        const groupActual = g.items.reduce((s, i) => s + Number(i.actualAmount), 0);
-        const groupDiff = groupPlanned - groupActual;
+    const totalCheckingDebitActual = activeCheckingItems.reduce((s, i) => s + i.actual, 0);
+    const totalCheckingDebitMeta = activeCheckingItems.reduce((s, i) => s + i.meta, 0);
 
-        const rowsHtml = g.items
-          .map(item => {
-            let statusBadge = "";
-            if (item.actualAmount === 0 && item.plannedAmount > 0) {
-              statusBadge = `<span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-stone-100 text-stone-500">Pendente</span>`;
-            } else if (item.actualAmount > item.plannedAmount && item.plannedAmount > 0) {
-              statusBadge = `<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700">Acima (+${this.formatBRL(Math.abs(item.diff))})</span>`;
-            } else if (item.isFixed && item.actualAmount > 0) {
-              statusBadge = `<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-lime-100 text-lime-800">Liquidado</span>`;
-            } else {
-              statusBadge = `<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-lime-50 text-lime-800">${item.pct}% da meta</span>`;
-            }
+    const grandTotalCheckingActual = totalCardsActual + totalCheckingDebitActual;
+    const grandTotalCheckingMeta = totalCardsMeta + totalCheckingDebitMeta;
+    const grandTotalDiff = grandTotalCheckingMeta - grandTotalCheckingActual;
 
-            const barColor = item.actualAmount > item.plannedAmount && item.plannedAmount > 0
-              ? "bg-rose-500"
-              : item.pct >= 85
-              ? "bg-amber-500"
-              : "bg-lime-600";
+    // Render das linhas de Cartão no Bloco CONTA CORRENTE
+    const cardsInCheckingHTML = cardSummaryRows
+      .map(row => {
+        const colors = this.getSpreadsheetCellColor(row.actual, row.meta);
+        const diff = row.meta - row.actual;
+        return `
+          <tr class="border-b border-stone-200/70 hover:bg-stone-50 transition">
+            <td class="py-2.5 px-3 sm:px-4">
+              <div class="flex items-center justify-between gap-2">
+                <a
+                  href="#card-block-${row.card.id}"
+                  class="font-extrabold text-stone-900 hover:text-lime-800 text-xs sm:text-sm uppercase tracking-tight flex items-center gap-2"
+                >
+                  <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${row.card.color}"></span>
+                  <span>${row.card.name.replace(" (Dia 8)", "").replace(" (Dia 19)", "")}</span>
+                  <span class="text-[10px] font-semibold text-stone-400 normal-case">(ver categorias &darr;)</span>
+                </a>
+                ${
+                  row.isArbitrated
+                    ? `
+                      <div class="flex items-center gap-1">
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold" title="Soma das categorias: ${this.formatBRL(row.categoriesSum)}">
+                          Arbitrado (Σ ${this.formatBRL(row.categoriesSum)})
+                        </span>
+                        <button
+                          type="button"
+                          onclick="App.resetCardCustomMeta('${row.card.id}')"
+                          class="text-[10px] px-1.5 py-0.5 rounded bg-stone-200 hover:bg-stone-300 text-stone-700 font-bold transition"
+                          title="Voltar para a soma automática das categorias do cartão"
+                        >
+                          ↺ Auto
+                        </button>
+                      </div>
+                    `
+                    : `
+                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 font-semibold">
+                        Σ categorias
+                      </span>
+                    `
+                }
+              </div>
+            </td>
+            <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
+              <div class="inline-block w-full px-2.5 py-1.5 rounded-lg font-extrabold text-xs sm:text-sm text-right ${colors.actualClass}">
+                ${this.formatBRL(row.actual)}
+              </div>
+            </td>
+            <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
+              <button
+                type="button"
+                onclick="App.promptCardCustomMeta('${row.card.id}')"
+                title="Clique para arbitrar um valor fixo para o cartão ou usar a soma automática das categorias"
+                class="w-full px-2.5 py-1.5 rounded-lg font-extrabold text-xs sm:text-sm text-right flex items-center justify-between gap-1 hover:ring-2 hover:ring-lime-600 transition ${colors.metaClass}"
+              >
+                <i data-lucide="pencil" class="w-3 h-3 opacity-50 shrink-0"></i>
+                <span>${this.formatBRL(row.meta)}</span>
+              </button>
+            </td>
+            <td class="py-2.5 px-3 sm:px-4 text-right whitespace-nowrap w-24 sm:w-32">
+              <span class="text-xs font-bold ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+                ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
+              </span>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
 
-            return `
-              <tr class="border-b border-stone-100 hover:bg-stone-50/80 transition">
-                <td class="py-3 px-4">
-                  <div class="font-bold text-stone-800 text-xs sm:text-sm">${item.title}</div>
-                  <div class="flex items-center gap-2 mt-0.5">
-                    <span class="text-[11px] text-stone-400">${item.sub.name}</span>
-                    ${this.getOwnershipBadge(item.ownership)}
-                  </div>
-                </td>
-                <td class="py-3 px-4 text-right font-extrabold text-stone-900 text-xs sm:text-sm">
-                  ${this.formatBRL(item.actualAmount)}
-                </td>
-                <td class="py-3 px-4 text-right">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value="${Number(item.plannedAmount).toFixed(2)}"
-                    onchange="App.updateProjectionAmount('${item.id}', this.value)"
-                    class="w-24 oli-input rounded-lg px-2 py-1 text-right text-xs font-bold"
-                  />
-                </td>
-                <td class="py-3 px-4 text-right font-bold text-xs ${item.diff >= 0 ? "text-lime-700" : "text-rose-600"}">
-                  ${item.diff >= 0 ? "+" : ""}${this.formatBRL(item.diff)}
-                </td>
-                <td class="py-3 px-4 w-40">
-                  <div class="mb-1">${statusBadge}</div>
-                  <div class="w-full bg-stone-100 h-1.5 rounded-full overflow-hidden">
-                    <div class="h-full ${barColor}" style="width: ${Math.min(item.pct, 100)}%"></div>
-                  </div>
-                </td>
-                <td class="py-3 px-4 text-right">
-                  <div class="inline-flex items-center gap-1">
-                    <button
-                      onclick="App.openQuickSettleModal('${item.id}')"
-                      class="px-2.5 py-1 rounded-lg bg-lime-700/10 hover:bg-lime-700 text-lime-800 hover:text-white text-xs font-bold transition"
-                    >
-                      Conciliar
-                    </button>
-                    <button
-                      onclick="App.deleteProjection('${item.id}')"
-                      class="p-1 text-stone-300 hover:text-rose-600 transition"
-                    >
-                      <i data-lucide="trash-2" class="w-4 h-4"></i>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          })
-          .join("");
+    // 2. Blocos de Cartão de Crédito Separados por Cartão (com árvore [+] por categoria)
+    const creditCardsBlocksHTML = creditCards
+      .map(card => {
+        const cardTxs = monthTxs.filter(t => t.accountId === card.id);
+        const cardProjs = monthProjs.filter(p => p.accountId === card.id);
+        const metaInfo = this.getCardMetaInfo(monthYear, card.id);
+        const cardActual = cardTxs.reduce((s, t) => s + Number(t.amount), 0);
+
+        const activeCardItems = [];
+        const archivedCardSubs = [];
+
+        expenseSubcategories.forEach(sub => {
+          const subTxs = cardTxs.filter(t => t.subcategoryId === sub.id);
+          const subProjs = cardProjs.filter(p => p.subcategoryId === sub.id);
+          const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
+          const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+
+          if (actual > 0 || meta > 0) {
+            const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id, card.ownerId);
+            activeCardItems.push({
+              sub,
+              accountId: card.id,
+              actual,
+              meta,
+              txs: subTxs,
+              ownership
+            });
+          } else if (sub.defaultAccountId === card.id) {
+            archivedCardSubs.push(sub);
+          }
+        });
+
+        const cardDiff = metaInfo.effectiveMeta - cardActual;
 
         return `
-          <div class="oli-card rounded-2xl overflow-hidden mb-5">
-            <div class="px-5 py-3.5 bg-stone-50/90 border-b border-stone-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div class="flex items-center gap-2.5">
-                <span class="w-3 h-3 rounded-full" style="background:${g.color}"></span>
+          <div id="card-block-${card.id}" class="oli-card rounded-3xl overflow-hidden shadow-xs">
+            <!-- Cabeçalho do Cartão -->
+            <div class="px-5 py-4 bg-stone-50/90 border-b border-stone-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <span class="w-3.5 h-3.5 rounded-full shrink-0" style="background:${card.color}"></span>
                 <div>
-                  <h3 class="font-extrabold text-stone-900 text-sm">${g.title}</h3>
-                  <p class="text-[11px] text-stone-500">${g.subtitle}</p>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">${card.name}</h3>
+                    ${card.dueDay ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-stone-200/75 text-stone-700 font-bold">Vence dia ${card.dueDay}</span>` : ""}
+                  </div>
+                  <p class="text-xs text-stone-500 mt-0.5">
+                    Clique em <strong>[+]</strong> para abrir os lançamentos de cada categoria ou edite a <strong>Meta</strong> diretamente.
+                  </p>
                 </div>
               </div>
-              <div class="flex items-center gap-4 text-xs">
-                <span>Realizado: <strong class="text-stone-900">${this.formatBRL(groupActual)}</strong></span>
-                <span>Previsto: <strong class="text-stone-700">${this.formatBRL(groupPlanned)}</strong></span>
-                <span>Saldo: <strong class="${groupDiff >= 0 ? "text-lime-700" : "text-rose-600"}">${this.formatBRL(groupDiff)}</strong></span>
+
+              <div class="flex flex-wrap items-center gap-2 self-start sm:self-center">
+                <button
+                  type="button"
+                  onclick="App.expandAllTrees(true, '${card.id}')"
+                  class="px-2.5 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 text-[11px] font-bold transition"
+                >
+                  Expandir [+]
+                </button>
+                <button
+                  type="button"
+                  onclick="App.expandAllTrees(false, '${card.id}')"
+                  class="px-2.5 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 text-[11px] font-bold transition"
+                >
+                  Recolher [-]
+                </button>
+                <button
+                  type="button"
+                  onclick="App.promptCardCustomMeta('${card.id}')"
+                  class="px-2.5 py-1 rounded-lg bg-lime-700/10 hover:bg-lime-700/20 text-lime-900 text-[11px] font-bold transition"
+                >
+                  ${metaInfo.isArbitrated ? `Meta Arbitrada: ${this.formatBRL(metaInfo.effectiveMeta)}` : "Arbitrar Teto do Cartão"}
+                </button>
               </div>
             </div>
+
+            <!-- Tabela de Categorias Ativas do Cartão -->
             <div class="overflow-x-auto">
               <table class="w-full text-left border-collapse">
                 <thead>
-                  <tr class="border-b border-stone-200/70 text-[11px] font-bold uppercase text-stone-400">
-                    <th class="py-2.5 px-4">Item Planejado</th>
-                    <th class="py-2.5 px-4 text-right">Realizado</th>
-                    <th class="py-2.5 px-4 text-right">Meta Prevista</th>
-                    <th class="py-2.5 px-4 text-right">Diferença</th>
-                    <th class="py-2.5 px-4">Status</th>
-                    <th class="py-2.5 px-4 text-right"></th>
+                  <tr class="border-b border-stone-200/80 text-[11px] font-extrabold uppercase text-stone-400 bg-white">
+                    <th class="py-2.5 px-3 sm:px-4">Categoria do Cartão</th>
+                    <th class="py-2.5 px-2 sm:px-3 text-right">Realizado</th>
+                    <th class="py-2.5 px-2 sm:px-3 text-right">Meta</th>
+                    <th class="py-2.5 px-3 sm:px-4 text-right">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${rowsHtml}
+                  ${this.buildCategoryTreeRowsHTML(card.id, activeCardItems, monthYear)}
                 </tbody>
+                <tfoot>
+                  <tr class="bg-emerald-100/70 border-t-2 border-emerald-300/80 font-extrabold text-stone-900 text-xs sm:text-sm">
+                    <td class="py-3 px-3 sm:px-4 uppercase tracking-wide">
+                      TOTAL ${card.name.split("(")[0].trim()}
+                      ${
+                        metaInfo.isArbitrated
+                          ? `<span class="ml-2 text-[11px] font-semibold text-stone-600 normal-case">(Soma das categorias: ${this.formatBRL(metaInfo.categoriesSum)})</span>`
+                          : ""
+                      }
+                    </td>
+                    <td class="py-3 px-2 sm:px-3 text-right">${this.formatBRL(cardActual)}</td>
+                    <td class="py-3 px-2 sm:px-3 text-right">${this.formatBRL(metaInfo.effectiveMeta)}</td>
+                    <td class="py-3 px-3 sm:px-4 text-right ${cardDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
+                      ${cardDiff >= 0 ? "+" : ""}${this.formatBRL(cardDiff)}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
+
+            <!-- Gaveta de Categorias Arquivadas do Cartão -->
+            ${this.buildArchiveDrawerHTML(`archive__${card.id}`, card.id, archivedCardSubs)}
           </div>
         `;
       })
       .join("");
 
-    container.innerHTML = html;
+    // Retorno Completo: Bloco 1 (CONTA CORRENTE) + Bloco 2 (CARTÕES POR CATEGORIA)
+    return `
+      <!-- ================================================================ -->
+      <!-- BLOCO 1: RESUMO GERAL DO QUE SAI DA CONTA CORRENTE (CARTÕES + DÉBITO) -->
+      <!-- ================================================================ -->
+      <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-stone-300/80">
+        <div class="px-5 py-4 bg-stone-100/90 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded-md bg-stone-900 text-white text-[10px] font-extrabold uppercase tracking-wider">1º Bloco</span>
+              <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
+                DESPESAS • ${userLabel} • CONTA CORRENTE
+              </h3>
+            </div>
+            <p class="text-xs text-stone-500 mt-0.5">
+              Dinâmica do mês: pagamento das faturas dos cartões + contas da casa no débito/Pix.
+            </p>
+          </div>
+          <div class="text-xs font-semibold text-stone-600">
+            Saída Total: <strong class="text-stone-900">${this.formatBRL(grandTotalCheckingActual)}</strong>
+            <span class="text-stone-400"> / Meta ${this.formatBRL(grandTotalCheckingMeta)}</span>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-stone-200/80 text-[11px] font-extrabold uppercase text-stone-400 bg-white">
+                <th class="py-2.5 px-3 sm:px-4">Conta Corrente (Faturas + Contas em Débito)</th>
+                <th class="py-2.5 px-2 sm:px-3 text-right">Realizado</th>
+                <th class="py-2.5 px-2 sm:px-3 text-right">Meta</th>
+                <th class="py-2.5 px-3 sm:px-4 text-right">Saldo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- 1A. Faturas dos Cartões -->
+              ${cardsInCheckingHTML}
+
+              <!-- SUBTOTAL CARTÕES (TOTAL CARTÃO) -->
+              <tr class="bg-emerald-100/80 border-b-2 border-emerald-300/80 font-extrabold text-stone-900 text-xs sm:text-sm">
+                <td class="py-2.5 px-3 sm:px-4 uppercase tracking-wide">TOTAL CARTÃO</td>
+                <td class="py-2.5 px-2 sm:px-3 text-right">${this.formatBRL(totalCardsActual)}</td>
+                <td class="py-2.5 px-2 sm:px-3 text-right">${this.formatBRL(totalCardsMeta)}</td>
+                <td class="py-2.5 px-3 sm:px-4 text-right ${(totalCardsMeta - totalCardsActual) >= 0 ? "text-lime-800" : "text-rose-700"}">
+                  ${(totalCardsMeta - totalCardsActual) >= 0 ? "+" : ""}${this.formatBRL(totalCardsMeta - totalCardsActual)}
+                </td>
+              </tr>
+
+              <!-- Divisor sutil para Contas da Casa em Débito -->
+              <tr class="bg-stone-50/90 border-b border-stone-200/70">
+                <td colspan="4" class="py-1.5 px-3 sm:px-4 text-[11px] font-extrabold uppercase tracking-wider text-stone-500">
+                  Contas do Mês em Débito / Pix na Conta Corrente (clique em [+] para abrir os lançamentos)
+                </td>
+              </tr>
+
+              <!-- 1B. Categorias em Débito na Conta Corrente -->
+              ${this.buildCategoryTreeRowsHTML(primaryCheckingId, activeCheckingItems, monthYear)}
+            </tbody>
+            <tfoot>
+              <!-- TOTAL DESPESAS (CONTA CORRENTE) -->
+              <tr class="bg-stone-900 text-white font-extrabold text-xs sm:text-sm">
+                <td class="py-3.5 px-3 sm:px-4 uppercase tracking-wider">TOTAL DESPESAS (Saída Conta Corrente)</td>
+                <td class="py-3.5 px-2 sm:px-3 text-right text-amber-300">${this.formatBRL(grandTotalCheckingActual)}</td>
+                <td class="py-3.5 px-2 sm:px-3 text-right text-stone-200">${this.formatBRL(grandTotalCheckingMeta)}</td>
+                <td class="py-3.5 px-3 sm:px-4 text-right ${grandTotalDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
+                  ${grandTotalDiff >= 0 ? "+" : ""}${this.formatBRL(grandTotalDiff)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- Gaveta de Categorias Arquivadas da Conta Corrente (ex: Análise 0/0, Feira CC 0/0, Creche 0/0) -->
+        ${this.buildArchiveDrawerHTML("archive__checking", primaryCheckingId, archivedCheckingSubs)}
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- BLOCO 2: CARTÕES DE CRÉDITO SEPARADOS POR CARTÃO E CATEGORIA -->
+      <!-- ================================================================ -->
+      <div class="pt-2 space-y-5">
+        <div class="flex items-center justify-between px-1">
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded-md bg-lime-800 text-white text-[10px] font-extrabold uppercase tracking-wider">2º Bloco</span>
+            <h3 class="text-sm sm:text-base font-extrabold text-stone-900 uppercase tracking-tight">
+              Detalhamento dos Cartões de Crédito por Categoria
+            </h3>
+          </div>
+          <span class="text-xs text-stone-500 hidden sm:inline">Clique em <strong>[+]</strong> em qualquer categoria para ver cada compra</span>
+        </div>
+
+        ${creditCardsBlocksHTML}
+      </div>
+    `;
+  },
+
+  renderProjectionsTab(summary, monthYear) {
+    const container = document.getElementById("projections-groups-container");
+    if (!container) return;
+    container.innerHTML = this.buildStructuredBudgetHTML(monthYear);
   },
 
   updateProjectionAmount(projId, newVal) {

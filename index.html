@@ -300,38 +300,19 @@
       <!-- 3 INDICADORES ESSENCIAIS E LIMPOS -->
       <div id="dashboard-kpis" class="grid grid-cols-1 sm:grid-cols-3 gap-4"></div>
 
-      <!-- GRID INFERIOR MINIMALISTA: CARTÕES ATIVOS + ÚLTIMOS LANÇAMENTOS -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <!-- Resumo enxuto de Cartões e Contas do usuário ativo -->
-        <div class="lg:col-span-5 oli-card rounded-2xl p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h3 id="home-accounts-title" class="font-extrabold text-stone-900 text-sm">Meus Cartões & Contas</h3>
-            <button onclick="App.switchTab('projections')" class="text-xs text-lime-700 hover:text-lime-800 font-bold">
-              Ver metas &rarr;
-            </button>
-          </div>
-          <div id="dashboard-accounts-grid" class="space-y-3"></div>
-        </div>
+      <!-- ESTRUTURA PRINCIPAL EM DOIS BLOCOS: 1) CONTA CORRENTE (CARTÕES + CONTAS DÉBITO) E 2) CARTÕES POR CATEGORIA COM ÁRVORE [+] -->
+      <div id="home-structured-budget-container" class="space-y-6"></div>
 
-        <!-- Últimos Lançamentos Recentes -->
-        <div class="lg:col-span-7 oli-card rounded-2xl p-5 flex flex-col justify-between">
-          <div>
-            <div class="flex items-center justify-between mb-4">
-              <h3 id="home-recent-tx-title" class="font-extrabold text-stone-900 text-sm">Últimos Lançamentos</h3>
-              <button onclick="App.switchTab('transactions')" class="text-xs text-lime-700 hover:text-lime-800 font-bold">
-                Ver extrato completo &rarr;
-              </button>
-            </div>
-            <div id="home-recent-transactions" class="divide-y divide-stone-100"></div>
-          </div>
-
-          <!-- Atalho discreto para Diagnóstico & Casal -->
-          <div class="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between text-xs text-stone-500">
-            <span>Quer ver o acerto de contas entre Bruno & Núbia e gráficos por categoria?</span>
-            <button onclick="App.switchTab('diagnostics')" class="font-bold text-lime-700 hover:underline whitespace-nowrap ml-2">
-              Abrir Diagnóstico & Casal &rarr;
-            </button>
-          </div>
+      <!-- Atalho discreto para Diagnóstico & Casal e Extrato Completo -->
+      <div class="oli-card rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
+        <span>Quer visualizar a divisão proporcional do casal (Bruno & Núbia) ou o extrato linear completo?</span>
+        <div class="flex items-center gap-4">
+          <button onclick="App.switchTab('transactions')" class="font-bold text-stone-700 hover:text-lime-700 hover:underline whitespace-nowrap">
+            Ver Extrato Linear &rarr;
+          </button>
+          <button onclick="App.switchTab('diagnostics')" class="font-bold text-lime-700 hover:underline whitespace-nowrap">
+            Abrir Diagnóstico & Casal &rarr;
+          </button>
         </div>
       </div>
 
@@ -345,18 +326,18 @@
         <div>
           <h2 class="text-base font-extrabold text-stone-900 flex items-center gap-2">
             <i data-lucide="target" class="w-5 h-5 text-lime-700"></i>
-            Previsto (Meta) vs. Realizado
+            Estrutura de Metas: Conta Corrente & Cartões por Categoria
           </h2>
           <p class="text-xs text-stone-500 mt-0.5">
-            Ajuste os valores previstos ou clique em <strong>Conciliar</strong> para registrar o pagamento de uma conta planejada.
+            Clique em <strong>[+]</strong> para abrir a árvore de lançamentos de cada categoria ou clique sobre qualquer <strong>Meta</strong> para ajustá-la. Categorias sem meta e sem gastos ficam arquivadas no rodapé.
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <button id="btn-proj-group-account" onclick="App.setProjectionGroupMode('ACCOUNT')">
-            Por Conta/Cartão
+          <button onclick="App.expandAllTrees(true)" class="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold transition">
+            Expandir Tudo [+]
           </button>
-          <button id="btn-proj-group-category" onclick="App.setProjectionGroupMode('CATEGORY')">
-            Por Categoria
+          <button onclick="App.expandAllTrees(false)" class="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold transition">
+            Recolher Tudo [-]
           </button>
           <button onclick="App.openProjectionModal()" class="px-3.5 py-2 rounded-xl bg-lime-700 hover:bg-lime-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition">
             <i data-lucide="plus" class="w-4 h-4"></i>
@@ -365,7 +346,7 @@
         </div>
       </div>
 
-      <div id="projections-groups-container"></div>
+      <div id="projections-groups-container" class="space-y-6"></div>
     </section>
 
     <!-- ================================================================== -->
@@ -812,9 +793,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=5"></script>
-  <script src="./js/ofx-csv-parser.js?v=5"></script>
-  <script src="./js/supabase-sync.js?v=5"></script>
-  <script src="./js/app.js?v=5"></script>
+  <script src="./js/data-seed.js?v=6"></script>
+  <script src="./js/ofx-csv-parser.js?v=6"></script>
+  <script src="./js/supabase-sync.js?v=6"></script>
+  <script src="./js/app.js?v=6"></script>
 </body>
 </html>
