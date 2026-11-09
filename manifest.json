@@ -1,0 +1,10 @@
+{
+  "name": "OliFinanças 🫒 - Bruno & Núbia",
+  "short_name": "OliFinanças",
+  "description": "Onde o azeite nunca azeda e o caroço não engasga no fim do mês! Gestão financeira de Bruno & Núbia.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0c140c",
+  "theme_color": "#65a30d",
+  "orientation": "portrait-primary"
+}

@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>OliFinanças 🫒 • Bruno & Núbia</title>
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#0c140c" />
+
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Google Fonts Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons, Chart.js & Supabase Client v2 -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    body {
+      background-color: #0b130b;
+      background-image:
+        radial-gradient(at 15% 10%, rgba(132, 204, 22, 0.10) 0px, transparent 45%),
+        radial-gradient(at 85% 5%, rgba(234, 179, 8, 0.08) 0px, transparent 40%);
+      color: #f5f5f4;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .oli-card {
+      background: rgba(20, 30, 19, 0.88);
+      border: 1px solid rgba(132, 204, 22, 0.18);
+      backdrop-filter: blur(10px);
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0c140c;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #3f6212;
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="min-h-screen pb-24 lg:pb-12 selection:bg-lime-500 selection:text-stone-950">
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed bottom-20 lg:bottom-6 right-6 z-50 flex flex-col gap-2 max-w-md"></div>
+
+  <!-- TOPBAR / HEADER -->
+  <header class="sticky top-0 z-30 bg-[#0b130b]/90 backdrop-blur-md border-b border-lime-500/20">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand OliFinanças com Mascote Azeitona -->
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-lime-500 via-lime-600 to-amber-500 p-0.5 shadow-lg shadow-lime-500/20">
+          <div class="w-full h-full bg-[#111c11] rounded-[14px] flex items-center justify-center relative">
+            <!-- SVG Mascote Oli (Azeitona Sorridente com Pimentão Vermelho) -->
+            <svg viewBox="0 0 40 40" class="w-8 h-8">
+              <ellipse cx="20" cy="22" rx="12" ry="14" fill="#65a30d" stroke="#a3e635" stroke-width="1.5" />
+              <ellipse cx="16" cy="18" rx="3" ry="5" fill="#a3e635" opacity="0.35" transform="rotate(-15 16 18)" />
+              <path d="M15 9 C17 5, 23 5, 25 9 C23 12, 17 12, 15 9 Z" fill="#ef4444" />
+              <circle cx="16" cy="21" r="2" fill="#0c140c" />
+              <circle cx="24" cy="21" r="2" fill="#0c140c" />
+              <path d="M16 26 Q20 30 24 26" stroke="#0c140c" stroke-width="2" fill="none" stroke-linecap="round" />
+            </svg>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-extrabold text-base sm:text-xl tracking-tight text-white">
+              Oli<span class="text-lime-400">Finanças</span> <span class="text-sm">🫒</span>
+            </h1>
+            <span id="cloud-status-badge" onclick="App.switchTab('cloud')"></span>
+          </div>
+          <p class="text-[11px] text-lime-200/70 hidden sm:block">
+            Bruno & Núbia • Gestão Financeira, Previsto vs. Realizado & Conciliação
+          </p>
+        </div>
+      </div>
+
+      <!-- Month Navigator -->
+      <div class="flex items-center bg-[#141f13] border border-lime-500/20 rounded-xl p-1">
+        <button onclick="App.changeMonth(-1)" class="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition" title="Mês Anterior">
+          <i data-lucide="chevron-left" class="w-4 h-4"></i>
+        </button>
+        <span id="active-month-label" class="px-3 text-xs sm:text-sm font-extrabold text-lime-300 min-w-[145px] text-center">Novembro de 2026</span>
+        <button onclick="App.changeMonth(1)" class="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition" title="Próximo Mês">
+          <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Filters & Actions -->
+      <div class="flex items-center gap-2.5">
+        <div class="hidden md:flex items-center bg-[#141f13] border border-lime-500/20 rounded-xl p-1 gap-1">
+          <button data-user-filter="ALL" onclick="App.setUserFilter('ALL')">Casal</button>
+          <button data-user-filter="bruno" onclick="App.setUserFilter('bruno')">Bruno</button>
+          <button data-user-filter="nubia" onclick="App.setUserFilter('nubia')">Núbia</button>
+        </div>
+
+        <div class="hidden sm:flex items-center gap-1.5 bg-[#141f13] border border-lime-500/20 rounded-xl px-2.5 py-1.5 text-xs">
+          <span class="text-stone-400">Usuário:</span>
+          <select id="logged-user-select" onchange="App.loggedUser = this.value" class="bg-transparent font-bold text-lime-400 outline-none cursor-pointer">
+            <option value="bruno" class="bg-stone-900 text-white">Bruno</option>
+            <option value="nubia" class="bg-stone-900 text-white">Núbia</option>
+          </select>
+        </div>
+
+        <button onclick="App.openTransactionModal()" class="bg-lime-500 hover:bg-lime-400 text-stone-950 font-extrabold text-xs sm:text-sm px-3.5 py-2 rounded-xl shadow-lg shadow-lime-500/20 flex items-center gap-1.5 transition">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+          <span>Novo Lançamento</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Desktop Navigation Tabs -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-2 hidden lg:flex items-center justify-between border-t border-lime-500/10">
+      <nav class="flex items-center gap-1.5">
+        <button data-tab-target="dashboard" onclick="App.switchTab('dashboard')">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Visão Geral & Casal
+        </button>
+        <button data-tab-target="projections" onclick="App.switchTab('projections')">
+          <i data-lucide="target" class="w-4 h-4"></i> Previsto vs. Realizado (Metas)
+        </button>
+        <button data-tab-target="transactions" onclick="App.switchTab('transactions')">
+          <i data-lucide="list-ordered" class="w-4 h-4"></i> Lançamentos
+        </button>
+        <button data-tab-target="import" onclick="App.switchTab('import')">
+          <i data-lucide="file-up" class="w-4 h-4"></i> Importar Extrato (OFX/CSV)
+        </button>
+        <button data-tab-target="categories" onclick="App.switchTab('categories')">
+          <i data-lucide="tags" class="w-4 h-4"></i> Categorias & Regras
+        </button>
+        <button data-tab-target="cloud" onclick="App.switchTab('cloud')">
+          <i data-lucide="cloud" class="w-4 h-4"></i> Nuvem Supabase
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 pt-5">
+
+    <!-- Banner Discreto & Bem-Humorado do Oli -->
+    <div onclick="App.nextQuote()" class="mb-5 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-lime-950/70 via-stone-900/80 to-amber-950/50 border border-lime-500/25 flex items-center justify-between gap-3 cursor-pointer hover:border-lime-500/50 transition" title="Clique para ver outra dica do Oli">
+      <p id="oli-humorous-banner-text" class="text-xs font-medium text-lime-200">
+        🫒 Dica do Oli: Pagamento de fatura no extrato da conta corrente é ignorado automaticamente para não contar seus gastos duas vezes!
+      </p>
+      <span class="text-[11px] text-lime-400/80 whitespace-nowrap hidden sm:inline">Próxima dica &rarr;</span>
+    </div>
+
+    <!-- Filtro Mobile Casal / Bruno / Núbia -->
+    <div class="flex md:hidden items-center justify-between oli-card rounded-xl p-1.5 mb-5">
+      <span class="text-xs text-stone-400 px-2">Filtrar Visão:</span>
+      <div class="flex gap-1">
+        <button data-user-filter="ALL" onclick="App.setUserFilter('ALL')">Casal</button>
+        <button data-user-filter="bruno" onclick="App.setUserFilter('bruno')">Bruno</button>
+        <button data-user-filter="nubia" onclick="App.setUserFilter('nubia')">Núbia</button>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- ABA 1: DASHBOARD (VISÃO GERAL) -->
+    <!-- ================================================================== -->
+    <section id="tab-dashboard" class="tab-section space-y-6">
+      <div id="dashboard-kpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+
+      <div id="couple-split-panel" class="oli-card rounded-2xl p-5 shadow-lg"></div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div class="lg:col-span-5 oli-card rounded-2xl p-5 shadow-lg">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="font-extrabold text-white text-base">Contas & Faturas de Cartão</h3>
+              <p class="text-xs text-stone-400">Nubank (Dia 8), Itaucard (Dia 19) e Contas Correntes</p>
+            </div>
+            <button onclick="App.switchTab('projections')" class="text-xs text-lime-400 hover:text-lime-300 font-bold">
+              Ver metas &rarr;
+            </button>
+          </div>
+          <div id="dashboard-accounts-grid" class="space-y-3"></div>
+        </div>
+
+        <div class="lg:col-span-7 oli-card rounded-2xl p-5 shadow-lg flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="font-extrabold text-white text-base">Previsto (Meta) vs. Realizado por Categoria</h3>
+              <p class="text-xs text-stone-400">Comparativo visual do orçamento mensal da família</p>
+            </div>
+          </div>
+          <div class="relative flex-1 min-h-[300px]">
+            <canvas id="chart-previsto-realizado"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- ABA 2: PREVISTO VS. REALIZADO (PLANEJAMENTO E CONCILIAÇÃO) -->
+    <!-- ================================================================== -->
+    <section id="tab-projections" class="tab-section hidden space-y-6">
+      <div class="oli-card rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-extrabold text-white flex items-center gap-2">
+            <i data-lucide="target" class="w-5 h-5 text-lime-400"></i>
+            Planejamento Mensal: Previsto (Meta) vs. Realizado
+          </h2>
+          <p class="text-xs text-stone-400 mt-1">
+            Edite qualquer valor na coluna <strong>Meta / Previsto</strong> ou clique em <strong>Conciliar</strong> quando o gasto real acontecer.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btn-proj-group-account" onclick="App.setProjectionGroupMode('ACCOUNT')">
+            Agrupar por Conta/Cartão (Igual Planilha)
+          </button>
+          <button id="btn-proj-group-category" onclick="App.setProjectionGroupMode('CATEGORY')">
+            Agrupar por Categoria
+          </button>
+          <button onclick="App.openProjectionModal()" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-extrabold flex items-center gap-1.5 shadow-lg transition">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            Novo Gasto Previsto
+          </button>
+        </div>
+      </div>
+
+      <div id="projections-groups-container"></div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- ABA 3: LANÇAMENTOS -->
+    <!-- ================================================================== -->
+    <section id="tab-transactions" class="tab-section hidden space-y-5">
+      <div class="oli-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5 flex-1">
+          <div class="relative flex-1 min-w-[200px]">
+            <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-2.5"></i>
+            <input
+              id="tx-filter-search"
+              type="text"
+              placeholder="Buscar lançamento..."
+              class="w-full bg-stone-950 border border-stone-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white outline-none focus:border-lime-500"
+            />
+          </div>
+
+          <select
+            id="tx-filter-account"
+            onchange="App.txFilter.accountId = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
+            class="bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 outline-none"
+          ></select>
+
+          <select
+            id="tx-filter-category"
+            onchange="App.txFilter.categoryId = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
+            class="bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 outline-none"
+          ></select>
+
+          <select
+            onchange="App.txFilter.ownership = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
+            class="bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 outline-none"
+          >
+            <option value="ALL">Coletivos & Individuais</option>
+            <option value="COLLECTIVE">Apenas Coletivos da Casa</option>
+            <option value="INDIVIDUAL_BRUNO">Apenas Individual Bruno</option>
+            <option value="INDIVIDUAL_NUBIA">Apenas Individual Núbia</option>
+          </select>
+        </div>
+
+        <button onclick="App.openTransactionModal()" class="bg-lime-500 hover:bg-lime-400 text-stone-950 text-xs font-extrabold px-4 py-2 rounded-xl flex items-center gap-1.5 transition">
+          <i data-lucide="plus" class="w-4 h-4"></i> Adicionar Lançamento
+        </button>
+      </div>
+
+      <div class="oli-card rounded-2xl overflow-hidden shadow-lg">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-stone-800 text-[11px] font-bold uppercase text-stone-400 bg-stone-950/60">
+                <th class="py-3 px-4">Data</th>
+                <th class="py-3 px-4">Descrição & Vínculo</th>
+                <th class="py-3 px-4">Subcategoria</th>
+                <th class="py-3 px-4">Conta / Quem Pagou</th>
+                <th class="py-3 px-4">Divisão</th>
+                <th class="py-3 px-4 text-right">Valor</th>
+                <th class="py-3 px-4 text-right">Ação</th>
+              </tr>
+            </thead>
+            <tbody id="transactions-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- ABA 4: IMPORTAR EXTRATO (OFX E CSV) -->
+    <!-- ================================================================== -->
+    <section id="tab-import" class="tab-section hidden space-y-6">
+      <div class="oli-card rounded-2xl p-6 shadow-lg">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-stone-800">
+          <div>
+            <h2 class="text-lg font-extrabold text-white flex items-center gap-2">
+              <i data-lucide="file-spreadsheet" class="w-5 h-5 text-lime-400"></i>
+              Importação de Extratos Bancários (Débito & Crédito)
+            </h2>
+            <p class="text-xs text-stone-400 mt-1">
+              Suporta arquivos <strong>.OFX</strong> e <strong>.CSV</strong> do Nubank, Itaú e demais bancos. Classifica automaticamente a categoria, filtra pagamentos de fatura repetidos e já sugere o vínculo com suas metas previstas.
+            </p>
+          </div>
+          <button
+            onclick="App.loadSampleNubankExtract()"
+            class="px-4 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-lime-300 text-xs font-bold border border-lime-500/30 flex items-center gap-2 self-start transition"
+          >
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            Testar com Extrato Nubank Exemplo
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 mt-5 items-end">
+          <div class="md:col-span-5">
+            <label class="block text-xs font-bold text-stone-300 mb-1.5">1. Selecione a Conta ou Cartão do Extrato</label>
+            <select
+              id="import-account-select"
+              onchange="App.importTargetAccountId = this.value"
+              class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-sm text-white outline-none focus:border-lime-500"
+            ></select>
+          </div>
+
+          <div class="md:col-span-7">
+            <label class="block text-xs font-bold text-stone-300 mb-1.5">2. Escolha o arquivo .OFX ou .CSV exportado do banco</label>
+            <label class="flex items-center justify-center gap-3 w-full border-2 border-dashed border-lime-500/40 hover:border-lime-400 bg-stone-950/60 rounded-xl px-4 py-3 cursor-pointer transition">
+              <i data-lucide="upload-cloud" class="w-5 h-5 text-lime-400"></i>
+              <span class="text-xs font-medium text-stone-300">Clique para selecionar arquivo <strong>.OFX</strong> ou <strong>.CSV</strong> (Nubank, Itaú, etc.)</span>
+              <input type="file" accept=".ofx,.csv,.txt" class="hidden" onchange="App.handleStatementFileUpload(this.files)" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div id="import-staging-area" class="hidden oli-card rounded-2xl overflow-hidden shadow-lg">
+        <div class="px-5 py-4 bg-stone-950/80 border-b border-stone-800 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="font-extrabold text-white text-sm">Triagem e Conciliação com Metas Previstas</h3>
+            <p class="text-xs text-stone-400">Revise as categorias sugeridas e os vínculos com o planejamento antes de confirmar</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span id="import-selected-count" class="text-xs font-bold text-lime-300"></span>
+            <button
+              onclick="App.confirmStagedImports()"
+              class="bg-lime-500 hover:bg-lime-400 text-stone-950 text-xs font-extrabold px-4 py-2 rounded-xl shadow-lg flex items-center gap-1.5 transition"
+            >
+              <i data-lucide="check-check" class="w-4 h-4"></i>
+              Confirmar e Conciliar Selecionados
+            </button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-stone-800 text-[11px] font-bold uppercase text-stone-400 bg-stone-950/40">
+                <th class="py-2.5 px-3 w-8"></th>
+                <th class="py-2.5 px-3">Data</th>
+                <th class="py-2.5 px-3">Descrição no Extrato</th>
+                <th class="py-2.5 px-3">Subcategoria Detectada</th>
+                <th class="py-2.5 px-3">Vincular à Meta Prevista</th>
+                <th class="py-2.5 px-3">Divisão</th>
+                <th class="py-2.5 px-3 text-right">Valor</th>
+              </tr>
+            </thead>
+            <tbody id="import-staging-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- ABA 5: CATEGORIAS & REGRAS -->
+    <!-- ================================================================== -->
+    <section id="tab-categories" class="tab-section hidden space-y-6">
+      <div class="oli-card rounded-2xl p-5">
+        <h3 class="font-extrabold text-white text-base mb-1">Adicionar Nova Subcategoria & Regra</h3>
+        <p class="text-xs text-stone-400 mb-4">Cadastre novas subcategorias e palavras-chave para classificação automática de extratos</p>
+        <form onsubmit="App.handleNewSubcategory(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <select id="new-sub-category-id" class="bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-white outline-none"></select>
+          <input id="new-sub-name" type="text" required placeholder="Nome (Ex: Farmácia)" class="bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-white outline-none" />
+          <input id="new-sub-meta" type="number" step="0.01" placeholder="Meta Mensal R$ (Opcional)" class="bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-white outline-none" />
+          <select id="new-sub-ownership" class="bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-white outline-none">
+            <option value="COLLECTIVE">Coletivo Casa</option>
+            <option value="INDIVIDUAL_BRUNO">Individual Bruno</option>
+            <option value="INDIVIDUAL_NUBIA">Individual Núbia</option>
+          </select>
+          <div class="flex gap-2">
+            <input id="new-sub-keywords" type="text" placeholder="Palavras-chave (Ex: RAIA, PACHECO)" class="flex-1 bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-white outline-none" />
+            <button type="submit" class="bg-lime-500 hover:bg-lime-400 text-stone-950 text-xs font-extrabold px-4 py-2 rounded-xl whitespace-nowrap">
+              Criar
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div id="categories-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-5"></div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- ABA 6: NUVEM SUPABASE & BACKUP -->
+    <!-- ================================================================== -->
+    <section id="tab-cloud" class="tab-section hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div class="lg:col-span-7 oli-card rounded-2xl p-6 space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-lime-500/20 text-lime-400 flex items-center justify-center">
+              <i data-lucide="database" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h2 class="text-base font-extrabold text-white">Conexão com Supabase (PostgreSQL)</h2>
+              <p class="text-xs text-stone-400">Sincronize em tempo real entre o PC, o celular do Bruno e o celular da Núbia</p>
+            </div>
+          </div>
+
+          <form onsubmit="App.saveSupabaseCredentials(event)" class="space-y-4 pt-2">
+            <div>
+              <label class="block text-xs font-bold text-stone-300 mb-1">Supabase Project URL</label>
+              <input
+                id="supabase-url-input"
+                type="url"
+                placeholder="https://seu-projeto.supabase.co"
+                class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-lime-500"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-stone-300 mb-1">Supabase Anon Public Key</label>
+              <input
+                id="supabase-key-input"
+                type="password"
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-lime-500"
+              />
+            </div>
+            <div class="flex flex-wrap gap-3 pt-2">
+              <button type="submit" class="bg-lime-500 hover:bg-lime-400 text-stone-950 text-xs font-extrabold px-4 py-2.5 rounded-xl flex items-center gap-2 transition">
+                <i data-lucide="plug-zap" class="w-4 h-4"></i>
+                Salvar e Conectar ao Supabase
+              </button>
+              <button type="button" onclick="App.syncNowWithSupabase()" class="bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-stone-950 border border-amber-500/30 text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 transition">
+                <i data-lucide="upload" class="w-4 h-4"></i>
+                Enviar Dados para o Supabase
+              </button>
+              <button type="button" onclick="App.pullFromSupabase()" class="bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 transition">
+                <i data-lucide="download" class="w-4 h-4"></i>
+                Baixar da Nuvem
+              </button>
+            </div>
+          </form>
+
+          <div class="pt-4 border-t border-stone-800 flex flex-wrap items-center justify-between gap-3">
+            <button onclick="App.exportBackupJSON()" class="text-xs text-stone-300 hover:text-white flex items-center gap-1.5 bg-stone-800 px-3 py-2 rounded-xl">
+              <i data-lucide="download-cloud" class="w-4 h-4"></i> Baixar Backup Local (.JSON)
+            </button>
+            <button onclick="App.resetToSpreadsheetSeed()" class="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1.5">
+              <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Restaurar Dados Originais da Planilha
+            </button>
+          </div>
+        </div>
+
+        <div class="lg:col-span-5 oli-card rounded-2xl p-6 space-y-4">
+          <h3 class="font-extrabold text-white text-sm flex items-center gap-2">
+            <i data-lucide="check-square" class="w-4 h-4 text-lime-400"></i>
+            Passo a Passo Rápido no Supabase (3 minutos)
+          </h3>
+          <ol class="text-xs text-stone-300 space-y-3 list-decimal list-inside leading-relaxed">
+            <li>Crie um projeto gratuito em <a href="https://supabase.com" target="_blank" class="text-lime-400 underline">supabase.com</a> (ex: <code>olifinancas</code>).</li>
+            <li>No menu lateral do Supabase, abra <strong>SQL Editor &rarr; New Query</strong>.</li>
+            <li>Copie o arquivo <code>supabase/schema.sql</code> da sua pasta <strong>OliFinanças</strong>, cole lá e clique em <strong>Run</strong>.</li>
+            <li>Em <strong>Project Settings &rarr; API</strong>, copie a <strong>Project URL</strong> e a chave <strong>anon public</strong> e cole aqui ao lado!</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MOBILE BOTTOM NAVIGATION -->
+  <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-[#0b130b]/95 backdrop-blur-md border-t border-lime-500/20 grid grid-cols-5">
+    <button data-tab-target="dashboard" onclick="App.switchTab('dashboard')" class="mobile-nav-btn">
+      <i data-lucide="layout-dashboard" class="w-4 h-4 mb-1"></i>
+      <span>Resumo</span>
+    </button>
+    <button data-tab-target="projections" onclick="App.switchTab('projections')" class="mobile-nav-btn">
+      <i data-lucide="target" class="w-4 h-4 mb-1"></i>
+      <span>Metas</span>
+    </button>
+    <button data-tab-target="transactions" onclick="App.switchTab('transactions')" class="mobile-nav-btn">
+      <i data-lucide="list-ordered" class="w-4 h-4 mb-1"></i>
+      <span>Extrato</span>
+    </button>
+    <button data-tab-target="import" onclick="App.switchTab('import')" class="mobile-nav-btn">
+      <i data-lucide="file-up" class="w-4 h-4 mb-1"></i>
+      <span>Importar</span>
+    </button>
+    <button data-tab-target="cloud" onclick="App.switchTab('cloud')" class="mobile-nav-btn">
+      <i data-lucide="cloud" class="w-4 h-4 mb-1"></i>
+      <span>Nuvem</span>
+    </button>
+  </nav>
+
+  <!-- ==================================================================== -->
+  <!-- MODAL: NOVO LANÇAMENTO (GASTO / RECEITA / CONCILIAÇÃO) -->
+  <!-- ==================================================================== -->
+  <div id="modal-transaction" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="oli-card rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-stone-800">
+        <h3 class="font-extrabold text-white text-base">Registrar Lançamento / Conciliar</h3>
+        <button onclick="App.closeTransactionModal()" class="text-stone-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form onsubmit="App.saveTransactionFromModal(event)" class="space-y-4 mt-4 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Tipo</label>
+            <select id="tx-modal-type" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none">
+              <option value="EXPENSE">Despesa / Gasto</option>
+              <option value="INCOME">Receita / Salário</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Data</label>
+            <input id="tx-modal-date" type="date" required class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="sm:col-span-2">
+            <label class="block text-stone-300 font-bold mb-1">Descrição</label>
+            <input id="tx-modal-desc" type="text" required placeholder="Ex: Supermercado, Conta de Luz, Ração do Chicó..." class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none" />
+          </div>
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Valor (R$)</label>
+            <input id="tx-modal-amount" type="number" step="0.01" required placeholder="0,00" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white font-extrabold outline-none" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Conta ou Cartão</label>
+            <select id="tx-modal-account" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none"></select>
+          </div>
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Subcategoria</label>
+            <select id="tx-modal-subcategory" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none"></select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-lime-300 font-bold mb-1">Vincular à Meta / Gasto Previsto do Mês (Conciliação)</label>
+          <select id="tx-modal-projection" class="w-full bg-stone-950 border border-lime-500/40 rounded-xl px-3 py-2 text-lime-200 outline-none"></select>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Quem Pagou?</label>
+            <select id="tx-modal-user" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none">
+              <option value="bruno">Bruno</option>
+              <option value="nubia">Núbia</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Divisão</label>
+            <select id="tx-modal-ownership" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none">
+              <option value="COLLECTIVE">Coletivo Casa</option>
+              <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
+              <option value="INDIVIDUAL_NUBIA">Só Núbia</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Parcelas</label>
+            <select id="tx-modal-installments" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none">
+              <option value="1">À vista (1x)</option>
+              <option value="2">2x</option>
+              <option value="3">3x</option>
+              <option value="4">4x</option>
+              <option value="5">5x</option>
+              <option value="6">6x</option>
+              <option value="10">10x</option>
+              <option value="12">12x</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-3 border-t border-stone-800">
+          <button type="button" onclick="App.closeTransactionModal()" class="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 hover:text-white">Cancelar</button>
+          <button type="submit" class="px-5 py-2 rounded-xl bg-lime-500 hover:bg-lime-400 text-stone-950 font-extrabold">Salvar Lançamento</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================================================================== -->
+  <!-- MODAL: NOVO GASTO PREVISTO / META -->
+  <!-- ==================================================================== -->
+  <div id="modal-projection" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="oli-card rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-stone-800">
+        <h3 class="font-extrabold text-white text-base">Cadastrar Gasto Previsto / Meta</h3>
+        <button onclick="App.closeProjectionModal()" class="text-stone-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form onsubmit="App.saveProjectionFromModal(event)" class="space-y-4 mt-4 text-xs">
+        <div>
+          <label class="block text-stone-300 font-bold mb-1">Título do Gasto Previsto / Meta</label>
+          <input id="proj-modal-title" type="text" required placeholder="Ex: IPVA, Revisão Carro, Meta Feira..." class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none" />
+        </div>
+
+        <div>
+          <label class="block text-stone-300 font-bold mb-1">Valor Previsto / Meta (R$)</label>
+          <input id="proj-modal-amount" type="number" step="0.01" required placeholder="0,00" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white font-extrabold outline-none" />
+        </div>
+
+        <div>
+          <label class="block text-stone-300 font-bold mb-1">Subcategoria</label>
+          <select id="proj-modal-subcategory" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none"></select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Conta / Cartão Previsto</label>
+            <select id="proj-modal-account" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none"></select>
+          </div>
+          <div>
+            <label class="block text-stone-300 font-bold mb-1">Responsabilidade</label>
+            <select id="proj-modal-ownership" class="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-white outline-none">
+              <option value="COLLECTIVE">Coletivo Casa</option>
+              <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
+              <option value="INDIVIDUAL_NUBIA">Só Núbia</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="flex items-center gap-2 pt-1 cursor-pointer">
+          <input id="proj-modal-fixed" type="checkbox" class="rounded bg-stone-950 border-stone-700 text-lime-500" />
+          <span class="text-stone-300">É conta fixa/boleto único (marcar como "Liquidado" ao pagar)</span>
+        </label>
+
+        <div class="flex justify-end gap-2 pt-3 border-t border-stone-800">
+          <button type="button" onclick="App.closeProjectionModal()" class="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 hover:text-white">Cancelar</button>
+          <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold">Salvar Previsão</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Scripts da Aplicação -->
+  <script src="./js/data-seed.js?v=3"></script>
+  <script src="./js/ofx-csv-parser.js?v=3"></script>
+  <script src="./js/supabase-sync.js?v=3"></script>
+  <script src="./js/app.js?v=3"></script>
+</body>
+</html>
