@@ -241,18 +241,18 @@
             <!-- Conta / Cartão -->
             <div class="col-span-1 sm:col-span-4">
               <label class="block text-[11px] font-bold text-stone-500 mb-1">Conta / Cartão</label>
-              <select id="quick-tx-account" class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"></select>
+              <select id="quick-tx-account" onchange="App.onQuickAccountChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"></select>
             </div>
 
             <!-- Categoria -->
             <div class="col-span-1 sm:col-span-4">
               <label class="block text-[11px] font-bold text-stone-500 mb-1">Categoria</label>
-              <select id="quick-tx-subcategory" class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"></select>
+              <select id="quick-tx-subcategory" onchange="App.onQuickSubcategoryChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"></select>
             </div>
 
             <!-- Divisão Individual vs Coletivo -->
             <div class="col-span-1 sm:col-span-2">
-              <label class="block text-[11px] font-bold text-stone-500 mb-1">Divisão</label>
+              <label class="block text-[11px] font-bold text-stone-500 mb-1">Divisão <span id="quick-ownership-auto-tag" class="text-[10px] text-lime-700 font-normal"></span></label>
               <select id="quick-tx-ownership" class="w-full oli-input rounded-xl px-2.5 py-2.5 text-xs font-semibold">
                 <option value="COLLECTIVE">Casa (Casal)</option>
                 <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
@@ -275,20 +275,23 @@
           <!-- Atalhos de 1 clique -->
           <div class="pt-2 border-t border-stone-100 flex items-center gap-1.5 overflow-x-auto pb-1">
             <span class="text-[11px] font-semibold text-stone-400 mr-1 whitespace-nowrap">Atalhos:</span>
-            <button type="button" onclick="App.applyQuickPreset('Mercado / Feira', 'sub_feira_sup', 'COLLECTIVE')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🛒 Mercado
+            <button type="button" onclick="App.applyQuickPreset('Mercado / Feira', 'sub_feira_sup')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+              🛒 Feira/Mercado <span class="text-[10px] text-stone-400">(Casa)</span>
             </button>
-            <button type="button" onclick="App.applyQuickPreset('Restaurante / Delivery', 'sub_restaurante', 'COLLECTIVE')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🍽️ Restaurante
+            <button type="button" onclick="App.applyQuickPreset('Restaurante', 'sub_restaurantes')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+              🍽️ Restaurante <span class="text-[10px] text-stone-400">(Casa)</span>
             </button>
-            <button type="button" onclick="App.applyQuickPreset('Uber / Transporte', 'sub_combustivel', 'INDIVIDUAL_BRUNO')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🚗 Transporte
+            <button type="button" onclick="App.applyQuickPreset('Lazer / Saída', 'sub_lazer_geral')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+              🎉 Lazer <span class="text-[10px] text-stone-400">(Individual)</span>
             </button>
-            <button type="button" onclick="App.applyQuickPreset('Chicó / Petshop', 'sub_chico', 'COLLECTIVE')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🐕 Chicó
+            <button type="button" onclick="App.applyQuickPreset('Uber / Transporte', 'sub_transporte_app')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+              🚗 Transporte <span class="text-[10px] text-stone-400">(Individual)</span>
             </button>
-            <button type="button" onclick="App.applyQuickPreset('Lazer / Café', 'sub_lazer_ind', 'INDIVIDUAL_BRUNO')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              ☕ Lazer Bruno
+            <button type="button" onclick="App.applyQuickPreset('Chicó / Petshop', 'sub_chico')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+              🐕 Chicó <span class="text-[10px] text-stone-400">(Casa)</span>
+            </button>
+            <button type="button" onclick="App.applyQuickPreset('Auto Cuidado / Farmácia', 'sub_autocuidado')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+              ✨ Auto Cuidado <span class="text-[10px] text-stone-400">(Individual)</span>
             </button>
           </div>
         </form>
@@ -700,11 +703,11 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-stone-600 font-bold mb-1">Conta ou Cartão</label>
-            <select id="tx-modal-account" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium"></select>
+            <select id="tx-modal-account" onchange="App.onModalAccountChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium"></select>
           </div>
           <div>
             <label class="block text-stone-600 font-bold mb-1">Subcategoria</label>
-            <select id="tx-modal-subcategory" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium"></select>
+            <select id="tx-modal-subcategory" onchange="App.onModalSubcategoryChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium"></select>
           </div>
         </div>
 
@@ -716,13 +719,13 @@
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="block text-stone-600 font-bold mb-1">Quem Pagou?</label>
-            <select id="tx-modal-user" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium">
+            <select id="tx-modal-user" onchange="App.onModalUserChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium">
               <option value="bruno">Bruno</option>
               <option value="nubia">Núbia</option>
             </select>
           </div>
           <div>
-            <label class="block text-stone-600 font-bold mb-1">Divisão</label>
+            <label class="block text-stone-600 font-bold mb-1">Divisão <span id="modal-ownership-auto-tag" class="text-[10px] text-lime-700 font-normal"></span></label>
             <select id="tx-modal-ownership" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium">
               <option value="COLLECTIVE">Coletivo Casa</option>
               <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
@@ -777,13 +780,13 @@
 
         <div>
           <label class="block text-stone-600 font-bold mb-1">Subcategoria</label>
-          <select id="proj-modal-subcategory" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium"></select>
+          <select id="proj-modal-subcategory" onchange="App.onProjModalSubcategoryChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium"></select>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-stone-600 font-bold mb-1">Conta / Cartão Previsto</label>
-            <select id="proj-modal-account" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium"></select>
+            <select id="proj-modal-account" onchange="App.onProjModalAccountChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium"></select>
           </div>
           <div>
             <label class="block text-stone-600 font-bold mb-1">Responsabilidade</label>
@@ -809,9 +812,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=4"></script>
-  <script src="./js/ofx-csv-parser.js?v=4"></script>
-  <script src="./js/supabase-sync.js?v=4"></script>
-  <script src="./js/app.js?v=4"></script>
+  <script src="./js/data-seed.js?v=5"></script>
+  <script src="./js/ofx-csv-parser.js?v=5"></script>
+  <script src="./js/supabase-sync.js?v=5"></script>
+  <script src="./js/app.js?v=5"></script>
 </body>
 </html>

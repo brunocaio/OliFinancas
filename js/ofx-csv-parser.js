@@ -26,7 +26,22 @@ window.StatementParser = {
     return { current: 1, total: 1 };
   },
 
-  autoClassify(description, amount, isCreditCard, subcategories, projections, competenceMonth) {
+  detectSubcategory(description, state) {
+    const normDesc = this.normalizeText(description);
+    if (!normDesc || !state || !state.subcategories) return null;
+    for (const sub of state.subcategories) {
+      if (!sub.keywords || sub.keywords.length === 0) continue;
+      for (const kw of sub.keywords) {
+        const normKw = this.normalizeText(kw);
+        if (normKw && normDesc.includes(normKw)) {
+          return sub;
+        }
+      }
+    }
+    return null;
+  },
+
+  autoClassify(description, amount, isCreditCard, subcategories, projections, competenceMonth, ownerId = "bruno") {
     const normDesc = this.normalizeText(description);
 
     const faturaKeywords = ["PAGAMENTO DE FATURA", "PAGTO FATURA", "PAGAMENTO FATURA", "PAGAMENTO RECEBIDO", "FATURA CARTAO", "DEBITO AUTOMATICO FATURA"];
@@ -74,10 +89,15 @@ window.StatementParser = {
       txType = "TRANSFER";
     }
 
+    let resolvedOwnership = matchedProj ? matchedProj.ownership : (matchedSub.defaultOwnership || "COLLECTIVE");
+    if (resolvedOwnership !== "COLLECTIVE") {
+      resolvedOwnership = ownerId === "nubia" ? "INDIVIDUAL_NUBIA" : "INDIVIDUAL_BRUNO";
+    }
+
     return {
       type: txType,
       subcategoryId: matchedSub.id,
-      ownership: matchedProj ? matchedProj.ownership : (matchedSub.defaultOwnership || "COLLECTIVE"),
+      ownership: resolvedOwnership,
       projectionId: matchedProj ? matchedProj.id : null,
       confidence: matchedSub.id !== "sub_outros" ? "HIGH" : "LOW"
     };
@@ -127,7 +147,8 @@ window.StatementParser = {
         isCreditCard,
         state.subcategories,
         state.projections,
-        competenceMonth
+        competenceMonth,
+        account.ownerId || "bruno"
       );
 
       let finalType = classification.type;
@@ -268,7 +289,8 @@ window.StatementParser = {
         isCreditCard,
         state.subcategories,
         state.projections,
-        competenceMonth
+        competenceMonth,
+        account.ownerId || "bruno"
       );
 
       let finalType = classification.type;

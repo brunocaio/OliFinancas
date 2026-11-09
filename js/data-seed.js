@@ -3,7 +3,7 @@
 // ============================================================================
 
 window.INITIAL_SEED_DATA = {
-  version: "1.1.0-oli",
+  version: "1.2.0-oli",
   settings: {
     householdName: "OliFinanças • Bruno & Núbia",
     activeMonth: "2026-11",
@@ -160,13 +160,13 @@ window.INITIAL_SEED_DATA = {
     { id: "sub_adobe", categoryId: "cat_assinaturas", name: "Adobe Creative Cloud", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "card_itau_bruno", defaultMeta: 275.00, isFixed: true, keywords: ["ADOBE"] },
 
     // 8. Lazer, Cultura & Social
-    { id: "sub_lazer_geral", categoryId: "cat_lazer", name: "Lazer & Passeios", defaultOwnership: "COLLECTIVE", defaultAccountId: "card_nubank_bruno", defaultMeta: 400.00, isFixed: false, keywords: ["CINEMA", "INGRESSO", "SYMPLA", "EVENTIM", "TEATRO", "LAZER", "SHOW"] },
+    { id: "sub_lazer_geral", categoryId: "cat_lazer", name: "Lazer & Passeios", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "card_nubank_bruno", defaultMeta: 400.00, isFixed: false, keywords: ["CINEMA", "INGRESSO", "SYMPLA", "EVENTIM", "TEATRO", "LAZER", "SHOW", "BARZINHO", "CHOPP"] },
     { id: "sub_jogos", categoryId: "cat_lazer", name: "Jogos / Games", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "card_nubank_bruno", defaultMeta: 69.90, isFixed: false, keywords: ["STEAM", "PLAYSTATION", "SONY", "XBOX", "NINTENDO", "EPIC GAMES", "JOGOS"] },
     { id: "sub_maracatu", categoryId: "cat_lazer", name: "Maracatu / IPN", defaultOwnership: "INDIVIDUAL_NUBIA", defaultAccountId: "cc_nubia", defaultMeta: 240.00, isFixed: true, keywords: ["MARACATU", "IPN"] },
     { id: "sub_festa", categoryId: "cat_lazer", name: "Festas & Comemorações", defaultOwnership: "COLLECTIVE", defaultAccountId: "card_itau_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["FESTA", "PRESENTES"] },
 
     // 9. Financeiro, Parcelados & Outros
-    { id: "sub_parceladas", categoryId: "cat_financeiro", name: "Compras Parceladas", defaultOwnership: "COLLECTIVE", defaultAccountId: "card_nubank_bruno", defaultMeta: 548.96, isFixed: true, keywords: ["PARCELA", "MERCADOLIVRE", "MAGALU", "SHOPEE", "CASAS BAHIA"] },
+    { id: "sub_parceladas", categoryId: "cat_financeiro", name: "Compras Parceladas", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "card_nubank_bruno", defaultMeta: 548.96, isFixed: true, keywords: ["PARCELA", "MERCADOLIVRE", "MAGALU", "SHOPEE", "CASAS BAHIA"] },
     { id: "sub_anuidade", categoryId: "cat_financeiro", name: "Anuidade & Tarifas Cartão", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "card_itau_bruno", defaultMeta: 44.00, isFixed: true, keywords: ["ANUIDADE", "TARIFA", "IOF"] },
     { id: "sub_outros", categoryId: "cat_financeiro", name: "Outros / Diversos", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "card_nubank_bruno", defaultMeta: 0.00, isFixed: false, keywords: [] },
 
@@ -201,11 +201,11 @@ window.INITIAL_SEED_DATA = {
     { id: "proj_google_one", monthYear: "2026-11", subcategoryId: "sub_google_one", title: "Google One", plannedAmount: 194.90, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: true, dueDay: 8 },
     { id: "proj_chatgpt", monthYear: "2026-11", subcategoryId: "sub_chatgpt", title: "ChatGPT Plus", plannedAmount: 41.50, accountId: "card_nubank_bruno", ownership: "INDIVIDUAL_BRUNO", isFixed: true, dueDay: 8 },
     { id: "proj_nutag", monthYear: "2026-11", subcategoryId: "sub_nutag", title: "NuTag Pedágio", plannedAmount: 15.58, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: false, dueDay: 8 },
-    { id: "proj_lazer", monthYear: "2026-11", subcategoryId: "sub_lazer_geral", title: "Meta Lazer", plannedAmount: 400.00, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: false, dueDay: 8 },
+    { id: "proj_lazer", monthYear: "2026-11", subcategoryId: "sub_lazer_geral", title: "Meta Lazer", plannedAmount: 400.00, accountId: "card_nubank_bruno", ownership: "INDIVIDUAL_BRUNO", isFixed: false, dueDay: 8 },
     { id: "proj_restaurantes", monthYear: "2026-11", subcategoryId: "sub_restaurantes", title: "Meta Restaurantes", plannedAmount: 200.00, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: false, dueDay: 8 },
     { id: "proj_estacionamento", monthYear: "2026-11", subcategoryId: "sub_estacionamento", title: "Meta Estacionamento", plannedAmount: 50.00, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: false, dueDay: 8 },
     { id: "proj_feira", monthYear: "2026-11", subcategoryId: "sub_feira_sup", title: "Meta Feira e Suprimentos", plannedAmount: 1800.00, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: false, dueDay: 8 },
-    { id: "proj_parceladas", monthYear: "2026-11", subcategoryId: "sub_parceladas", title: "Compras Parceladas Nubank", plannedAmount: 548.96, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: true, dueDay: 8 },
+    { id: "proj_parceladas", monthYear: "2026-11", subcategoryId: "sub_parceladas", title: "Compras Parceladas Nubank", plannedAmount: 548.96, accountId: "card_nubank_bruno", ownership: "INDIVIDUAL_BRUNO", isFixed: true, dueDay: 8 },
     { id: "proj_chico", monthYear: "2026-11", subcategoryId: "sub_chico", title: "Chicó (Pet)", plannedAmount: 395.36, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: false, dueDay: 8 },
     { id: "proj_jogos", monthYear: "2026-11", subcategoryId: "sub_jogos", title: "Jogos / Games", plannedAmount: 69.90, accountId: "card_nubank_bruno", ownership: "INDIVIDUAL_BRUNO", isFixed: false, dueDay: 8 },
     { id: "proj_gasolina", monthYear: "2026-11", subcategoryId: "sub_gasolina", title: "Meta Gasolina", plannedAmount: 570.00, accountId: "card_nubank_bruno", ownership: "COLLECTIVE", isFixed: false, dueDay: 8 },
@@ -246,11 +246,11 @@ window.INITIAL_SEED_DATA = {
     { id: "tx_nu_7", transactionDate: "2026-11-05", competenceMonth: "2026-11", description: "Google One", amount: 194.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_google_one", projectionId: "proj_google_one", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_nu_8", transactionDate: "2026-11-05", competenceMonth: "2026-11", description: "ChatGPT Plus", amount: 41.50, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_chatgpt", projectionId: "proj_chatgpt", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_nu_9", transactionDate: "2026-11-05", competenceMonth: "2026-11", description: "NuTag Pedágio", amount: 52.26, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_nutag", projectionId: "proj_nutag", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_10", transactionDate: "2026-11-06", competenceMonth: "2026-11", description: "Lazer Fim de Semana", amount: 807.68, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_lazer_geral", projectionId: "proj_lazer", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_10", transactionDate: "2026-11-06", competenceMonth: "2026-11", description: "Lazer Fim de Semana", amount: 807.68, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_lazer_geral", projectionId: "proj_lazer", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_nu_11", transactionDate: "2026-11-06", competenceMonth: "2026-11", description: "Restaurantes", amount: 168.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_restaurantes", projectionId: "proj_restaurantes", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_nu_12", transactionDate: "2026-11-06", competenceMonth: "2026-11", description: "Estacionamento", amount: 12.00, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_estacionamento", projectionId: "proj_estacionamento", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_nu_13", transactionDate: "2026-11-07", competenceMonth: "2026-11", description: "Feira e Suprimentos", amount: 159.36, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_feira_sup", projectionId: "proj_feira", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_14", transactionDate: "2026-11-07", competenceMonth: "2026-11", description: "Compras Parceladas Nubank", amount: 548.96, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_parceladas", projectionId: "proj_parceladas", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_14", transactionDate: "2026-11-07", competenceMonth: "2026-11", description: "Compras Parceladas Nubank", amount: 548.96, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_parceladas", projectionId: "proj_parceladas", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_nu_15", transactionDate: "2026-11-07", competenceMonth: "2026-11", description: "Chicó (Ração & Cuidados)", amount: 395.36, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_chico", projectionId: "proj_chico", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_nu_16", transactionDate: "2026-11-07", competenceMonth: "2026-11", description: "Jogos / Games", amount: 69.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_jogos", projectionId: "proj_jogos", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_nu_17", transactionDate: "2026-11-08", competenceMonth: "2026-11", description: "Gasolina", amount: 284.04, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_gasolina", projectionId: "proj_gasolina", installmentCurrent: 1, installmentTotal: 1 },

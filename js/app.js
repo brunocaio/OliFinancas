@@ -54,11 +54,43 @@ window.App = {
     el.textContent = OLIVE_QUOTES[this.quoteIndex];
   },
 
+  upgradeStateToLatest(stateObj) {
+    if (!stateObj || stateObj.version === "1.2.0-oli") return false;
+    stateObj.version = "1.2.0-oli";
+
+    const individualSubIds = ["sub_lazer_geral", "sub_parceladas", "sub_transporte_app", "sub_jogos", "sub_autocuidado", "sub_analise", "sub_chatgpt", "sub_adobe", "sub_anuidade", "sub_outros"];
+    if (Array.isArray(stateObj.subcategories)) {
+      stateObj.subcategories.forEach(s => {
+        if (individualSubIds.includes(s.id)) {
+          s.defaultOwnership = "INDIVIDUAL_BRUNO";
+        }
+      });
+    }
+    if (Array.isArray(stateObj.projections)) {
+      stateObj.projections.forEach(p => {
+        if (p.id === "proj_lazer" || p.id === "proj_parceladas") {
+          p.ownership = "INDIVIDUAL_BRUNO";
+        }
+      });
+    }
+    if (Array.isArray(stateObj.transactions)) {
+      stateObj.transactions.forEach(t => {
+        if (t.id === "tx_nu_10" || t.id === "tx_nu_14") {
+          t.ownership = "INDIVIDUAL_BRUNO";
+        }
+      });
+    }
+    return true;
+  },
+
   loadState() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         this.state = JSON.parse(saved);
+        if (this.upgradeStateToLatest(this.state)) {
+          this.saveState(true);
+        }
       } else {
         this.state = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
         this.saveState(false);
@@ -105,8 +137,12 @@ window.App = {
       try {
         const remoteState = await window.SupabaseSync.pullState();
         if (remoteState && remoteState.transactions) {
+          const upgraded = this.upgradeStateToLatest(remoteState);
           this.state = remoteState;
           localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+          if (upgraded) {
+            await window.SupabaseSync.pushState(this.state, this.loggedUser);
+          }
           this.renderAll();
         } else {
           await window.SupabaseSync.pushState(this.state, this.loggedUser);
@@ -432,6 +468,39 @@ window.App = {
   },
 
   // ==========================================================================
+  // RESOLUÇÃO AUTOMÁTICA DE DIVISÃO (CASAL VS. INDIVIDUAL POR CATEGORIA)
+  // ==========================================================================
+  resolveDefaultOwnership(subcategoryId, userId = null) {
+    const sub = this.getSubcategory(subcategoryId);
+    const activeUser = userId || (this.activeUserFilter === "nubia" ? "nubia" : this.loggedUser || "bruno");
+    const rule = sub.defaultOwnership || "COLLECTIVE";
+
+    if (rule === "COLLECTIVE") {
+      return "COLLECTIVE";
+    }
+    // Se a subcategoria é especificamente da Núbia (ex: Fisioterapia, Maracatu) e ninguém forçou outro usuário
+    if (rule === "INDIVIDUAL_NUBIA" && !userId && this.activeUserFilter === "ALL") {
+      return "INDIVIDUAL_NUBIA";
+    }
+    return activeUser === "nubia" ? "INDIVIDUAL_NUBIA" : "INDIVIDUAL_BRUNO";
+  },
+
+  formatSubOptionLabel(sub) {
+    const isCollective = (sub.defaultOwnership || "COLLECTIVE") === "COLLECTIVE";
+    return `${sub.name} (${isCollective ? "Casa" : "Individual"})`;
+  },
+
+  flashAutoOwnershipTag(tagElementId) {
+    const el = document.getElementById(tagElementId);
+    if (!el) return;
+    el.textContent = "• padrão";
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => {
+      el.textContent = "";
+    }, 2200);
+  },
+
+  // ==========================================================================
   // FORMULÁRIO DE LANÇAMENTO RÁPIDO NA HOME
   // ==========================================================================
   populateQuickFormSelects() {
@@ -450,21 +519,43 @@ window.App = {
       if (prevVal && userAccounts.some(a => a.id === prevVal)) {
         accSelect.value = prevVal;
       } else {
-        accSelect.value = this.activeUserFilter === "nubia" ? "card_nubank_nubia" : "card_nubank_bruno";
+        accSelect.value = this.activeUserFilter === "nubia" ? "card_nubia" : "card_nubank_bruno";
       }
     }
 
     const subSelect = document.getElementById("quick-tx-subcategory");
-    if (subSelect && subSelect.options.length === 0) {
+    if (subSelect) {
+      const currentSub = subSelect.value || "sub_feira_sup";
       subSelect.innerHTML = this.state.categories
         .map(cat => {
           const subs = this.state.subcategories.filter(s => s.categoryId === cat.id);
           return `<optgroup label="${cat.name}">` +
-            subs.map(s => `<option value="${s.id}">${s.name}</option>`).join("") +
+            subs.map(s => `<option value="${s.id}">${this.formatSubOptionLabel(s)}</option>`).join("") +
             `</optgroup>`;
         })
         .join("");
-      subSelect.value = "sub_feira_sup";
+      subSelect.value = currentSub;
+    }
+  },
+
+  onQuickSubcategoryChange(subId) {
+    const accSelect = document.getElementById("quick-tx-account");
+    const ownSelect = document.getElementById("quick-tx-ownership");
+    const acc = accSelect ? this.getAccount(accSelect.value) : null;
+    const ownerId = (acc && acc.ownerId) || (this.activeUserFilter === "nubia" ? "nubia" : "bruno");
+
+    if (ownSelect) {
+      ownSelect.value = this.resolveDefaultOwnership(subId, ownerId);
+      this.flashAutoOwnershipTag("quick-ownership-auto-tag");
+    }
+  },
+
+  onQuickAccountChange(accId) {
+    const subSelect = document.getElementById("quick-tx-subcategory");
+    const ownSelect = document.getElementById("quick-tx-ownership");
+    const acc = this.getAccount(accId);
+    if (subSelect && ownSelect && acc) {
+      ownSelect.value = this.resolveDefaultOwnership(subSelect.value, acc.ownerId);
     }
   },
 
@@ -480,7 +571,10 @@ window.App = {
         btnInc.className = "px-2.5 py-1 rounded-md font-bold bg-lime-700 text-white shadow-xs transition";
         btnExp.className = "px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition";
         const subSelect = document.getElementById("quick-tx-subcategory");
-        if (subSelect) subSelect.value = this.loggedUser === "nubia" ? "sub_sal_nubia" : "sub_sal_bruno";
+        if (subSelect) {
+          subSelect.value = this.loggedUser === "nubia" ? "sub_salario_unisuam" : "sub_salario_aoro";
+          this.onQuickSubcategoryChange(subSelect.value);
+        }
       }
     }
   },
@@ -494,24 +588,23 @@ window.App = {
     const matchedSub = window.StatementParser.detectSubcategory(text, this.state);
     if (matchedSub) {
       const subSelect = document.getElementById("quick-tx-subcategory");
-      const ownSelect = document.getElementById("quick-tx-ownership");
       if (subSelect) subSelect.value = matchedSub.id;
-      if (ownSelect && matchedSub.defaultOwnership) ownSelect.value = matchedSub.defaultOwnership;
-      if (hint) hint.textContent = `• Sugerido: ${matchedSub.name}`;
+      this.onQuickSubcategoryChange(matchedSub.id);
+      const isCollective = (matchedSub.defaultOwnership || "COLLECTIVE") === "COLLECTIVE";
+      if (hint) hint.textContent = `• ${matchedSub.name} (${isCollective ? "Casa" : "Individual"})`;
     } else if (hint) {
       hint.textContent = "";
     }
   },
 
-  applyQuickPreset(descPlaceholder, subId, ownership) {
+  applyQuickPreset(descPlaceholder, subId) {
     const descInput = document.getElementById("quick-tx-desc");
     const subSelect = document.getElementById("quick-tx-subcategory");
-    const ownSelect = document.getElementById("quick-tx-ownership");
     const amountInput = document.getElementById("quick-tx-amount");
 
-    if (descInput && !descInput.value) descInput.value = descPlaceholder;
+    if (descInput) descInput.value = descPlaceholder;
     if (subSelect) subSelect.value = subId;
-    if (ownSelect) ownSelect.value = ownership;
+    this.onQuickSubcategoryChange(subId);
     if (amountInput) amountInput.focus();
   },
 
@@ -1256,7 +1349,7 @@ window.App = {
       .map(cat => {
         const subs = this.state.subcategories.filter(s => s.categoryId === cat.id);
         return `<optgroup label="${cat.name}">` +
-          subs.map(s => `<option value="${s.id}">${s.name}</option>`).join("") +
+          subs.map(s => `<option value="${s.id}">${this.formatSubOptionLabel(s)}</option>`).join("") +
           `</optgroup>`;
       })
       .join("");
@@ -1266,18 +1359,58 @@ window.App = {
     projSelect.innerHTML = `<option value="">-- Automático pela subcategoria --</option>` +
       monthProjs.map(p => `<option value="${p.id}">${p.title} (Meta: ${this.formatBRL(p.plannedAmount)})</option>`).join("");
 
+    const initialUser = prefill.paidByUserId || this.loggedUser;
+    const initialSub = prefill.subcategoryId || "sub_feira_sup";
+
     document.getElementById("tx-modal-type").value = prefill.type || "EXPENSE";
     document.getElementById("tx-modal-date").value = prefill.transactionDate || todayISO;
     document.getElementById("tx-modal-desc").value = prefill.description || "";
     document.getElementById("tx-modal-amount").value = prefill.amount !== undefined ? prefill.amount : "";
-    accSelect.value = prefill.accountId || (this.loggedUser === "nubia" ? "cc_nubia" : "card_nubank_bruno");
-    document.getElementById("tx-modal-user").value = prefill.paidByUserId || this.loggedUser;
-    document.getElementById("tx-modal-ownership").value = prefill.ownership || "COLLECTIVE";
-    subSelect.value = prefill.subcategoryId || "sub_feira_sup";
+    accSelect.value = prefill.accountId || (initialUser === "nubia" ? "cc_nubia" : "card_nubank_bruno");
+    document.getElementById("tx-modal-user").value = initialUser;
+    subSelect.value = initialSub;
+    document.getElementById("tx-modal-ownership").value = prefill.ownership || this.resolveDefaultOwnership(initialSub, initialUser);
     projSelect.value = prefill.projectionId || "";
     document.getElementById("tx-modal-installments").value = "1";
 
     modal.classList.remove("hidden");
+  },
+
+  onModalSubcategoryChange(subId) {
+    const userSelect = document.getElementById("tx-modal-user");
+    const ownSelect = document.getElementById("tx-modal-ownership");
+    const projSelect = document.getElementById("tx-modal-projection");
+    const userId = userSelect ? userSelect.value : this.loggedUser;
+
+    if (ownSelect) {
+      ownSelect.value = this.resolveDefaultOwnership(subId, userId);
+      this.flashAutoOwnershipTag("modal-ownership-auto-tag");
+    }
+
+    if (projSelect) {
+      const monthProjs = this.state.projections.filter(p => p.monthYear === this.state.settings.activeMonth);
+      const matchingProj = monthProjs.find(p => p.subcategoryId === subId);
+      projSelect.value = matchingProj ? matchingProj.id : "";
+    }
+  },
+
+  onModalAccountChange(accId) {
+    const acc = this.getAccount(accId);
+    const userSelect = document.getElementById("tx-modal-user");
+    const subSelect = document.getElementById("tx-modal-subcategory");
+    if (acc && acc.ownerId && userSelect) {
+      userSelect.value = acc.ownerId;
+      if (subSelect) this.onModalSubcategoryChange(subSelect.value);
+    }
+  },
+
+  onModalUserChange(userId) {
+    const subSelect = document.getElementById("tx-modal-subcategory");
+    const ownSelect = document.getElementById("tx-modal-ownership");
+    if (subSelect && ownSelect) {
+      ownSelect.value = this.resolveDefaultOwnership(subSelect.value, userId);
+      this.flashAutoOwnershipTag("modal-ownership-auto-tag");
+    }
   },
 
   closeTransactionModal() {
@@ -1353,14 +1486,38 @@ window.App = {
       .map(cat => {
         const subs = this.state.subcategories.filter(s => s.categoryId === cat.id);
         return `<optgroup label="${cat.name}">` +
-          subs.map(s => `<option value="${s.id}">${s.name}</option>`).join("") +
+          subs.map(s => `<option value="${s.id}">${this.formatSubOptionLabel(s)}</option>`).join("") +
           `</optgroup>`;
       })
       .join("");
 
+    const acc = this.getAccount(accSelect.value);
+    const ownSelect = document.getElementById("proj-modal-ownership");
+    if (ownSelect && subSelect.value) {
+      ownSelect.value = this.resolveDefaultOwnership(subSelect.value, acc ? acc.ownerId : "bruno");
+    }
+
     document.getElementById("proj-modal-title").value = "";
     document.getElementById("proj-modal-amount").value = "";
     modal.classList.remove("hidden");
+  },
+
+  onProjModalSubcategoryChange(subId) {
+    const accSelect = document.getElementById("proj-modal-account");
+    const acc = accSelect ? this.getAccount(accSelect.value) : null;
+    const ownSelect = document.getElementById("proj-modal-ownership");
+    if (ownSelect) {
+      ownSelect.value = this.resolveDefaultOwnership(subId, acc ? acc.ownerId : "bruno");
+    }
+  },
+
+  onProjModalAccountChange(accId) {
+    const acc = this.getAccount(accId);
+    const subSelect = document.getElementById("proj-modal-subcategory");
+    const ownSelect = document.getElementById("proj-modal-ownership");
+    if (ownSelect && subSelect) {
+      ownSelect.value = this.resolveDefaultOwnership(subSelect.value, acc ? acc.ownerId : "bruno");
+    }
   },
 
   closeProjectionModal() {
@@ -1553,6 +1710,7 @@ window.App = {
     item[field] = value || null;
 
     if (field === "subcategoryId") {
+      item.ownership = this.resolveDefaultOwnership(value, item.paidByUserId);
       const monthProjs = this.state.projections.filter(p => p.monthYear === this.state.settings.activeMonth);
       const match = monthProjs.find(p => p.subcategoryId === value);
       if (match) item.projectionId = match.id;
@@ -1625,7 +1783,13 @@ window.App = {
                     <div>
                       <div class="font-bold text-stone-800 flex items-center gap-2">
                         ${s.name}
-                        ${this.getOwnershipBadge(s.defaultOwnership)}
+                        <button
+                          onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')"
+                          title="Clique para alternar o padrão entre Casa (Casal) e Individual"
+                          class="cursor-pointer hover:opacity-80 transition"
+                        >
+                          ${this.getOwnershipBadge(s.defaultOwnership)}
+                        </button>
                       </div>
                       <div class="text-[11px] text-stone-400 mt-0.5">
                         Regras: <span class="text-lime-700 font-medium">${(s.keywords || []).join(", ") || "Nenhuma"}</span>
@@ -1633,6 +1797,9 @@ window.App = {
                     </div>
                     <div class="flex items-center gap-2 self-end sm:self-center">
                       <span class="text-stone-500">Meta: <strong class="text-stone-800">${this.formatBRL(s.defaultMeta)}</strong></span>
+                      <button onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')" class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 font-semibold transition">
+                        Alternar Divisão
+                      </button>
                       <button onclick="App.addKeywordPrompt('${s.id}')" class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-700 font-bold transition">
                         + Regra
                       </button>
@@ -1645,6 +1812,16 @@ window.App = {
         `;
       })
       .join("");
+  },
+
+  toggleSubcategoryDefaultOwnership(subId) {
+    const sub = this.state.subcategories.find(s => s.id === subId);
+    if (!sub) return;
+    sub.defaultOwnership = sub.defaultOwnership === "COLLECTIVE" ? "INDIVIDUAL_BRUNO" : "COLLECTIVE";
+    this.saveState(true);
+    this.renderAll();
+    const label = sub.defaultOwnership === "COLLECTIVE" ? "Casa (Casal)" : "Individual (Pessoal)";
+    this.showToast(`🫒 Padrão de "${sub.name}" alterado para ${label}!`, "info");
   },
 
   addKeywordPrompt(subId) {
