@@ -731,7 +731,24 @@ window.App = {
     if (filter === "bruno" || filter === "nubia") {
       this.loggedUser = filter;
     }
+    const allowed = this.getAccountsForActiveUser();
+    if (this.txFilter.accountId !== "ALL" && !allowed.some(a => a.id === this.txFilter.accountId)) {
+      this.txFilter.accountId = "ALL";
+    }
+    if (!allowed.some(a => a.id === this.importTargetAccountId) && allowed[0]) {
+      this.importTargetAccountId = allowed[0].id;
+    }
     this.renderAll();
+  },
+
+  getAccountsForActiveUser(userOverride = null) {
+    const targetUser = userOverride || this.activeUserFilter;
+    return (this.state.accounts || []).filter(a => {
+      if (a.type === "INVESTMENT") return false;
+      if (targetUser === "bruno") return a.ownerId === "bruno";
+      if (targetUser === "nubia") return a.ownerId === "nubia";
+      return true;
+    });
   },
 
   setSplitMode(mode) {
@@ -780,20 +797,16 @@ window.App = {
     const accSelect = document.getElementById("quick-tx-account");
     if (accSelect) {
       const prevVal = accSelect.value;
-      const userAccounts = this.state.accounts.filter(a => {
-        if (this.activeUserFilter === "bruno") return a.ownerId === "bruno";
-        if (this.activeUserFilter === "nubia") return a.ownerId === "nubia";
-        return true;
-      });
+      const userAccounts = this.getAccountsForActiveUser();
       accSelect.innerHTML = userAccounts
-        .map(a => `<option value="${a.id}">${a.name}</option>`)
+        .map(a => `<option value="${a.id}">${a.name}${this.activeUserFilter === "ALL" ? ` (${this.getUser(a.ownerId).name})` : ""}</option>`)
         .join("");
 
       if (prevVal && userAccounts.some(a => a.id === prevVal)) {
         accSelect.value = prevVal;
       } else {
-        // Por padrão aponta para Conta Corrente (foco em dinheiro sacado / espécie / ajustes)
-        accSelect.value = this.activeUserFilter === "nubia" ? "cc_nubia" : "cc_bruno";
+        const defaultChecking = userAccounts.find(a => a.type === "CHECKING") || userAccounts[0];
+        if (defaultChecking) accSelect.value = defaultChecking.id;
       }
     }
 
@@ -2601,16 +2614,23 @@ window.App = {
   // ABA 3: EXTRATO COMPLETO
   // ==========================================================================
   renderTransactionsTab(monthYear) {
+    const userAccounts = this.getAccountsForActiveUser();
     const accFilterEl = document.getElementById("tx-filter-account");
-    if (accFilterEl && accFilterEl.options.length <= 1) {
+    if (accFilterEl) {
+      if (this.txFilter.accountId !== "ALL" && !userAccounts.some(a => a.id === this.txFilter.accountId)) {
+        this.txFilter.accountId = "ALL";
+      }
       accFilterEl.innerHTML = `<option value="ALL">Todas as Contas</option>` +
-        this.state.accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+        userAccounts.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+      accFilterEl.value = this.txFilter.accountId;
     }
 
     const catFilterEl = document.getElementById("tx-filter-category");
-    if (catFilterEl && catFilterEl.options.length <= 1) {
+    if (catFilterEl) {
+      const prevCat = this.txFilter.categoryId || "ALL";
       catFilterEl.innerHTML = `<option value="ALL">Todas as Categorias</option>` +
         this.state.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+      catFilterEl.value = prevCat;
     }
 
     const tbody = document.getElementById("transactions-table-body");
@@ -3100,17 +3120,31 @@ window.App = {
     this.applyTxNoteValue("");
   },
 
+  populateModalAccountSelect(userId, preferredAccId = null) {
+    const accSelect = document.getElementById("tx-modal-account");
+    if (!accSelect) return;
+    const filterOwner = this.activeUserFilter !== "ALL" ? this.activeUserFilter : userId;
+    const accounts = this.getAccountsForActiveUser(filterOwner);
+    accSelect.innerHTML = accounts
+      .map(a => `<option value="${a.id}">${a.name}</option>`)
+      .join("");
+    if (preferredAccId && accounts.some(a => a.id === preferredAccId)) {
+      accSelect.value = preferredAccId;
+    } else if (accounts.length > 0) {
+      const def = accounts.find(a => a.type === "CREDIT_CARD") || accounts[0];
+      accSelect.value = def.id;
+    }
+  },
+
   openTransactionModal(prefill = {}) {
     const modal = document.getElementById("modal-transaction");
     if (!modal) return;
 
     const monthYear = this.state.settings.activeMonth;
     const todayISO = `${monthYear}-${String(new Date().getDate()).padStart(2, "0")}`;
+    const initialUser = prefill.paidByUserId || (this.activeUserFilter !== "ALL" ? this.activeUserFilter : this.loggedUser);
 
-    const accSelect = document.getElementById("tx-modal-account");
-    accSelect.innerHTML = this.state.accounts
-      .map(a => `<option value="${a.id}">${a.name}</option>`)
-      .join("");
+    this.populateModalAccountSelect(initialUser, prefill.accountId || null);
 
     const subSelect = document.getElementById("tx-modal-subcategory");
     subSelect.innerHTML = this.state.categories
@@ -3127,14 +3161,12 @@ window.App = {
     projSelect.innerHTML = `<option value="">-- Automático pela subcategoria --</option>` +
       monthProjs.map(p => `<option value="${p.id}">${p.title} (Meta: ${this.formatBRL(p.plannedAmount)})</option>`).join("");
 
-    const initialUser = prefill.paidByUserId || this.loggedUser;
     const initialSub = prefill.subcategoryId || "sub_feira_sup";
 
     document.getElementById("tx-modal-type").value = prefill.type || "EXPENSE";
     document.getElementById("tx-modal-date").value = prefill.transactionDate || todayISO;
     document.getElementById("tx-modal-desc").value = prefill.description || "";
     document.getElementById("tx-modal-amount").value = prefill.amount !== undefined ? prefill.amount : "";
-    accSelect.value = prefill.accountId || (initialUser === "nubia" ? "cc_nubia" : "card_nubank_bruno");
     document.getElementById("tx-modal-user").value = initialUser;
     subSelect.value = initialSub;
     document.getElementById("tx-modal-ownership").value = prefill.ownership || this.resolveDefaultOwnership(initialSub, initialUser);
@@ -3173,6 +3205,9 @@ window.App = {
   },
 
   onModalUserChange(userId) {
+    if (this.activeUserFilter === "ALL") {
+      this.populateModalAccountSelect(userId);
+    }
     const subSelect = document.getElementById("tx-modal-subcategory");
     const ownSelect = document.getElementById("tx-modal-ownership");
     if (subSelect && ownSelect) {
@@ -3247,8 +3282,9 @@ window.App = {
     if (!modal) return;
 
     const accSelect = document.getElementById("proj-modal-account");
-    accSelect.innerHTML = this.state.accounts
-      .map(a => `<option value="${a.id}">${a.name}</option>`)
+    const userAccounts = this.getAccountsForActiveUser();
+    accSelect.innerHTML = userAccounts
+      .map(a => `<option value="${a.id}">${a.name}${this.activeUserFilter === "ALL" ? ` (${this.getUser(a.ownerId).name})` : ""}</option>`)
       .join("");
 
     const subSelect = document.getElementById("proj-modal-subcategory");
@@ -3391,22 +3427,26 @@ window.App = {
     const accSelect = document.getElementById("import-account-select");
     if (accSelect) {
       const currentVal = accSelect.value || this.importTargetAccountId;
-      accSelect.innerHTML = this.state.accounts
-        .filter(a => a.type !== "INVESTMENT")
+      const userAccounts = this.getAccountsForActiveUser();
+      accSelect.innerHTML = userAccounts
         .map(a => {
+          const ownerTag = this.activeUserFilter === "ALL" ? ` [${this.getUser(a.ownerId).name}]` : "";
           if (a.type === "CREDIT_CARD") {
             const modeLabel = window.StatementParser
               ? window.StatementParser.getCompetenceModeLabel(a.competenceOffset)
               : "Mês da virada";
             const vCount = Array.isArray(a.virtualCards) ? a.virtualCards.length : 0;
             const vInfo = vCount > 0 ? ` • ${vCount} cartões na conta` : "";
-            return `<option value="${a.id}">${a.name} (Vira dia ${a.closingDay || 9} • ${modeLabel}${vInfo})</option>`;
+            return `<option value="${a.id}">${a.name}${ownerTag} (Vira dia ${a.closingDay || 9} • ${modeLabel}${vInfo})</option>`;
           }
-          return `<option value="${a.id}">${a.name}</option>`;
+          return `<option value="${a.id}">${a.name}${ownerTag}</option>`;
         })
         .join("");
-      if (this.state.accounts.some(a => a.id === currentVal)) {
+      if (userAccounts.some(a => a.id === currentVal)) {
         accSelect.value = currentVal;
+      } else if (userAccounts.length > 0) {
+        const preferred = userAccounts.find(a => a.type === "CREDIT_CARD") || userAccounts[0];
+        accSelect.value = preferred.id;
       }
       this.importTargetAccountId = accSelect.value;
     }
@@ -3936,12 +3976,34 @@ window.App = {
         const checkingBadgesHTML = userChecking
           .map(
             cc => `
-              <div class="flex items-center justify-between px-3.5 py-2 rounded-xl bg-stone-50 border border-stone-200/70 text-xs">
-                <div class="flex items-center gap-2">
-                  <span class="w-2.5 h-2.5 rounded-full" style="background:${cc.color || "#84cc16"}"></span>
-                  <span class="font-bold text-stone-800">${cc.name}</span>
+              <div class="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-stone-50 border border-stone-200/80 text-xs">
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                  <input
+                    type="color"
+                    value="${cc.color || "#84cc16"}"
+                    onchange="App.updateCheckingAccount('${cc.id}', 'color', this.value)"
+                    class="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                    title="Cor da conta corrente"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <input
+                      type="text"
+                      value="${cc.name}"
+                      onchange="App.updateCheckingAccount('${cc.id}', 'name', this.value)"
+                      class="w-full font-bold text-stone-800 bg-transparent border-b border-transparent hover:border-stone-300 focus:border-lime-600 focus:outline-none py-0.5"
+                      title="Clique para editar o nome desta conta"
+                    />
+                    <div class="text-[10px] text-stone-400 font-medium">Conta Corrente / Débito / Carteira (Próprio mês)</div>
+                  </div>
                 </div>
-                <span class="text-[11px] text-stone-500 font-medium">Conta Corrente / Pix (Próprio mês)</span>
+                <button
+                  type="button"
+                  onclick="App.deleteCheckingAccount('${cc.id}')"
+                  class="p-1.5 rounded-lg text-stone-300 hover:text-rose-600 hover:bg-rose-50 transition shrink-0"
+                  title="Excluir conta corrente"
+                >
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
               </div>
             `
           )
@@ -3963,7 +4025,7 @@ window.App = {
                     Contas & Cartões de ${user.name}
                   </h3>
                   <p class="text-xs text-stone-500">
-                    ${userCards.length} ${userCards.length === 1 ? "conta de cartão ativa" : "contas de cartão ativas"}
+                    ${userChecking.length} conta(s) corrente(s) • ${userCards.length} ${userCards.length === 1 ? "cartão ativo" : "cartões ativos"}
                   </p>
                 </div>
               </div>
@@ -3972,12 +4034,37 @@ window.App = {
               </span>
             </div>
 
-            <!-- Contas Correntes do Usuário -->
-            <div class="space-y-1.5">
+            <!-- Contas Correntes Independentes do Usuário -->
+            <div class="space-y-2">
               <div class="text-[11px] font-extrabold uppercase tracking-wider text-stone-400">
-                Conta Corrente / Débito
+                Contas Correntes / Débito / Carteira (${userChecking.length})
               </div>
-              ${checkingBadgesHTML}
+              <div class="space-y-2">${checkingBadgesHTML}</div>
+              <form
+                onsubmit="App.handleNewCheckingAccount(event, '${user.id}')"
+                class="flex items-center gap-2 pt-1"
+              >
+                <input
+                  id="new-checking-color-${user.id}"
+                  type="color"
+                  value="${user.id === "bruno" ? "#0ea5e9" : "#f43f5e"}"
+                  class="w-7 h-8 rounded-lg border border-stone-200 bg-white p-0.5 cursor-pointer shrink-0"
+                  title="Cor da nova conta corrente"
+                />
+                <input
+                  id="new-checking-name-${user.id}"
+                  type="text"
+                  required
+                  placeholder="Nova conta de ${user.name} (Ex: Itaú CC, Nubank Conta, Carteira...)"
+                  class="flex-1 oli-input rounded-xl px-3 py-2 text-xs font-medium"
+                />
+                <button
+                  type="submit"
+                  class="px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-900 text-white text-xs font-bold whitespace-nowrap transition cursor-pointer"
+                >
+                  + Conta
+                </button>
+              </form>
             </div>
 
             <!-- Lista de Contas de Cartão Cadastradas -->
@@ -4067,6 +4154,68 @@ window.App = {
         `;
       })
       .join("");
+  },
+
+  handleNewCheckingAccount(e, ownerId) {
+    e.preventDefault();
+    const nameEl = document.getElementById(`new-checking-name-${ownerId}`);
+    const colorEl = document.getElementById(`new-checking-color-${ownerId}`);
+    const name = (nameEl && nameEl.value || "").trim();
+    if (!name) return;
+
+    const newAcc = {
+      id: `cc_${ownerId}_${Date.now()}`,
+      name,
+      type: "CHECKING",
+      ownerId,
+      closingDay: null,
+      dueDay: null,
+      competenceOffset: 0,
+      monthlyTarget: 0,
+      color: colorEl ? colorEl.value : "#0ea5e9"
+    };
+
+    this.state.accounts.push(newAcc);
+    if (nameEl) nameEl.value = "";
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🏦 Conta "${name}" cadastrada para ${this.getUser(ownerId).name}!`, "success");
+  },
+
+  updateCheckingAccount(accId, field, value) {
+    const acc = this.state.accounts.find(a => a.id === accId && a.type === "CHECKING");
+    if (!acc) return;
+    if (field === "name") {
+      const clean = String(value || "").trim();
+      if (!clean) {
+        this.renderCardsTab(this.state.settings.activeMonth);
+        return;
+      }
+      acc.name = clean;
+    } else if (field === "color") {
+      acc.color = value || "#84cc16";
+    }
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`Conta "${acc.name}" atualizada!`, "success");
+  },
+
+  deleteCheckingAccount(accId) {
+    const acc = this.state.accounts.find(a => a.id === accId && a.type === "CHECKING");
+    if (!acc) return;
+    const sameOwnerChecking = this.state.accounts.filter(a => a.type === "CHECKING" && a.ownerId === acc.ownerId);
+    if (sameOwnerChecking.length <= 1) {
+      this.showToast(`${this.getUser(acc.ownerId).name} precisa manter pelo menos 1 conta corrente principal.`, "error");
+      return;
+    }
+    const txCount = this.state.transactions.filter(t => t.accountId === accId).length;
+    if (txCount > 0 && !confirm(`A conta "${acc.name}" possui ${txCount} lançamento(s). Deseja realmente excluí-la?`)) {
+      return;
+    }
+    this.state.accounts = this.state.accounts.filter(a => a.id !== accId);
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`Conta "${acc.name}" removida (Ctrl+Z para desfazer).`, "info");
   },
 
   handleNewCardAccount(e, ownerId) {
