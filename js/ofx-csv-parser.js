@@ -499,6 +499,9 @@ window.StatementParser = {
     const normDesc = this.normalizeText(description);
 
     const faturaKeywords = ["PAGAMENTO DE FATURA", "PAGTO FATURA", "PAGAMENTO FATURA", "PAGAMENTO RECEBIDO", "FATURA CARTAO", "DEBITO AUTOMATICO FATURA"];
+    if (isCreditCard) {
+      faturaKeywords.push("PAGAMENTO EFETUADO", "PAGTO EFETUADO");
+    }
     for (const kw of faturaKeywords) {
       if (normDesc.includes(kw)) {
         return {
@@ -1010,5 +1013,409 @@ VERSION:102
 </CCSTMTTRNRS>
 </CREDITCARDMSGSRSV1>
 </OFX>`;
+  },
+
+  groupPdfItemsIntoRows(items, yTolerance = 3.2) {
+    if (!Array.isArray(items) || items.length === 0) return [];
+    const sorted = items
+      .filter(it => it && it.str && it.str.trim().length > 0 && Array.isArray(it.transform))
+      .map(it => ({
+        str: it.str.trim(),
+        x: Number(it.transform[4]) || 0,
+        y: Number(it.transform[5]) || 0,
+        w: Number(it.width) || 0
+      }))
+      .sort((a, b) => {
+        if (Math.abs(b.y - a.y) > yTolerance) return b.y - a.y;
+        return a.x - b.x;
+      });
+
+    const rows = [];
+    for (const item of sorted) {
+      const lastRow = rows[rows.length - 1];
+      if (lastRow && Math.abs(lastRow.y - item.y) <= yTolerance) {
+        lastRow.items.push(item);
+      } else {
+        rows.push({ y: item.y, items: [item] });
+      }
+    }
+
+    return rows.map(row => {
+      row.items.sort((a, b) => a.x - b.x);
+      let lineText = "";
+      let prevEnd = null;
+      let prevStr = "";
+      for (const it of row.items) {
+        if (prevEnd !== null) {
+          const gap = it.x - prevEnd;
+          if (gap > 1.2 || /\d$/.test(prevStr) || /^[-+]?\s*(?:R\$|\d)/.test(it.str)) {
+            lineText += " ";
+          } else if (gap >= 0.4) {
+            lineText += " ";
+          }
+        }
+        lineText += it.str;
+        prevEnd = it.x + it.w;
+        prevStr = it.str;
+      }
+      return {
+        y: row.y,
+        text: lineText.replace(/\s+/g, " ").trim()
+      };
+    }).filter(r => r.text.length > 0);
+  },
+
+  async extractPdfTextLines(arrayBuffer, password = null) {
+    if (!window.pdfjsLib) {
+      throw new Error("PDF_LIB_MISSING");
+    }
+    const cdnWorker = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    if (window.pdfjsLib.GlobalWorkerOptions && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = cdnWorker;
+    }
+
+    // Garante disponibilidade do worker no escopo global caso WebWorker cross-origin falhe (file:// ou CSP)
+    if (!window.pdfjsWorker) {
+      await new Promise((resolve) => {
+        const s = document.createElement("script");
+        s.src = cdnWorker;
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => resolve();
+        document.head.appendChild(s);
+      });
+    }
+
+    const loadTask = window.pdfjsLib.getDocument({
+      data: arrayBuffer,
+      password: password || undefined
+    });
+    const pdfDoc = await loadTask.promise;
+
+    const allLines = [];
+    const headerLines = [];
+
+    for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1 });
+      const pageWidth = viewport.width || 595;
+      const textContent = await page.getTextContent();
+      const rawItems = textContent.items || [];
+
+      if (pageNum === 1) {
+        const unsplitP1 = this.groupPdfItemsIntoRows(rawItems);
+        unsplitP1.forEach(r => headerLines.push(r.text));
+      }
+
+      // Detecta layout em 2 colunas típico das faturas do Cartão Itaú
+      const rightColDateHits = rawItems.filter(it => {
+        if (!it || !it.str || !Array.isArray(it.transform)) return false;
+        const x = Number(it.transform[4]) || 0;
+        const t = it.str.trim();
+        return x >= pageWidth * 0.45 && x <= pageWidth * 0.72 && /^\d{2}\/\d{2}(?:\/\d{2,4})?$/.test(t);
+      }).length;
+
+      const leftColDateHits = rawItems.filter(it => {
+        if (!it || !it.str || !Array.isArray(it.transform)) return false;
+        const x = Number(it.transform[4]) || 0;
+        const t = it.str.trim();
+        return x < pageWidth * 0.45 && /^\d{2}\/\d{2}(?:\/\d{2,4})?$/.test(t);
+      }).length;
+
+      if (rightColDateHits >= 2 && leftColDateHits >= 1) {
+        const splitX = pageWidth * 0.48;
+        const leftItems = rawItems.filter(it => Array.isArray(it.transform) && (Number(it.transform[4]) || 0) < splitX);
+        const rightItems = rawItems.filter(it => Array.isArray(it.transform) && (Number(it.transform[4]) || 0) >= splitX);
+        this.groupPdfItemsIntoRows(leftItems).forEach(r => allLines.push(r.text));
+        this.groupPdfItemsIntoRows(rightItems).forEach(r => allLines.push(r.text));
+      } else {
+        this.groupPdfItemsIntoRows(rawItems).forEach(r => allLines.push(r.text));
+      }
+    }
+
+    return { headerLines, lines: allLines };
+  },
+
+  extractItauPdfMetadata(headerLines, allLines, fallbackMonth = "2026-11") {
+    const [fbY, fbM] = (fallbackMonth || "2026-11").split("-").map(Number);
+    let refYear = fbY || 2026;
+    let refMonth = fbM || 11;
+    let explicitCutoffISO = null;
+
+    const searchPool = [...(headerLines || []), ...(allLines || []).slice(0, 60)];
+    let foundRef = false;
+    for (const line of searchPool) {
+      // Vencimento: 19/11/2026 | Emissão: 12/11/2026 | Fechamento: 12/11/2026
+      const mVenc = line.match(/(?:VENCIMENTO|VENC\.?|FECHAMENTO|EMISS[AÃ]O|PER[IÍ]ODO\s+AT[EÉ])[^0-9]{0,20}(\d{2})\/(\d{2})\/(\d{4})/i);
+      if (mVenc) {
+        if (!foundRef) {
+          refMonth = parseInt(mVenc[2], 10) || refMonth;
+          refYear = parseInt(mVenc[3], 10) || refYear;
+          foundRef = true;
+        }
+        if (/FECHAMENTO|EMISS|PER[IÍ]ODO/i.test(line) && !explicitCutoffISO) {
+          explicitCutoffISO = `${mVenc[3]}-${mVenc[2]}-${mVenc[1]}`;
+        }
+        if (foundRef && explicitCutoffISO) break;
+      }
+    }
+
+    if (!foundRef) {
+      for (const line of searchPool) {
+        const mYear = line.match(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/);
+        if (mYear) {
+          refMonth = parseInt(mYear[2], 10) || refMonth;
+          refYear = parseInt(mYear[3], 10) || refYear;
+          break;
+        }
+      }
+    }
+
+    return { refYear, refMonth, explicitCutoffISO };
+  },
+
+  resolveItauDateToken(dateToken, refYear, refMonth) {
+    const parts = (dateToken || "").split("/");
+    const dd = String(parseInt(parts[0], 10) || 1).padStart(2, "0");
+    const mmNum = parseInt(parts[1], 10) || refMonth || 1;
+    const mm = String(mmNum).padStart(2, "0");
+
+    let yyyy = refYear || 2026;
+    if (parts[2]) {
+      yyyy = parts[2].length === 2 ? 2000 + parseInt(parts[2], 10) : parseInt(parts[2], 10);
+    } else {
+      // Virada de ano entre dezembro e janeiro/fevereiro
+      if (refMonth <= 2 && mmNum >= 11) {
+        yyyy = refYear - 1;
+      } else if (refMonth >= 11 && mmNum <= 2) {
+        yyyy = refYear + 1;
+      }
+    }
+    return `${yyyy}-${mm}-${dd}`;
+  },
+
+  parseItauPdfLines(lines, headerLines, account, competenceMonth, state, competenceMode = "SMART_INVOICE") {
+    const isCreditCard = !account || account.type === "CREDIT_CARD";
+    const meta = this.extractItauPdfMetadata(headerLines, lines, competenceMonth);
+    const rawItems = [];
+
+    let skipSummarySection = false;
+    let currentCardEnding = "";
+    let currentSectionType = "PURCHASES";
+
+    const txRegex = /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\s*(?:R\$\s*)?\d{1,3}(?:\.\d{3})*,\d{2}\s*[-+]?(?:\s*[CD])?)$/i;
+
+    for (const rawLine of lines || []) {
+      const line = (rawLine || "").replace(/\s+/g, " ").trim();
+      if (!line) continue;
+      const norm = this.normalizeText(line);
+
+      // Seções de resumo futuro / limites / encargos do Itaú que NÃO devem entrar como lançamentos atuais
+      if (
+        /COMPRAS\s+PARCELADAS\s*[-–]?\s*PROXIMAS|PROXIMAS\s+FATURAS|LANCAMENTOS\s+FUTUROS|LIMITE\s+DE\s+CREDITO|ENCARGOS\s+FINANCEIROS|TAXAS\s+DE\s+JUROS|FINANCIAMENTO\s+DA\s+FATURA/.test(
+          norm
+        )
+      ) {
+        skipSummarySection = true;
+        continue;
+      }
+
+      if (
+        /LANCAMENTOS\s*:?\s*COMPRAS|LANCAMENTOS\s+NO\s+CARTAO|LANCAMENTOS\s+NACIONAIS|LANCAMENTOS\s+INTERNACIONAIS|DESPESAS\s+NO\s+CARTAO|MOVIMENTACAO\s+DE\s+CONTA|EXTRATO\s+MENSAL/.test(
+          norm
+        )
+      ) {
+        skipSummarySection = false;
+        currentSectionType = "PURCHASES";
+      } else if (/PAGAMENTOS\s+E\s+CREDITOS|CREDITOS\s+E\s+ESTORNOS|ESTORNOS\s+E\s+CREDITOS/.test(norm)) {
+        skipSummarySection = false;
+        currentSectionType = "CREDITS";
+      } else if (/PRODUTOS\s+E\s+SERVICOS/.test(norm)) {
+        skipSummarySection = false;
+        currentSectionType = "PURCHASES";
+      }
+
+      const mCard = line.match(/\(final\s*(\d{4})\)|\bfinal\s*(\d{4})\b/i);
+      if (mCard && !txRegex.test(line)) {
+        currentCardEnding = mCard[1] || mCard[2] || "";
+        continue;
+      }
+
+      if (skipSummarySection) continue;
+
+      // Linhas de saldo / totais não devem virar transação
+      if (
+        /^(SALDO\s+ANTERIOR|SALDO\s+FINAL|SALDO\s+DO\s+DIA|SALDO\s+DISPONIVEL|S\s*A\s*L\s*D\s*O|TOTAL\s|SUBTOTAL)/.test(
+          norm
+        ) ||
+        norm.includes("SALDO ANTERIOR") ||
+        norm.includes("SALDO DO DIA") ||
+        norm.includes("TOTAL DOS LANCAMENTOS") ||
+        norm.includes("TOTAL DESTA FATURA") ||
+        norm.includes("PAGAMENTO MINIMO")
+      ) {
+        continue;
+      }
+
+      const m = line.match(txRegex);
+      if (!m) continue;
+
+      const dateToken = m[1];
+      let desc = (m[2] || "").replace(/\s+/g, " ").trim();
+      const valToken = (m[3] || "").trim();
+      const normDesc = this.normalizeText(desc);
+
+      // Evita falsos matches em cabeçalhos numéricos ou resumo
+      if (
+        !desc ||
+        desc.length < 2 ||
+        /^(TOTAL|SUBTOTAL|VALOR\s+DA\s+FATURA|FATURA\s+ANTERIOR|PAGAMENTO\s+MINIMO|ENCARGOS)/.test(normDesc)
+      ) {
+        continue;
+      }
+
+      const numMatch = valToken.match(/(\d{1,3}(?:\.\d{3})*,\d{2})/);
+      if (!numMatch) continue;
+      const absAmount = parseFloat(numMatch[1].replace(/\./g, "").replace(",", "."));
+      if (isNaN(absAmount) || absAmount === 0) continue;
+
+      const hasMinus = valToken.includes("-") || /\s-/.test(valToken);
+      const hasCreditTag = /\bC$/i.test(valToken) || currentSectionType === "CREDITS";
+      const hasDebitTag = /\bD$/i.test(valToken);
+
+      const txDate = this.resolveItauDateToken(dateToken, meta.refYear, meta.refMonth);
+
+      // Convenção interna: em CREDIT_CARD, despesas são < 0 e créditos/estornos/pagamentos são > 0
+      let signedVal;
+      if (isCreditCard) {
+        const isCreditLine = hasMinus || hasCreditTag || this.isLikelyRefundDescription(desc);
+        signedVal = isCreditLine ? absAmount : -absAmount;
+      } else {
+        const isDebitLine = hasMinus || hasDebitTag || !hasCreditTag;
+        signedVal = isDebitLine ? -absAmount : absAmount;
+      }
+
+      rawItems.push({
+        txDate,
+        description: desc,
+        signedVal,
+        absAmount,
+        cardEnding: currentCardEnding
+      });
+    }
+
+    if (rawItems.length === 0) {
+      return [];
+    }
+
+    let forcedInvoiceMonth = null;
+    if (/^\d{4}-\d{2}$/.test(competenceMode)) {
+      forcedInvoiceMonth = competenceMode;
+    } else if (competenceMode === "SMART_INVOICE" && isCreditCard) {
+      forcedInvoiceMonth = this.inferInvoiceMonthFromDates(
+        rawItems.map(r => r.txDate),
+        account,
+        competenceMonth
+      );
+    }
+
+    const baseCounts = new Map();
+    const results = [];
+
+    for (const raw of rawItems) {
+      const { txDate, description, signedVal, absAmount, cardEnding } = raw;
+      const inst = this.detectInstallments(description, isCreditCard);
+      const itemCycleMonth = this.computeCompetenceMonth(txDate, account, competenceMonth);
+      const resolvedCompetence = forcedInvoiceMonth || itemCycleMonth;
+      const classification = this.autoClassify(
+        description,
+        signedVal,
+        isCreditCard,
+        state.subcategories,
+        state.projections,
+        resolvedCompetence,
+        account.ownerId || "bruno",
+        state
+      );
+
+      let finalType = classification.type;
+      let isInvoiceCredit = false;
+      let finalAmount = absAmount;
+
+      if (finalType !== "TRANSFER") {
+        if (isCreditCard) {
+          if (signedVal > 0) {
+            isInvoiceCredit = true;
+            finalType = "EXPENSE";
+            finalAmount = -absAmount;
+          } else {
+            finalType = "EXPENSE";
+            finalAmount = absAmount;
+          }
+        } else {
+          finalType = signedVal > 0 ? "INCOME" : "EXPENSE";
+        }
+      }
+
+      const baseHash = `pdf_itau_${account.id}_${txDate}_${absAmount.toFixed(2)}_${this.normalizeText(description).slice(0, 24)}`;
+      const occ = (baseCounts.get(baseHash) || 0) + 1;
+      baseCounts.set(baseHash, occ);
+      const importHash = occ > 1 ? `${baseHash}_${occ}` : baseHash;
+
+      const alreadyExists = (state.transactions || []).some(t => t.importHash === importHash);
+
+      const candidateForSibling = {
+        description,
+        accountId: account.id,
+        competenceMonth: resolvedCompetence,
+        installmentCurrent: inst.current,
+        installmentTotal: inst.total,
+        amount: finalAmount
+      };
+      const siblingMatch = finalType === "EXPENSE"
+        ? this.findSiblingInstallmentClassification(candidateForSibling, state)
+        : null;
+      const pixInfo = this.extractTransferPixDetails(description, finalType, account);
+
+      let defaultNote = (siblingMatch && siblingMatch.notes) || "";
+      if (!defaultNote && cardEnding && isCreditCard) {
+        defaultNote = `Final ${cardEnding}`;
+      }
+
+      results.push({
+        tempId: "imp_" + Math.random().toString(36).substring(2, 9),
+        selected: !alreadyExists && finalType !== "TRANSFER",
+        alreadyExists,
+        transactionDate: txDate,
+        competenceMonth: resolvedCompetence,
+        cycleCompetenceMonth: itemCycleMonth,
+        description,
+        notes: defaultNote,
+        counterparty: pixInfo.counterparty || "",
+        originLabel: pixInfo.originLabel || "",
+        destinationLabel: pixInfo.destinationLabel || "",
+        amount: finalAmount,
+        isInvoiceCredit,
+        type: finalType,
+        accountId: account.id,
+        paidByUserId: account.ownerId || "bruno",
+        ownership: siblingMatch ? siblingMatch.ownership : classification.ownership,
+        subcategoryId: siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId,
+        projectionId: classification.projectionId,
+        installmentCurrent: inst.current,
+        installmentTotal: inst.total,
+        importHash,
+        confidence: siblingMatch ? "HIGH" : classification.confidence,
+        memoryMatched: Boolean(siblingMatch || classification.matchedBy === "MEMORY" || classification.matchedBy === "HISTORY"),
+        pdfExplicitCutoff: meta.explicitCutoffISO || null
+      });
+    }
+
+    return results;
+  },
+
+  async parseItauPDF(arrayBuffer, account, competenceMonth, state, competenceMode = "SMART_INVOICE", password = null) {
+    const { headerLines, lines } = await this.extractPdfTextLines(arrayBuffer, password);
+    return this.parseItauPdfLines(lines, headerLines, account, competenceMonth, state, competenceMode);
   }
 };

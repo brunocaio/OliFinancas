@@ -4201,7 +4201,42 @@ window.App = {
     this.renderStagedStatementMetaBar();
   },
 
-  handleStatementFileUpload(fileList, inputEl = null) {
+  stageParsedStatement(parsed, fileName, account, monthYear, explicitRange = {}) {
+    const accId = account ? account.id : this.importTargetAccountId;
+    const txDates = parsed.map(p => p.transactionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    const periodStart = txDates[0] || explicitRange.dtStart || `${monthYear}-01`;
+    const periodEnd = txDates[txDates.length - 1] || explicitRange.dtEnd || periodStart;
+    const explicitCutoff = parsed[0]?.pdfExplicitCutoff || explicitRange.dtEnd || null;
+    const cutoffDate = explicitCutoff && explicitCutoff > periodEnd ? explicitCutoff : periodEnd;
+    const months = Array.from(new Set(parsed.map(i => i.competenceMonth).filter(Boolean)));
+    const primaryMonth = months[months.length - 1] || monthYear;
+    const inferredStatus = window.StatementParser.inferStatementImportStatus
+      ? window.StatementParser.inferStatementImportStatus(account, primaryMonth, cutoffDate)
+      : "PARTIAL";
+
+    this.pushUndoSnapshot();
+    this.stagedImports = parsed;
+    this.stagedImportMeta = {
+      fileName,
+      accountId: accId,
+      primaryMonth,
+      periodStart,
+      periodEnd,
+      cutoffDate,
+      status: inferredStatus,
+      consolidatePartial: true
+    };
+    this.lastSavedSnapshot = JSON.stringify({
+      state: this.state,
+      stagedImports: this.stagedImports
+    });
+    this.renderImportTab(monthYear);
+    this.updateUndoAndBulkUI();
+    const detectedMonths = Array.from(new Set(parsed.map(i => this.getMonthLabel(i.competenceMonth))));
+    this.showToast(`🫒 ${parsed.length} lançamentos prontos para revisão (${detectedMonths.join(", ")})!`, "success");
+  },
+
+  async handleStatementFileUpload(fileList, inputEl = null) {
     if (!fileList || fileList.length === 0) return;
     const file = fileList[0];
     const accId = document.getElementById("import-account-select").value;
@@ -4210,6 +4245,63 @@ window.App = {
     const monthYear = this.state.settings.activeMonth;
     const compSelect = document.getElementById("import-competence-select");
     this.importCompetenceMode = (compSelect && compSelect.value) || "SMART_INVOICE";
+
+    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+
+    if (isPdf) {
+      const accNameNorm = window.StatementParser
+        ? window.StatementParser.normalizeText(account ? account.name : "")
+        : (account ? account.name.toUpperCase() : "");
+      if (!accNameNorm.includes("ITAU")) {
+        this.showToast("Importação de PDF foi feita para o Itaú (para Nubank/BB prefira .OFX). Lendo arquivo...", "info");
+      }
+
+      try {
+        const buffer = await file.arrayBuffer();
+        let password = null;
+        let parsed = null;
+
+        while (true) {
+          try {
+            parsed = await window.StatementParser.parseItauPDF(
+              buffer.slice(0),
+              account,
+              monthYear,
+              this.state,
+              this.importCompetenceMode,
+              password
+            );
+            break;
+          } catch (pdfErr) {
+            if (pdfErr && (pdfErr.name === "PasswordException" || /password/i.test(pdfErr.message || ""))) {
+              const promptMsg = password === null
+                ? "Este PDF do Itaú está protegido por senha (geralmente os primeiros dígitos do CPF). Informe a senha para abrir:"
+                : "Senha incorreta para este PDF do Itaú. Tente novamente:";
+              const entered = prompt(promptMsg, "");
+              if (entered === null) {
+                if (inputEl) inputEl.value = "";
+                return;
+              }
+              password = entered.trim();
+            } else {
+              throw pdfErr;
+            }
+          }
+        }
+
+        if (inputEl) inputEl.value = "";
+        if (!parsed || parsed.length === 0) {
+          this.showToast("Nenhum lançamento reconhecido neste PDF do Itaú (verifique se o arquivo possui texto selecionável).", "error");
+          return;
+        }
+        this.stageParsedStatement(parsed, file.name, account, monthYear);
+      } catch (err) {
+        if (inputEl) inputEl.value = "";
+        console.error("Erro ao importar PDF Itaú:", err);
+        this.showToast("Não foi possível ler este PDF do Itaú. Verifique o arquivo ou tente outra versão.", "error");
+      }
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -4227,39 +4319,11 @@ window.App = {
         return;
       }
 
-      const txDates = parsed.map(p => p.transactionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
       const ofxRange = isOFX && window.StatementParser.extractOFXDateRange
         ? window.StatementParser.extractOFXDateRange(content)
         : { dtStart: null, dtEnd: null };
-      const periodStart = txDates[0] || ofxRange.dtStart || `${monthYear}-01`;
-      const periodEnd = txDates[txDates.length - 1] || ofxRange.dtEnd || periodStart;
-      const cutoffDate = ofxRange.dtEnd && ofxRange.dtEnd > periodEnd ? ofxRange.dtEnd : periodEnd;
-      const months = Array.from(new Set(parsed.map(i => i.competenceMonth).filter(Boolean)));
-      const primaryMonth = months[months.length - 1] || monthYear;
-      const inferredStatus = window.StatementParser.inferStatementImportStatus
-        ? window.StatementParser.inferStatementImportStatus(account, primaryMonth, cutoffDate)
-        : "PARTIAL";
 
-      this.pushUndoSnapshot();
-      this.stagedImports = parsed;
-      this.stagedImportMeta = {
-        fileName: file.name,
-        accountId: accId,
-        primaryMonth,
-        periodStart,
-        periodEnd,
-        cutoffDate,
-        status: inferredStatus,
-        consolidatePartial: true
-      };
-      this.lastSavedSnapshot = JSON.stringify({
-        state: this.state,
-        stagedImports: this.stagedImports
-      });
-      this.renderImportTab(monthYear);
-      this.updateUndoAndBulkUI();
-      const detectedMonths = Array.from(new Set(parsed.map(i => this.getMonthLabel(i.competenceMonth))));
-      this.showToast(`🫒 ${parsed.length} lançamentos prontos para revisão (${detectedMonths.join(", ")})!`, "success");
+      this.stageParsedStatement(parsed, file.name, account, monthYear, ofxRange);
     };
     reader.readAsText(file, "UTF-8");
   },
