@@ -22,6 +22,9 @@ window.App = {
   budgetGroupMode: "MACRO",
   installmentGroupMode: "CATEGORY",
   installmentScopeFilter: "ACTIVE_MONTH",
+  financingTableExpanded: false,
+  financingTableScope: "NEXT_12",
+  updatingFinancingId: null,
   expandedTreeKeys: {},
   expandedTreeDescIds: {},
   showAllTreeFullText: false,
@@ -331,6 +334,67 @@ window.App = {
         });
       }
       stateObj.schemaPatch = 7;
+      changed = true;
+    }
+
+    // Patch incremental 8: registra Conta Corrente Itaú (para financiamento imobiliário),
+    // subcategoria "Financiamento Imobiliário" e tabela oficial SAC de 420 parcelas (DDC Contrato 10307559107)
+    if (!Array.isArray(stateObj.housingFinancings)) {
+      stateObj.housingFinancings = [];
+      changed = true;
+    }
+    if ((stateObj.schemaPatch || 0) < 8) {
+      if (!Array.isArray(stateObj.accounts)) stateObj.accounts = [];
+      const normName = (s) => (window.StatementParser ? window.StatementParser.normalizeText(s) : String(s || "").toUpperCase());
+      let itauChecking = stateObj.accounts.find(
+        a => a && a.type === "CHECKING" && normName(a.name).includes("ITAU")
+      );
+      if (!itauChecking) {
+        itauChecking = {
+          id: "cc_bruno_itau",
+          name: "Conta Corrente Itaú",
+          type: "CHECKING",
+          ownerId: "bruno",
+          closingDay: null,
+          dueDay: null,
+          monthlyTarget: 0,
+          color: "#f97316"
+        };
+        stateObj.accounts.push(itauChecking);
+        changed = true;
+      }
+
+      if (Array.isArray(stateObj.subcategories)) {
+        const hasFinSub = stateObj.subcategories.some(
+          s => s && (s.id === "sub_financiamento_imob" || normName(s.name).includes("FINANCIAMENTO IMOB"))
+        );
+        if (!hasFinSub) {
+          const casaCat = (stateObj.categories || []).find(c => c.id === "cat_casa") ||
+            (stateObj.categories || []).find(c => c.type === "EXPENSE");
+          if (casaCat) {
+            stateObj.subcategories.push({
+              id: "sub_financiamento_imob",
+              categoryId: casaCat.id,
+              name: "Financiamento Imobiliário",
+              defaultOwnership: "COLLECTIVE",
+              defaultAccountId: itauChecking.id,
+              defaultMeta: 5297.87,
+              isFixed: true,
+              keywords: ["FINANCIAMENTO", "HABITACIONAL", "CREDITO IMOBILIARIO", "PRESTACAO IMOVEL", "SFH", "10307559107"]
+            });
+            changed = true;
+          }
+        }
+      }
+
+      if (stateObj.housingFinancings.length === 0 && window.DEFAULT_HOUSING_FINANCING) {
+        const finCopy = JSON.parse(JSON.stringify(window.DEFAULT_HOUSING_FINANCING));
+        finCopy.accountId = itauChecking.id;
+        stateObj.housingFinancings.push(finCopy);
+        changed = true;
+      }
+
+      stateObj.schemaPatch = 8;
       changed = true;
     }
 
@@ -2634,6 +2698,7 @@ window.App = {
     const userFilter = this.activeUserFilter;
     const allInstTxs = (this.state.transactions || []).filter(tx => {
       if (!tx || tx.type !== "EXPENSE" || (Number(tx.installmentTotal) || 1) <= 1) return false;
+      if (tx.subcategoryId === "sub_financiamento_imob" || (tx.importHash && tx.importHash.startsWith("fin_"))) return false;
       if (userFilter === "bruno") return tx.paidByUserId === "bruno" || tx.ownership === "INDIVIDUAL_BRUNO";
       if (userFilter === "nubia") return tx.paidByUserId === "nubia" || tx.ownership === "INDIVIDUAL_NUBIA";
       return true;
@@ -2940,21 +3005,31 @@ window.App = {
     const totalRemainingSum = filtered.reduce((sum, s) => sum + s.remainingValue, 0);
     const finishingSoonCount = filtered.filter(s => s.remainingCount <= 1).length;
 
+    const financingStats = this.renderHousingFinancingPanel(monthYear);
+    const combinedMonthTotal = monthlyParcelSum + financingStats.monthlyAmount;
+
     kpisEl.innerHTML = `
       <div class="oli-card rounded-2xl p-4">
         <div class="text-xs font-bold text-stone-500">Parcelas em ${this.getMonthLabel(monthYear)}</div>
-        <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(monthlyParcelSum)}</div>
-        <div class="text-[11px] text-stone-400 mt-1">${filtered.length} compra(s) parcelada(s) exibida(s)</div>
+        <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(combinedMonthTotal)}</div>
+        <div class="text-[11px] text-stone-500 mt-1">
+          Cartões (${filtered.length}): <strong>${this.formatBRL(monthlyParcelSum)}</strong>
+          ${financingStats.activeCount > 0 ? ` • Imóvel: <strong class="text-orange-700">${this.formatBRL(financingStats.monthlyAmount)}</strong>` : ""}
+        </div>
       </div>
       <div class="oli-card rounded-2xl p-4">
-        <div class="text-xs font-bold text-stone-500">Falta Pagar (Próximas Faturas)</div>
+        <div class="text-xs font-bold text-stone-500">Falta Pagar (Cartões)</div>
         <div class="text-xl font-extrabold text-amber-700 mt-1">${this.formatBRL(totalRemainingSum)}</div>
-        <div class="text-[11px] text-stone-400 mt-1">Comprometimento futuro somado</div>
+        <div class="text-[11px] text-stone-500 mt-1">
+          ${financingStats.activeCount > 0 ? `Saldo Devedor Financiamento: <strong class="text-stone-700">${this.formatBRL(financingStats.currentBalance)}</strong>` : "Comprometimento futuro dos cartões"}
+        </div>
       </div>
       <div class="oli-card rounded-2xl p-4">
-        <div class="text-xs font-bold text-stone-500">Encerrando em Breve</div>
-        <div class="text-xl font-extrabold text-lime-800 mt-1">${finishingSoonCount} ${finishingSoonCount === 1 ? "compra" : "compras"}</div>
-        <div class="text-[11px] text-stone-400 mt-1">Última parcela agora ou no próximo mês</div>
+        <div class="text-xs font-bold text-stone-500">Horizonte & Encerramento</div>
+        <div class="text-xl font-extrabold text-lime-800 mt-1">${finishingSoonCount} ${finishingSoonCount === 1 ? "compra" : "compras"} <span class="text-xs font-semibold text-stone-500">terminando</span></div>
+        <div class="text-[11px] text-stone-500 mt-1">
+          ${financingStats.activeCount > 0 ? `Imóvel SAC: <strong>${financingStats.currentInstallment}/${financingStats.totalTerm}</strong> (restam ${financingStats.remainingMonths}m)` : "Última parcela agora ou no próximo mês"}
+        </div>
       </div>
     `;
 
@@ -3053,6 +3128,437 @@ window.App = {
         `;
       })
       .join("");
+  },
+
+  // ==========================================================================
+  // CONTROLE DO FINANCIAMENTO IMOBILIÁRIO (TABELA EVOLUTIVA SAC / DDC ITAÚ)
+  // ==========================================================================
+  getActiveFinancingRow(fin, monthYear) {
+    const sched = Array.isArray(fin && fin.schedule) ? fin.schedule : [];
+    if (sched.length === 0) return { row: null, idx: -1, nextRow: null };
+    let idx = sched.findIndex(r => r.competenceMonth === monthYear);
+    if (idx === -1) {
+      if (monthYear < sched[0].competenceMonth) {
+        idx = 0;
+      } else {
+        idx = sched.length - 1;
+      }
+    }
+    return {
+      row: sched[idx],
+      idx,
+      nextRow: idx + 1 < sched.length ? sched[idx + 1] : null
+    };
+  },
+
+  toggleFinancingTable() {
+    this.financingTableExpanded = !this.financingTableExpanded;
+    this.renderInstallmentsTab(this.state.settings.activeMonth);
+    if (window.lucide) window.lucide.createIcons();
+  },
+
+  setFinancingTableScope(scope) {
+    this.financingTableScope = scope || "NEXT_12";
+    this.renderInstallmentsTab(this.state.settings.activeMonth);
+    if (window.lucide) window.lucide.createIcons();
+  },
+
+  toggleFinancingInstallmentStatus(finId, instNum) {
+    const fin = (this.state.housingFinancings || []).find(f => f.id === finId);
+    if (!fin || !Array.isArray(fin.schedule)) return;
+    const row = fin.schedule.find(r => Number(r.installment) === Number(instNum));
+    if (!row) return;
+    row.status = row.status === "Paga" ? "Projetada" : "Paga";
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🏠 Parcela ${row.installment}/${fin.totalTermMonths} marcada como "${row.status}"!`, "info");
+  },
+
+  launchFinancingInstallmentForMonth(finId, monthYear) {
+    const fin = (this.state.housingFinancings || []).find(f => f.id === finId);
+    if (!fin) return;
+    const { row } = this.getActiveFinancingRow(fin, monthYear);
+    if (!row) return;
+
+    const acc = this.getAccount(fin.accountId) || this.state.accounts.find(a => a.type === "CHECKING") || this.state.accounts[0];
+    const targetSub = (this.state.subcategories || []).find(s => s.id === (fin.subcategoryId || "sub_financiamento_imob")) ||
+      (this.state.subcategories || []).find(s => s.id === "sub_outros") ||
+      this.state.subcategories[0];
+
+    const newTx = {
+      id: "tx_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+      transactionDate: row.dueDate,
+      competenceMonth: row.competenceMonth,
+      description: `Parcela ${row.installment}/${fin.totalTermMonths} - Financiamento Imobiliário Itaú`,
+      notes: `Contrato ${fin.contractNumber} • Amort. ${this.formatBRL(row.amortization)} + Juros ${this.formatBRL(row.interest)} + Seg/TCA ${this.formatBRL(row.mip + row.dfi + row.tca)}`,
+      amount: Number(row.total.toFixed(2)),
+      type: "EXPENSE",
+      accountId: acc ? acc.id : fin.accountId,
+      paidByUserId: (acc && acc.ownerId) || fin.ownerId || "bruno",
+      ownership: fin.ownership || "COLLECTIVE",
+      subcategoryId: targetSub ? targetSub.id : "sub_outros",
+      projectionId: null,
+      installmentCurrent: row.installment,
+      installmentTotal: fin.totalTermMonths,
+      importHash: `fin_${fin.contractNumber}_p${row.installment}`
+    };
+
+    this.state.transactions.push(newTx);
+    row.status = "Paga";
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🏠 Parcela ${row.installment}/${fin.totalTermMonths} (${this.formatBRL(row.total)}) lançada na ${acc ? acc.name : "Conta Itaú"}!`, "success");
+  },
+
+  openDDCUpload(finId) {
+    this.updatingFinancingId = finId;
+    const inp = document.getElementById("ddc-pdf-upload-input");
+    if (inp) inp.click();
+  },
+
+  async handleDDCUpload(fileList, inputEl = null) {
+    if (!fileList || fileList.length === 0) return;
+    const file = fileList[0];
+    const finId = this.updatingFinancingId || (this.state.housingFinancings && this.state.housingFinancings[0]?.id);
+    const fin = (this.state.housingFinancings || []).find(f => f.id === finId);
+    if (!fin) {
+      if (inputEl) inputEl.value = "";
+      return;
+    }
+
+    try {
+      const buffer = await file.arrayBuffer();
+      let password = null;
+      let parsedDDC = null;
+
+      while (true) {
+        try {
+          parsedDDC = await window.StatementParser.parseItauDDCPDF(buffer.slice(0), password);
+          break;
+        } catch (pdfErr) {
+          if (pdfErr && (pdfErr.name === "PasswordException" || /password/i.test(pdfErr.message || ""))) {
+            const entered = prompt("Este DDC do Itaú possui senha. Informe a senha para atualizar:", "");
+            if (entered === null) {
+              if (inputEl) inputEl.value = "";
+              return;
+            }
+            password = entered.trim();
+          } else {
+            throw pdfErr;
+          }
+        }
+      }
+
+      if (inputEl) inputEl.value = "";
+      if (!parsedDDC || !parsedDDC.schedule || parsedDDC.schedule.length === 0) {
+        this.showToast("Nenhuma linha de parcela SAC reconhecida neste PDF DDC.", "error");
+        return;
+      }
+
+      if (parsedDDC.contractNumber) fin.contractNumber = parsedDDC.contractNumber;
+      if (parsedDDC.totalTermMonths) fin.totalTermMonths = parsedDDC.totalTermMonths;
+      if (parsedDDC.monthlyInterestRate) fin.monthlyInterestRate = parsedDDC.monthlyInterestRate;
+      if (parsedDDC.annualInterestRate) fin.annualInterestRate = parsedDDC.annualInterestRate;
+      if (parsedDDC.annualEffectiveRate) fin.annualEffectiveRate = parsedDDC.annualEffectiveRate;
+      if (parsedDDC.lastInstallmentValue) fin.lastInstallmentValue = parsedDDC.lastInstallmentValue;
+      if (parsedDDC.lastDueDate) fin.lastDueDate = parsedDDC.lastDueDate;
+      fin.schedule = parsedDDC.schedule;
+      fin.issuedAt = new Date().toISOString();
+
+      this.saveState(true);
+      this.renderAll();
+      this.showToast(`🏠 Tabela do financiamento atualizada via DDC (${parsedDDC.schedule.length} parcelas)!`, "success");
+    } catch (err) {
+      if (inputEl) inputEl.value = "";
+      console.error("Erro ao ler DDC Itaú:", err);
+      this.showToast("Não foi possível ler este PDF DDC do Itaú.", "error");
+    }
+  },
+
+  renderHousingFinancingPanel(monthYear) {
+    const container = document.getElementById("installments-financing-container");
+    const emptyStats = { activeCount: 0, monthlyAmount: 0, currentBalance: 0, currentInstallment: 0, totalTerm: 0, remainingMonths: 0 };
+    if (!container) return emptyStats;
+
+    const allFins = Array.isArray(this.state.housingFinancings) ? this.state.housingFinancings : [];
+    const userFilter = this.activeUserFilter;
+    const visibleFins = allFins.filter(fin => {
+      if (!fin) return false;
+      if (userFilter === "ALL") return true;
+      const acc = this.getAccount(fin.accountId);
+      const owner = (acc && acc.ownerId) || fin.ownerId || "bruno";
+      return owner === userFilter;
+    });
+
+    if (visibleFins.length === 0) {
+      container.innerHTML = "";
+      return emptyStats;
+    }
+
+    let monthlySum = 0;
+    let totalBalanceSum = 0;
+    let totalRemainingMonths = 0;
+    let firstCurrentInst = 0;
+    let firstTotalTerm = 0;
+
+    container.innerHTML = visibleFins
+      .map(fin => {
+        const sched = fin.schedule || [];
+        const { row, idx, nextRow } = this.getActiveFinancingRow(fin, monthYear);
+        if (!row) return "";
+
+        const acc = this.getAccount(fin.accountId);
+        const totalTerm = fin.totalTermMonths || sched.length;
+        const paidCount = sched.filter(r => r.status === "Paga").length;
+        const currentInst = row.installment;
+        const remainingCount = Math.max(0, totalTerm - currentInst);
+        const remainingProjectedSum = sched.slice(idx + 1).reduce((s, r) => s + Number(r.total || 0), 0);
+        const progressPct = Math.max(0.5, Math.min(100, Number(((currentInst / totalTerm) * 100).toFixed(1))));
+        const nextDelta = nextRow ? nextRow.total - row.total : 0;
+        const insuranceAndFees = Number(row.mip || 0) + Number(row.dfi || 0) + Number(row.tca || 0);
+
+        monthlySum += Number(row.total || 0);
+        totalBalanceSum += Number(row.balance || 0);
+        totalRemainingMonths = Math.max(totalRemainingMonths, remainingCount);
+        if (!firstCurrentInst) {
+          firstCurrentInst = currentInst;
+          firstTotalTerm = totalTerm;
+        }
+
+        // Verifica se a parcela já existe lançada na conta corrente Itaú nesta competência
+        const alreadyLaunched = (this.state.transactions || []).some(tx => {
+          if (!tx || tx.competenceMonth !== row.competenceMonth || tx.type !== "EXPENSE") return false;
+          if (tx.importHash === `fin_${fin.contractNumber}_p${row.installment}`) return true;
+          if (tx.accountId === fin.accountId && (tx.subcategoryId === "sub_financiamento_imob" || Math.abs(Number(tx.amount) - row.total) <= 5)) return true;
+          return false;
+        });
+
+        // Prepara linhas da tabela evolutiva conforme filtro
+        const yearsList = Array.from(new Set(sched.map(r => r.dueDate.substring(0, 4))));
+        const scope = this.financingTableScope || "NEXT_12";
+        let tableRows = [];
+        if (scope === "ALL") {
+          tableRows = sched;
+        } else if (/^\d{4}$/.test(scope)) {
+          tableRows = sched.filter(r => r.dueDate.startsWith(scope + "-"));
+        } else {
+          const startIdx = Math.max(0, idx - 1);
+          tableRows = sched.slice(startIdx, startIdx + 13);
+        }
+
+        const yearOptionsHTML = yearsList
+          .map(y => `<option value="${y}" ${scope === y ? "selected" : ""}>Ano ${y}</option>`)
+          .join("");
+
+        const tableRowsHTML = tableRows
+          .map(r => {
+            const isCurrentMonthRow = r.competenceMonth === monthYear;
+            const segTca = Number(r.mip || 0) + Number(r.dfi || 0) + Number(r.tca || 0);
+            const rowStatusBadge = r.status === "Paga"
+              ? `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-extrabold">✓ Paga</span>`
+              : `<span class="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 font-bold">Projetada</span>`;
+
+            return `
+              <tr class="border-b border-stone-100 text-[11px] ${isCurrentMonthRow ? "bg-lime-50/90 font-bold" : "hover:bg-stone-50/70"}">
+                <td class="py-2 px-2.5 whitespace-nowrap">
+                  <span class="font-extrabold text-stone-800">${r.installment}/${totalTerm}</span>
+                </td>
+                <td class="py-2 px-2.5 whitespace-nowrap text-stone-600">
+                  ${r.dueDateBR}${isCurrentMonthRow ? ` <span class="text-[10px] text-lime-800 font-extrabold">• Mês ativo</span>` : ""}
+                </td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap text-stone-700">${this.formatBRL(r.amortization)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap text-stone-700">${this.formatBRL(r.interest)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap text-stone-500" title="MIP ${this.formatBRL(r.mip)} + DFI ${this.formatBRL(r.dfi)} + TCA ${this.formatBRL(r.tca)}">${this.formatBRL(segTca)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap font-extrabold text-stone-900">${this.formatBRL(r.total)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap font-semibold text-orange-800">${this.formatBRL(r.balance)}</td>
+                <td class="py-2 px-2.5 text-center whitespace-nowrap">
+                  <button
+                    type="button"
+                    onclick="App.toggleFinancingInstallmentStatus('${fin.id}', ${r.installment})"
+                    class="cursor-pointer text-[10px] hover:opacity-80 transition"
+                    title="Clique para alternar entre Paga e Projetada"
+                  >
+                    ${rowStatusBadge}
+                  </button>
+                </td>
+              </tr>
+            `;
+          })
+          .join("");
+
+        return `
+          <div class="oli-card rounded-3xl overflow-hidden border-orange-200/90 shadow-xs">
+            <!-- Cabeçalho do Financiamento Imobiliário -->
+            <div class="px-5 py-4 bg-gradient-to-r from-orange-50/90 via-amber-50/60 to-white border-b border-orange-200/80 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="px-2.5 py-0.5 rounded-lg bg-orange-600 text-white text-[10px] font-extrabold uppercase tracking-wider">🏠 Imóvel • Itaú SFH</span>
+                  <h3 class="font-extrabold text-stone-900 text-sm sm:text-base">
+                    Financiamento Imobiliário (${fin.system} • Contrato ${fin.contractNumber})
+                  </h3>
+                  <span class="px-2 py-0.5 rounded-full bg-white border border-orange-200 text-orange-900 text-[10px] font-bold">
+                    ${acc ? acc.name : `Ag. ${fin.agency} / Cc. ${fin.accountNumber}`}
+                  </span>
+                  <span class="px-2 py-0.5 rounded-full bg-lime-100 text-lime-900 text-[10px] font-bold">Casa (Casal)</span>
+                </div>
+                <p class="text-[11px] text-stone-500 mt-1">
+                  ${fin.paymentMethod} (Ag. ${fin.agency} • Cc. ${fin.accountNumber}) • Juros ${fin.monthlyInterestRate} a.m. (${fin.annualEffectiveRate} efetiva a.a.) • Última em <strong>${(fin.lastDueDate || "").split("-").reverse().join("/")}</strong> (${this.formatBRL(fin.lastInstallmentValue)})
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onclick="App.openDDCUpload('${fin.id}')"
+                  class="px-3 py-1.5 rounded-xl bg-white hover:bg-orange-50 border border-orange-200 text-orange-900 text-xs font-bold transition"
+                  title="Caso faça amortização extra ou pula-parcela no banco, suba o novo PDF DDC do Itaú para atualizar as parcelas"
+                >
+                  📄 Atualizar DDC (.PDF)
+                </button>
+                <button
+                  type="button"
+                  onclick="App.toggleFinancingTable()"
+                  class="px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold transition"
+                >
+                  ${this.financingTableExpanded ? "▾ Ocultar tabela SAC" : `▸ Ver evolução (${totalTerm} parcelas)`}
+                </button>
+              </div>
+            </div>
+
+            <!-- Painel do Mês Ativo + Decomposição SAC -->
+            <div class="p-4 sm:p-5 space-y-4">
+              <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-2xl bg-[#fcfdf9] border border-stone-200/80 p-4">
+                <div class="space-y-1">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-extrabold uppercase text-stone-500">Parcela de ${this.getMonthLabel(monthYear)}:</span>
+                    <span class="px-2.5 py-0.5 rounded-full bg-stone-900 text-white text-xs font-extrabold">
+                      ${currentInst} / ${totalTerm}
+                    </span>
+                    <button
+                      type="button"
+                      onclick="App.toggleFinancingInstallmentStatus('${fin.id}', ${row.installment})"
+                      class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold transition cursor-pointer ${row.status === "Paga" ? "bg-emerald-100 text-emerald-900 border border-emerald-200" : "bg-amber-100 text-amber-900 border border-amber-200"}"
+                      title="Clique para alternar Paga / Projetada"
+                    >
+                      ${row.status === "Paga" ? "✓ Paga" : "📅 Projetada"}
+                    </button>
+                    <span class="text-xs text-stone-500 font-semibold">Vencimento: <strong class="text-stone-800">${row.dueDateBR}</strong></span>
+                  </div>
+                  <div class="flex flex-wrap items-baseline gap-2.5 pt-1">
+                    <span class="text-2xl font-extrabold text-stone-900">${this.formatBRL(row.total)}</span>
+                    ${
+                      nextRow
+                        ? `<span class="text-xs font-semibold text-emerald-700">Próx. mês (${nextRow.dueDateBR.substring(3)}): ${this.formatBRL(nextRow.total)} (${nextDelta <= 0 ? "" : "+"}${this.formatBRL(nextDelta)})</span>`
+                        : ""
+                    }
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                  ${
+                    alreadyLaunched
+                      ? `<span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold">✓ Parcela já registrada no mês</span>`
+                      : `<button
+                          type="button"
+                          onclick="App.launchFinancingInstallmentForMonth('${fin.id}', '${monthYear}')"
+                          class="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-extrabold shadow-2xs transition"
+                          title="Registrar automaticamente o débito desta parcela na Conta Corrente Itaú"
+                        >
+                          + Lançar parcela na Conta Itaú
+                        </button>`
+                  }
+                </div>
+              </div>
+
+              <!-- 4 Cards de Decomposição SAC da Parcela -->
+              <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-3">
+                  <div class="text-[11px] font-bold text-stone-500">Amortização</div>
+                  <div class="text-sm sm:text-base font-extrabold text-stone-900 mt-0.5">${this.formatBRL(row.amortization)}</div>
+                  <div class="text-[10px] text-stone-400">Abate direto da dívida</div>
+                </div>
+                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-3">
+                  <div class="text-[11px] font-bold text-stone-500">Juros do Mês</div>
+                  <div class="text-sm sm:text-base font-extrabold text-stone-900 mt-0.5">${this.formatBRL(row.interest)}</div>
+                  <div class="text-[10px] text-stone-400">Decai mês a mês no SAC</div>
+                </div>
+                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-3">
+                  <div class="text-[11px] font-bold text-stone-500">Seguros + TCA</div>
+                  <div class="text-sm sm:text-base font-extrabold text-stone-900 mt-0.5">${this.formatBRL(insuranceAndFees)}</div>
+                  <div class="text-[10px] text-stone-400">MIP ${this.formatBRL(row.mip)} • DFI ${this.formatBRL(row.dfi)} • TCA ${this.formatBRL(row.tca)}</div>
+                </div>
+                <div class="rounded-xl bg-orange-50/80 border border-orange-200/90 p-3">
+                  <div class="text-[11px] font-bold text-orange-900">Saldo Devedor Restante</div>
+                  <div class="text-sm sm:text-base font-extrabold text-orange-800 mt-0.5">${this.formatBRL(row.balance)}</div>
+                  <div class="text-[10px] text-orange-700/80">Após parcela ${row.installment}/${totalTerm}</div>
+                </div>
+              </div>
+
+              <!-- Barra de Evolução Geral -->
+              <div class="space-y-1.5">
+                <div class="w-full h-2.5 rounded-full bg-amber-100 border border-amber-300/70 overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-orange-500 to-lime-600 rounded-full transition-all" style="width:${progressPct}%"></div>
+                </div>
+                <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-500 font-semibold">
+                  <span>${progressPct}% do prazo (${currentInst} de ${totalTerm} • ${paidCount} marcada(s) como Paga)</span>
+                  <span>Soma restante projetada (${remainingCount}m): <strong class="text-stone-800">${this.formatBRL(remainingProjectedSum)}</strong></span>
+                </div>
+              </div>
+
+              ${
+                this.financingTableExpanded
+                  ? `
+                    <div class="rounded-2xl border border-stone-200/90 overflow-hidden mt-2">
+                      <div class="px-4 py-2.5 bg-stone-50 border-b border-stone-200/80 flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-xs font-extrabold text-stone-800">Evolução das Parcelas (Tabela DDC • SAC)</span>
+                        <div class="flex flex-wrap items-center gap-1.5 text-xs">
+                          <select
+                            onchange="App.setFinancingTableScope(this.value)"
+                            class="oli-input rounded-lg px-2.5 py-1 text-xs font-bold bg-white"
+                          >
+                            <option value="NEXT_12" ${scope === "NEXT_12" ? "selected" : ""}>Janela atual (±12 meses)</option>
+                            <option value="ALL" ${scope === "ALL" ? "selected" : ""}>Todas as ${totalTerm} parcelas (2026–2061)</option>
+                            ${yearOptionsHTML}
+                          </select>
+                        </div>
+                      </div>
+                      <div class="overflow-x-auto max-h-[380px] overflow-y-auto">
+                        <table class="w-full text-left border-collapse">
+                          <thead class="sticky top-0 bg-white shadow-2xs z-10">
+                            <tr class="border-b border-stone-200 text-[10px] font-extrabold uppercase text-stone-400">
+                              <th class="py-2 px-2.5">Parcela</th>
+                              <th class="py-2 px-2.5">Vencimento</th>
+                              <th class="py-2 px-2.5 text-right">Amortização</th>
+                              <th class="py-2 px-2.5 text-right">Juros</th>
+                              <th class="py-2 px-2.5 text-right">MIP+DFI+TCA</th>
+                              <th class="py-2 px-2.5 text-right">Total Parcela</th>
+                              <th class="py-2 px-2.5 text-right">Saldo Devedor</th>
+                              <th class="py-2 px-2.5 text-center">Situação</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${tableRowsHTML}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  `
+                  : ""
+              }
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    return {
+      activeCount: visibleFins.length,
+      monthlyAmount: monthlySum,
+      currentBalance: totalBalanceSum,
+      currentInstallment: firstCurrentInst,
+      totalTerm: firstTotalTerm,
+      remainingMonths: totalRemainingMonths
+    };
   },
 
   updateProjectionAmount(projId, newVal) {

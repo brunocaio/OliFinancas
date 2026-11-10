@@ -1417,5 +1417,73 @@ VERSION:102
   async parseItauPDF(arrayBuffer, account, competenceMonth, state, competenceMode = "SMART_INVOICE", password = null) {
     const { headerLines, lines } = await this.extractPdfTextLines(arrayBuffer, password);
     return this.parseItauPdfLines(lines, headerLines, account, competenceMonth, state, competenceMode);
+  },
+
+  parseBRLNumber(str) {
+    const clean = String(str || "").replace(/R\$\s*/i, "").replace(/\./g, "").replace(",", ".").trim();
+    const num = parseFloat(clean);
+    return isNaN(num) ? 0 : num;
+  },
+
+  async parseItauDDCPDF(arrayBuffer, password = null) {
+    const { headerLines, lines } = await this.extractPdfTextLines(arrayBuffer, password);
+    const fullHeader = (headerLines || []).join(" \n ");
+
+    const contractMatch = fullHeader.match(/N[uú]mero do contrato\s+(\d+)/i);
+    const termMatch = fullHeader.match(/Prazo total opera[cç][aã]o\s+(\d+)/i);
+    const rateMonthlyMatch = fullHeader.match(/Taxa de Juros \(mensal\)\s+([\d,]+%)/i);
+    const rateAnnualMatch = fullHeader.match(/Taxa de Juros \(anual\)\s+([\d,]+%)/i);
+    const rateEffMatch = fullHeader.match(/Taxa efetiva \(anual\)\s+([\d,]+%)/i);
+
+    const schedule = [];
+    const seenNums = new Set();
+
+    for (const rawLine of lines || []) {
+      const line = (rawLine || "").replace(/\s+/g, " ").trim();
+      const m = line.match(/^(\d{1,3})\s+(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+(Paga|Projetada)\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+(\d{1,3}(?:\.\d{3})*,\d{2})$/i);
+      if (!m) continue;
+
+      const num = parseInt(m[1], 10);
+      if (!num || seenNums.has(num)) continue;
+      seenNums.add(num);
+
+      const dueDateBR = m[2];
+      const [dd, mm, yyyy] = dueDateBR.split("/");
+      const numTokens = (m[3].match(/\d{1,3}(?:\.\d{3})*,\d+/g) || []).map(v => this.parseBRLNumber(v));
+
+      const amortization = numTokens[0] || 0;
+      const interest = numTokens[1] || 0;
+      const mip = numTokens[3] || 0;
+      const dfi = numTokens[4] || 0;
+      const tca = numTokens[6] !== undefined ? numTokens[6] : 25;
+
+      schedule.push({
+        installment: num,
+        dueDate: `${yyyy}-${mm}-${dd}`,
+        dueDateBR,
+        competenceMonth: `${yyyy}-${mm}`,
+        amortization,
+        interest,
+        mip,
+        dfi,
+        tca,
+        status: /^Paga$/i.test(m[4]) ? "Paga" : "Projetada",
+        total: this.parseBRLNumber(m[5]),
+        balance: this.parseBRLNumber(m[6])
+      });
+    }
+
+    schedule.sort((a, b) => a.installment - b.installment);
+
+    return {
+      contractNumber: contractMatch ? contractMatch[1] : null,
+      totalTermMonths: termMatch ? parseInt(termMatch[1], 10) : schedule.length,
+      monthlyInterestRate: rateMonthlyMatch ? rateMonthlyMatch[1] : null,
+      annualInterestRate: rateAnnualMatch ? rateAnnualMatch[1] : null,
+      annualEffectiveRate: rateEffMatch ? rateEffMatch[1] : null,
+      lastInstallmentValue: schedule.length > 0 ? schedule[schedule.length - 1].total : 0,
+      lastDueDate: schedule.length > 0 ? schedule[schedule.length - 1].dueDate : null,
+      schedule
+    };
   }
 };

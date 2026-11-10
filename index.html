@@ -730,6 +730,10 @@
       <!-- KPIs das Parceladas -->
       <div id="installments-kpis-container" class="grid grid-cols-1 sm:grid-cols-3 gap-4"></div>
 
+      <!-- Controle do Financiamento Imobiliário (DDC Itaú SFH - Parcelas Evolutivas SAC) -->
+      <div id="installments-financing-container" class="space-y-4"></div>
+      <input id="ddc-pdf-upload-input" type="file" accept=".pdf" class="hidden" onchange="App.handleDDCUpload(this.files, this)" />
+
       <!-- Lista / Grupos de Parceladas -->
       <div id="installments-groups-container" class="space-y-5"></div>
     </section>
@@ -1360,9 +1364,10 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=27"></script>
-  <script src="./js/ofx-csv-parser.js?v=27"></script>
-  <script src="./js/supabase-sync.js?v=27"></script>
-  <script src="./js/app.js?v=27"></script>
+  <script src="./js/data-seed.js?v=28"></script>
+  <script src="./js/housing-financing.js?v=28"></script>
+  <script src="./js/ofx-csv-parser.js?v=28"></script>
+  <script src="./js/supabase-sync.js?v=28"></script>
+  <script src="./js/app.js?v=28"></script>
 </body>
 </html>
