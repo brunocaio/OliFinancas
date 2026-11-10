@@ -309,6 +309,45 @@ window.App = {
     }
   },
 
+  escapeHTML(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  },
+
+  buildTxNoteBadgeHTML(txId, notes, stagedIdx = null) {
+    const clean = (notes || "").trim();
+    const clickCall = stagedIdx !== null
+      ? `App.openTxNoteModal(null, ${stagedIdx})`
+      : `App.openTxNoteModal('${txId}', null)`;
+
+    if (clean) {
+      return `
+        <button
+          type="button"
+          onclick="${clickCall}"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/90 hover:bg-amber-200 text-amber-950 border border-amber-300/70 text-[11px] font-bold transition cursor-pointer shrink-0"
+          title="Clique para editar a identificação deste lançamento"
+        >
+          <span>📝</span>
+          <span class="truncate max-w-[180px]">${this.escapeHTML(clean)}</span>
+        </button>
+      `;
+    }
+    return `
+      <button
+        type="button"
+        onclick="${clickCall}"
+        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-stone-100 hover:bg-amber-50 text-stone-500 hover:text-amber-800 border border-stone-200/80 text-[10px] font-bold transition cursor-pointer shrink-0"
+        title="Adicionar descrição para facilitar a identificação (parceladas propagam automaticamente)"
+      >
+        + Desc.
+      </button>
+    `;
+  },
+
   buildSubcategorySelectOptionsHTML(selectedSubId = "", includeOwnershipSuffix = true) {
     return (this.state.categories || [])
       .map(cat => {
@@ -1514,6 +1553,7 @@ window.App = {
                                   <span class="font-mono text-lime-700 font-bold select-none">${branchChar}</span>
                                   <span class="text-[11px] text-stone-400 font-semibold w-11 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
                                   <span class="font-semibold text-stone-800 truncate">${tx.description}</span>
+                                  ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
                                   ${instTag}
                                   ${creditTag}
                                   ${this.getOwnershipBadge(tx.ownership)}
@@ -2319,6 +2359,7 @@ window.App = {
             <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-extrabold text-stone-900 text-sm truncate">${s.baseName}</span>
+              ${this.buildTxNoteBadgeHTML(s.displayTx.id, s.displayTx.notes)}
               <span class="px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 text-[11px] font-bold">
                 ${s.paidCount}/${s.total}
               </span>
@@ -2597,7 +2638,10 @@ window.App = {
     }
     if (this.txFilter.search) {
       const q = this.txFilter.search.toLowerCase();
-      txs = txs.filter(t => t.description.toLowerCase().includes(q));
+      txs = txs.filter(t =>
+        (t.description || "").toLowerCase().includes(q) ||
+        (t.notes || "").toLowerCase().includes(q)
+      );
     }
 
     txs.sort((a, b) => b.transactionDate.localeCompare(a.transactionDate));
@@ -2671,7 +2715,12 @@ window.App = {
               ${shiftedBadge}
             </td>
             <td class="py-3 px-4">
-              <div class="font-bold text-stone-800">${tx.description} ${instBadge} ${creditBadge}</div>
+              <div class="font-bold text-stone-800 flex items-center gap-1.5 flex-wrap">
+                <span>${tx.description}</span>
+                ${instBadge}
+                ${creditBadge}
+                ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
+              </div>
               ${linkedProj ? `<div class="text-[11px] text-lime-700 font-medium mt-0.5">Meta: ${linkedProj.title}</div>` : ""}
             </td>
             <td class="py-3 px-4">
@@ -2948,6 +2997,107 @@ window.App = {
     this.saveState(true);
     this.renderAll();
     this.showToast("🗑️ Lançamento removido (Ctrl+Z para desfazer).", "info");
+  },
+
+  openTxNoteModal(txId = null, stagedIdx = null) {
+    const modal = document.getElementById("modal-tx-note");
+    const rawDescEl = document.getElementById("note-modal-raw-desc");
+    const instHintEl = document.getElementById("note-modal-installment-hint");
+    const inputEl = document.getElementById("note-modal-input");
+    if (!modal || !inputEl) return;
+
+    let target = null;
+    if (stagedIdx !== null && this.stagedImports && this.stagedImports[stagedIdx]) {
+      target = this.stagedImports[stagedIdx];
+      this.editingNoteTarget = { stagedIdx };
+    } else if (txId) {
+      target = this.state.transactions.find(t => t.id === txId);
+      this.editingNoteTarget = { txId };
+    }
+    if (!target) return;
+
+    if (rawDescEl) rawDescEl.textContent = target.description || "";
+    inputEl.value = target.notes || "";
+
+    const totalInst = Number(target.installmentTotal) || 1;
+    if (instHintEl) {
+      if (totalInst > 1) {
+        instHintEl.textContent = `ℹ️ Compra parcelada (${totalInst}x): esta identificação será propagada automaticamente para todas as parcelas anteriores e posteriores!`;
+        instHintEl.classList.remove("hidden");
+      } else {
+        instHintEl.classList.add("hidden");
+      }
+    }
+
+    modal.classList.remove("hidden");
+    setTimeout(() => {
+      inputEl.focus();
+      inputEl.select();
+    }, 50);
+  },
+
+  closeTxNoteModal() {
+    const modal = document.getElementById("modal-tx-note");
+    if (modal) modal.classList.add("hidden");
+    this.editingNoteTarget = null;
+  },
+
+  applyTxNoteValue(noteValue) {
+    const clean = (noteValue || "").trim();
+    const targetInfo = this.editingNoteTarget;
+    if (!targetInfo) return;
+
+    if (targetInfo.stagedIdx !== undefined && targetInfo.stagedIdx !== null) {
+      const item = this.stagedImports[targetInfo.stagedIdx];
+      if (!item) return;
+      item.notes = clean;
+      if (Number(item.installmentTotal) > 1 && window.StatementParser && window.StatementParser.areCorrelatedInstallments) {
+        this.stagedImports.forEach(other => {
+          if (other !== item && window.StatementParser.areCorrelatedInstallments(item, other)) {
+            other.notes = clean;
+          }
+        });
+      }
+      this.closeTxNoteModal();
+      this.renderImportTab(this.state.settings.activeMonth);
+      this.showToast(clean ? `📝 Identificação "${clean}" salva na prévia!` : "Nota removida da prévia.", "success");
+      return;
+    }
+
+    if (targetInfo.txId) {
+      const tx = this.state.transactions.find(t => t.id === targetInfo.txId);
+      if (!tx) return;
+      const correlated = this.findCorrelatedInstallmentTxs(tx);
+      let extraParcels = 0;
+      correlated.forEach(item => {
+        item.notes = clean;
+        if (item.id !== tx.id) extraParcels++;
+      });
+
+      this.closeTxNoteModal();
+      this.saveState(true);
+      this.renderAll();
+
+      if (!clean) {
+        const msg = extraParcels > 0
+          ? `Identificação removida desta e de ${extraParcels} parcela(s) correlata(s) (Ctrl+Z p/ desfazer).`
+          : "Identificação removida (Ctrl+Z p/ desfazer).";
+        this.showToast(msg, "info");
+      } else {
+        const extraMsg = extraParcels > 0 ? ` + propagada para ${extraParcels} parcela(s) correlata(s)` : "";
+        this.showToast(`📝 "${clean}" salva${extraMsg}! (Ctrl+Z p/ desfazer)`, "success");
+      }
+    }
+  },
+
+  saveTxNoteFromModal(e) {
+    e.preventDefault();
+    const inputEl = document.getElementById("note-modal-input");
+    this.applyTxNoteValue(inputEl ? inputEl.value : "");
+  },
+
+  clearTxNote() {
+    this.applyTxNoteValue("");
   },
 
   openTransactionModal(prefill = {}) {
@@ -3355,7 +3505,10 @@ window.App = {
               </div>
             </td>
             <td class="py-2.5 px-3">
-              <div class="font-bold text-stone-800">${item.description}</div>
+              <div class="font-bold text-stone-800 flex items-center gap-1.5 flex-wrap">
+                <span>${item.description}</span>
+                ${!item.alreadyExists && item.type !== "TRANSFER" ? this.buildTxNoteBadgeHTML(null, item.notes, idx) : ""}
+              </div>
               ${item.memoryMatched && !item.alreadyExists && item.type !== "TRANSFER" ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
               ${isCredit ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
@@ -3566,6 +3719,7 @@ window.App = {
         transactionDate: item.transactionDate,
         competenceMonth: item.competenceMonth,
         description: item.description,
+        notes: (item.notes || "").trim(),
         amount: item.amount,
         isInvoiceCredit: Boolean(item.isInvoiceCredit),
         type: item.type,
@@ -3580,13 +3734,19 @@ window.App = {
       };
       this.state.transactions.push(newTx);
 
-      // Se esta parcela importada foi classificada para uma categoria específica,
-      // propaga para parcelas correlatas já existentes no histórico e salva na memória
+      // Se esta parcela importada foi classificada para uma categoria específica
+      // ou recebeu descrição personalizada, propaga para parcelas correlatas anteriores/posteriores
       this.recordMerchantMemory(newTx.description, newTx.subcategoryId, newTx.ownership);
-      if (Number(newTx.installmentTotal) > 1 && !fallbackIds.has(newTx.subcategoryId)) {
+      if (Number(newTx.installmentTotal) > 1) {
         this.findCorrelatedInstallmentTxs(newTx).forEach(sib => {
-          if (sib.id !== newTx.id && sib.subcategoryId !== newTx.subcategoryId) {
+          if (sib.id === newTx.id) return;
+          if (!fallbackIds.has(newTx.subcategoryId) && sib.subcategoryId !== newTx.subcategoryId) {
             this.applySubcategoryToTx(sib, newTx.subcategoryId);
+          }
+          if (newTx.notes && (!sib.notes || !sib.notes.trim())) {
+            sib.notes = newTx.notes;
+          } else if (!newTx.notes && sib.notes) {
+            newTx.notes = sib.notes;
           }
         });
       }
@@ -4431,6 +4591,11 @@ window.App = {
     }
 
     document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        this.closeTxNoteModal();
+        return;
+      }
+
       const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
       const isTyping = (tag === "INPUT" && e.target.type !== "checkbox") || tag === "TEXTAREA" || (e.target && e.target.isContentEditable);
 

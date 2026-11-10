@@ -67,9 +67,11 @@ window.StatementParser = {
     if (matches.length === 0) return null;
     // Prioriza parcela já recategorizada fora de Parceladas/Outros
     const preferred = matches.find(m => !fallbackIds.has(m.subcategoryId)) || matches[0];
+    const notedSibling = matches.find(m => m.notes && String(m.notes).trim().length > 0);
     return {
       subcategoryId: preferred.subcategoryId,
-      ownership: preferred.ownership
+      ownership: preferred.ownership,
+      notes: notedSibling ? String(notedSibling.notes).trim() : ""
     };
   },
 
@@ -489,6 +491,7 @@ window.StatementParser = {
         competenceMonth: resolvedCompetence,
         cycleCompetenceMonth: itemCycleMonth,
         description,
+        notes: (siblingMatch && siblingMatch.notes) || "",
         amount: finalAmount,
         isInvoiceCredit,
         type: finalType,
@@ -682,6 +685,7 @@ window.StatementParser = {
         competenceMonth: resolvedCompetence,
         cycleCompetenceMonth: itemCycleMonth,
         description: rawDesc,
+        notes: (siblingMatch && siblingMatch.notes) || "",
         amount: finalAmount,
         isInvoiceCredit,
         type: finalType,
