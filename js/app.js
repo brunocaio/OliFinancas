@@ -19,6 +19,7 @@ window.App = {
   loggedUser: "bruno",
   quickTxType: "EXPENSE",
   projectionGroupMode: "ACCOUNT",
+  budgetGroupMode: "MACRO",
   installmentGroupMode: "CATEGORY",
   installmentScopeFilter: "ACTIVE_MONTH",
   expandedTreeKeys: {},
@@ -105,6 +106,83 @@ window.App = {
         }
       });
       stateObj.schemaPatch = 3;
+      changed = true;
+    }
+
+    // Patch incremental 4: unifica todas as assinaturas na categoria macro "Assinaturas"
+    if ((stateObj.schemaPatch || 0) < 4) {
+      if (Array.isArray(stateObj.categories)) {
+        const catAss = stateObj.categories.find(c => c.id === "cat_assinaturas");
+        if (catAss) {
+          catAss.name = "Assinaturas";
+          changed = true;
+        }
+      }
+      if (Array.isArray(stateObj.subcategories)) {
+        const subNet = stateObj.subcategories.find(s => s.id === "sub_internet");
+        if (subNet && Array.isArray(subNet.keywords)) {
+          subNet.keywords = subNet.keywords.filter(k => k.toUpperCase() !== "NET" && k.toUpperCase() !== "CLARO");
+          ["CLARO NET", "NET VIRTUA"].forEach(k => {
+            if (!subNet.keywords.includes(k)) subNet.keywords.push(k);
+          });
+          changed = true;
+        }
+        const subAmz = stateObj.subcategories.find(s => s.id === "sub_amazon_prime");
+        if (subAmz) {
+          subAmz.categoryId = "cat_assinaturas";
+          if (!Array.isArray(subAmz.keywords)) subAmz.keywords = [];
+          ["AMAZONPRIMEBR", "AMAZON AD FREE"].forEach(k => {
+            if (!subAmz.keywords.includes(k)) subAmz.keywords.push(k);
+          });
+          changed = true;
+        }
+        if (!stateObj.subcategories.some(s => s.id === "sub_globoplay")) {
+          stateObj.subcategories.push({
+            id: "sub_globoplay",
+            categoryId: "cat_assinaturas",
+            name: "Globoplay",
+            defaultOwnership: "COLLECTIVE",
+            defaultAccountId: null,
+            defaultMeta: 0.00,
+            isFixed: true,
+            keywords: ["GLOBOPLAY", "GOOGLE GLOBOPLAY"]
+          });
+          changed = true;
+        }
+        if (!stateObj.subcategories.some(s => s.id === "sub_outras_assinaturas")) {
+          stateObj.subcategories.push({
+            id: "sub_outras_assinaturas",
+            categoryId: "cat_assinaturas",
+            name: "Outras Assinaturas (Serasa, iCloud, Disney...)",
+            defaultOwnership: "COLLECTIVE",
+            defaultAccountId: null,
+            defaultMeta: 0.00,
+            isFixed: true,
+            keywords: ["SERASA", "ICLOUD", "APPLE.COM/BILL", "DISNEY", "PARAMOUNT", "MELI+", "ASSINATURA"]
+          });
+          changed = true;
+        }
+      }
+      if (Array.isArray(stateObj.transactions)) {
+        stateObj.transactions.forEach(tx => {
+          if (!tx || !tx.description) return;
+          const desc = tx.description.toUpperCase();
+          if (desc.includes("NETFLIX") && tx.subcategoryId !== "sub_netflix") {
+            tx.subcategoryId = "sub_netflix";
+            changed = true;
+          } else if (desc.includes("GLOBOPLAY") && tx.subcategoryId !== "sub_globoplay") {
+            tx.subcategoryId = "sub_globoplay";
+            changed = true;
+          } else if ((desc.includes("AMAZONPRIMEBR") || desc.includes("AMAZON AD FREE")) && tx.subcategoryId !== "sub_amazon_prime") {
+            tx.subcategoryId = "sub_amazon_prime";
+            changed = true;
+          } else if (desc.includes("SERASA") && tx.subcategoryId !== "sub_outras_assinaturas") {
+            tx.subcategoryId = "sub_outras_assinaturas";
+            changed = true;
+          }
+        });
+      }
+      stateObj.schemaPatch = 4;
       changed = true;
     }
 
@@ -1113,23 +1191,132 @@ window.App = {
     this.renderAll();
   },
 
+  setBudgetGroupMode(mode) {
+    this.budgetGroupMode = mode === "SUBCATEGORY" ? "SUBCATEGORY" : "MACRO";
+    this.renderAll();
+  },
+
   expandAllTrees(expand = true, accountPrefix = null) {
     const monthYear = this.state.settings.activeMonth;
+    const isMacro = this.budgetGroupMode === "MACRO";
     this.state.accounts.forEach(acc => {
       if (accountPrefix && acc.id !== accountPrefix) return;
-      this.state.subcategories.forEach(sub => {
-        const key = `${acc.id}__${sub.id}`;
-        if (expand) {
-          const hasTx = this.state.transactions.some(
-            t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === acc.id && t.subcategoryId === sub.id
-          );
-          if (hasTx) this.expandedTreeKeys[key] = true;
-        } else {
-          delete this.expandedTreeKeys[key];
-        }
-      });
+      if (isMacro) {
+        this.state.categories.forEach(cat => {
+          if (cat.type !== "EXPENSE") return;
+          const key = `${acc.id}__macro__${cat.id}`;
+          if (expand) {
+            const subIds = new Set(this.state.subcategories.filter(s => s.categoryId === cat.id).map(s => s.id));
+            const hasTx = this.state.transactions.some(
+              t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === acc.id && subIds.has(t.subcategoryId)
+            );
+            if (hasTx) this.expandedTreeKeys[key] = true;
+          } else {
+            delete this.expandedTreeKeys[key];
+          }
+        });
+      } else {
+        this.state.subcategories.forEach(sub => {
+          const key = `${acc.id}__${sub.id}`;
+          if (expand) {
+            const hasTx = this.state.transactions.some(
+              t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === acc.id && t.subcategoryId === sub.id
+            );
+            if (hasTx) this.expandedTreeKeys[key] = true;
+          } else {
+            delete this.expandedTreeKeys[key];
+          }
+        });
+      }
     });
     this.renderAll();
+  },
+
+  setMacroCategoryMeta(accountId, categoryId, rawValue) {
+    const monthYear = this.state.settings.activeMonth;
+    const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
+    const cat = this.getCategory(categoryId);
+    const acc = this.getAccount(accountId);
+    const childSubs = this.state.subcategories.filter(s => s.categoryId === categoryId);
+    if (childSubs.length === 0) return;
+
+    const childSubIds = new Set(childSubs.map(s => s.id));
+    const existingProjs = this.state.projections.filter(
+      p => p.monthYear === monthYear && p.accountId === accountId && childSubIds.has(p.subcategoryId)
+    );
+
+    if (existingProjs.length > 0) {
+      existingProjs[0].plannedAmount = val;
+      for (let i = 1; i < existingProjs.length; i++) {
+        existingProjs[i].plannedAmount = 0;
+      }
+    } else if (val > 0) {
+      const targetSub = childSubs[0];
+      this.state.projections.push({
+        id: "proj_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+        monthYear,
+        subcategoryId: targetSub.id,
+        title: cat.name,
+        plannedAmount: val,
+        accountId,
+        ownership: this.resolveDefaultOwnership(targetSub.id, acc.ownerId),
+        isFixed: false,
+        dueDay: acc.dueDay || 10
+      });
+    }
+
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🫒 Meta da categoria "${cat.name}" atualizada para ${this.formatBRL(val)}!`, "success");
+  },
+
+  selectAllInMacroTree(accountId, categoryId) {
+    const monthYear = this.state.settings.activeMonth;
+    const subIds = new Set(this.state.subcategories.filter(s => s.categoryId === categoryId).map(s => s.id));
+    const txs = this.state.transactions.filter(
+      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === accountId && subIds.has(t.subcategoryId)
+    );
+    if (txs.length === 0) return;
+    const ids = txs.map(t => t.id);
+    const allSelected = ids.every(id => this.selectedTxIds.includes(id));
+    if (allSelected) {
+      this.selectedTxIds = this.selectedTxIds.filter(id => !ids.includes(id));
+    } else {
+      ids.forEach(id => {
+        if (!this.selectedTxIds.includes(id)) this.selectedTxIds.push(id);
+      });
+    }
+    this.renderAll();
+  },
+
+  groupBudgetItemsByMacro(accountId, activeSubItems) {
+    const map = new Map();
+    activeSubItems.forEach(item => {
+      const cat = this.getCategory(item.sub.categoryId);
+      if (!map.has(cat.id)) {
+        map.set(cat.id, {
+          isMacro: true,
+          cat,
+          sub: { id: item.sub.id, name: cat.name, categoryId: cat.id },
+          treeKey: `${accountId}__macro__${cat.id}`,
+          accountId,
+          actual: 0,
+          meta: 0,
+          txs: [],
+          ownership: item.ownership
+        });
+      }
+      const g = map.get(cat.id);
+      g.actual += item.actual;
+      g.meta += item.meta;
+      g.txs.push(...item.txs);
+    });
+
+    const list = Array.from(map.values());
+    list.forEach(g => {
+      g.txs.sort((a, b) => (b.transactionDate || "").localeCompare(a.transactionDate || ""));
+    });
+    return list.sort((a, b) => b.actual - a.actual || b.meta - a.meta);
   },
 
   toggleArchiveDrawer(drawerKey) {
@@ -1256,11 +1443,18 @@ window.App = {
 
     return items
       .map(item => {
-        const treeKey = `${accountId}__${item.sub.id}`;
+        const isMacroRow = Boolean(item.isMacro);
+        const treeKey = item.treeKey || `${accountId}__${item.sub.id}`;
         const isExpanded = Boolean(this.expandedTreeKeys[treeKey]);
         const txCount = item.txs.length;
         const colors = this.getSpreadsheetCellColor(item.actual, item.meta);
         const diff = item.meta - item.actual;
+        const selectAllCall = isMacroRow
+          ? `App.selectAllInMacroTree('${accountId}', '${item.cat.id}')`
+          : `App.selectAllInTree('${accountId}', '${item.sub.id}')`;
+        const metaChangeCall = isMacroRow
+          ? `App.setMacroCategoryMeta('${accountId}', '${item.cat.id}', this.value)`
+          : `App.setCategoryMeta('${accountId}', '${item.sub.id}', this.value)`;
 
         const treeChildrenHTML = isExpanded
           ? `
@@ -1274,7 +1468,7 @@ window.App = {
                         txCount > 0
                           ? `<button
                               type="button"
-                              onclick="App.selectAllInTree('${accountId}', '${item.sub.id}')"
+                              onclick="${selectAllCall}"
                               class="text-stone-700 hover:text-stone-900 bg-white border border-stone-200 hover:border-lime-600 px-2 py-0.5 rounded-lg font-bold transition"
                               title="Marcar todos desta categoria para recategorizar ou excluir em lote"
                             >
@@ -1413,7 +1607,7 @@ window.App = {
                   type="number"
                   step="0.01"
                   value="${Number(item.meta).toFixed(2)}"
-                  onchange="App.setCategoryMeta('${accountId}', '${item.sub.id}', this.value)"
+                  onchange="${metaChangeCall}"
                   title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
                   class="w-full rounded-lg px-2.5 py-1.5 text-right font-extrabold text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
                 />
@@ -1690,6 +1884,10 @@ window.App = {
           }
         });
 
+        const displayCardItems = this.budgetGroupMode === "MACRO"
+          ? this.groupBudgetItemsByMacro(card.id, activeCardItems)
+          : activeCardItems;
+
         const cardDiff = metaInfo.effectiveMeta - cardActual;
         const modeLabel = window.StatementParser
           ? window.StatementParser.getCompetenceModeLabel(card.competenceOffset)
@@ -1753,7 +1951,7 @@ window.App = {
                   </tr>
                 </thead>
                 <tbody>
-                  ${this.buildCategoryTreeRowsHTML(card.id, activeCardItems, monthYear)}
+                  ${this.buildCategoryTreeRowsHTML(card.id, displayCardItems, monthYear)}
                 </tbody>
                 <tfoot>
                   <tr class="bg-emerald-100/70 border-t-2 border-emerald-300/80 font-extrabold text-stone-900 text-xs sm:text-sm">
@@ -1838,7 +2036,7 @@ window.App = {
               </tr>
 
               <!-- 1B. Categorias em Débito na Conta Corrente -->
-              ${this.buildCategoryTreeRowsHTML(primaryCheckingId, activeCheckingItems, monthYear)}
+              ${this.buildCategoryTreeRowsHTML(primaryCheckingId, this.budgetGroupMode === "MACRO" ? this.groupBudgetItemsByMacro(primaryCheckingId, activeCheckingItems) : activeCheckingItems, monthYear)}
             </tbody>
             <tfoot>
               <!-- TOTAL DESPESAS (CONTA CORRENTE) -->
@@ -1878,6 +2076,13 @@ window.App = {
   },
 
   renderProjectionsTab(summary, monthYear) {
+    document.querySelectorAll("[data-budget-mode]").forEach(btn => {
+      const m = btn.getAttribute("data-budget-mode");
+      const active = m === (this.budgetGroupMode || "MACRO");
+      btn.className = `px-3 py-1.5 rounded-lg font-bold transition ${
+        active ? "bg-white text-stone-900 shadow-2xs" : "text-stone-500 hover:text-stone-900"
+      }`;
+    });
     const container = document.getElementById("projections-groups-container");
     if (!container) return;
     container.innerHTML = this.buildStructuredBudgetHTML(monthYear);

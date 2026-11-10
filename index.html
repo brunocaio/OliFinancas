@@ -602,6 +602,24 @@
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+          <div class="inline-flex bg-stone-100 p-1 rounded-xl text-xs">
+            <button
+              type="button"
+              data-budget-mode="MACRO"
+              onclick="App.setBudgetGroupMode('MACRO')"
+              class="px-3 py-1.5 rounded-lg font-bold transition"
+            >
+              Por Categoria Macro
+            </button>
+            <button
+              type="button"
+              data-budget-mode="SUBCATEGORY"
+              onclick="App.setBudgetGroupMode('SUBCATEGORY')"
+              class="px-3 py-1.5 rounded-lg font-bold transition"
+            >
+              Por Subcategoria
+            </button>
+          </div>
           <button onclick="App.expandAllTrees(true)" class="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold transition">
             Expandir Tudo [+]
           </button>
@@ -1098,9 +1116,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=18"></script>
-  <script src="./js/ofx-csv-parser.js?v=18"></script>
-  <script src="./js/supabase-sync.js?v=18"></script>
-  <script src="./js/app.js?v=18"></script>
+  <script src="./js/data-seed.js?v=19"></script>
+  <script src="./js/ofx-csv-parser.js?v=19"></script>
+  <script src="./js/supabase-sync.js?v=19"></script>
+  <script src="./js/app.js?v=19"></script>
 </body>
 </html>

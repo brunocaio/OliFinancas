@@ -135,6 +135,23 @@ window.StatementParser = {
     return null;
   },
 
+  findBestKeywordMatch(normDesc, subcategories) {
+    let bestSub = null;
+    let bestLen = 0;
+    for (const sub of subcategories || []) {
+      if (!sub.keywords || sub.keywords.length === 0) continue;
+      for (const kw of sub.keywords) {
+        const normKw = this.normalizeText(kw);
+        if (!normKw || normKw.length <= bestLen) continue;
+        if (normDesc.includes(normKw)) {
+          bestSub = sub;
+          bestLen = normKw.length;
+        }
+      }
+    }
+    return bestSub;
+  },
+
   detectSubcategory(description, state) {
     const normDesc = this.normalizeText(description);
     if (!normDesc || !state || !state.subcategories) return null;
@@ -145,15 +162,8 @@ window.StatementParser = {
       if (found) return found;
     }
 
-    for (const sub of state.subcategories) {
-      if (!sub.keywords || sub.keywords.length === 0) continue;
-      for (const kw of sub.keywords) {
-        const normKw = this.normalizeText(kw);
-        if (normKw && normDesc.includes(normKw)) {
-          return sub;
-        }
-      }
-    }
+    const kwMatch = this.findBestKeywordMatch(normDesc, state.subcategories);
+    if (kwMatch) return kwMatch;
 
     const histMatch = this.findHistoricalMerchantMatch(description, state, false);
     if (histMatch) {
@@ -302,19 +312,12 @@ window.StatementParser = {
       }
     }
 
-    // 2. Regras por palavras-chave cadastradas
+    // 2. Regras por palavras-chave cadastradas (prioriza palavra-chave mais longa/específica)
     if (!matchedSub) {
-      for (const sub of subcategories) {
-        if (!sub.keywords || sub.keywords.length === 0) continue;
-        for (const kw of sub.keywords) {
-          const normKw = this.normalizeText(kw);
-          if (normKw && normDesc.includes(normKw)) {
-            matchedSub = sub;
-            matchedBy = "KEYWORD";
-            break;
-          }
-        }
-        if (matchedSub) break;
+      const kwSub = this.findBestKeywordMatch(normDesc, subcategories);
+      if (kwSub) {
+        matchedSub = kwSub;
+        matchedBy = "KEYWORD";
       }
     }
 

@@ -59,7 +59,7 @@ window.INITIAL_SEED_DATA = {
     { id: "cat_saude", name: "Saúde & Autocuidado", type: "EXPENSE", icon: "heart-pulse", color: "#ef4444", sortOrder: 4 },
     { id: "cat_familia", name: "Família, Filhos & Apoio", type: "EXPENSE", icon: "users", color: "#a855f7", sortOrder: 5 },
     { id: "cat_pets", name: "Pets (Chicó)", type: "EXPENSE", icon: "dog", color: "#f97316", sortOrder: 6 },
-    { id: "cat_assinaturas", name: "Assinaturas & Serviços Digitais", type: "EXPENSE", icon: "tv", color: "#06b6d4", sortOrder: 7 },
+    { id: "cat_assinaturas", name: "Assinaturas", type: "EXPENSE", icon: "tv", color: "#06b6d4", sortOrder: 7 },
     { id: "cat_lazer", name: "Lazer, Cultura & Social", type: "EXPENSE", icon: "sparkles", color: "#f43f5e", sortOrder: 8 },
     { id: "cat_financeiro", name: "Parcelados, Cartão & Outros", type: "EXPENSE", icon: "credit-card", color: "#78716c", sortOrder: 9 },
     { id: "cat_receitas", name: "Receitas & Salários", type: "INCOME", icon: "wallet", color: "#65a30d", sortOrder: 10 },
@@ -72,7 +72,7 @@ window.INITIAL_SEED_DATA = {
     { id: "sub_condominio", categoryId: "cat_moradia", name: "Água / Condomínio", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: true, keywords: ["CONDOMINIO", "AGUA", "CEDAE", "SABESP", "AGUAS"] },
     { id: "sub_luz", categoryId: "cat_moradia", name: "Luz / Energia", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: true, keywords: ["LIGHT", "ENEL", "ENERGIA", "CPFL", "NEOENERGIA", "LUZ"] },
     { id: "sub_gas", categoryId: "cat_moradia", name: "Gás", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: true, keywords: ["NATURGY", "COMGAS", "ULTRAGAZ", "SUPERGASBRAS", "GAS"] },
-    { id: "sub_internet", categoryId: "cat_moradia", name: "Internet Casa", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: true, keywords: ["CLARO", "VIVO FIBRA", "OI FIBRA", "NET", "INTERNET"] },
+    { id: "sub_internet", categoryId: "cat_moradia", name: "Internet Casa", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: true, keywords: ["CLARO NET", "NET VIRTUA", "VIVO FIBRA", "OI FIBRA", "INTERNET"] },
     { id: "sub_celular", categoryId: "cat_moradia", name: "Celular", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: true, keywords: ["TIM", "VIVO MOVEL", "CLARO MOVEL", "CELULAR"] },
     { id: "sub_vigias", categoryId: "cat_moradia", name: "Vigias / Segurança", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: true, keywords: ["VIGIA", "SEGURANCA RUA"] },
     { id: "sub_iptu", categoryId: "cat_moradia", name: "IPTU", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_nubia", defaultMeta: 0.00, isFixed: true, keywords: ["IPTU", "PREFEITURA"] },
@@ -111,15 +111,17 @@ window.INITIAL_SEED_DATA = {
     // 6. Pets (Chicó)
     { id: "sub_chico", categoryId: "cat_pets", name: "Chicó (Ração, Vet & Petshop)", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: ["PETZ", "COBASI", "PETLOVE", "VETERINARIO", "CHICO", "RACAO", "PETSHOP"] },
 
-    // 7. Assinaturas & Serviços Digitais
+    // 7. Assinaturas
     { id: "sub_google_one", categoryId: "cat_assinaturas", name: "Google One", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["GOOGLE ONE", "GOOGLE*STORAGE", "GOOGLE CLOUD"] },
-    { id: "sub_amazon_prime", categoryId: "cat_assinaturas", name: "Amazon Prime", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["AMAZON PRIME", "PRIME VIDEO", "AMAZON BR"] },
+    { id: "sub_amazon_prime", categoryId: "cat_assinaturas", name: "Amazon Prime", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["AMAZON PRIME", "AMAZONPRIMEBR", "AMAZON AD FREE", "PRIME VIDEO", "AMAZON BR"] },
     { id: "sub_netflix", categoryId: "cat_assinaturas", name: "Netflix", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["NETFLIX"] },
     { id: "sub_youtube", categoryId: "cat_assinaturas", name: "YouTube Premium", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["YOUTUBE", "GOOGLE*YOUTUBE"] },
     { id: "sub_hbomax", categoryId: "cat_assinaturas", name: "HBO Max / Max", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["HBO", "MAX.COM", "WARNER"] },
+    { id: "sub_globoplay", categoryId: "cat_assinaturas", name: "Globoplay", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["GLOBOPLAY", "GOOGLE GLOBOPLAY"] },
     { id: "sub_chatgpt", categoryId: "cat_assinaturas", name: "ChatGPT / OpenAI", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["CHATGPT", "OPENAI"] },
     { id: "sub_spotify", categoryId: "cat_assinaturas", name: "Spotify", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["SPOTIFY"] },
     { id: "sub_adobe", categoryId: "cat_assinaturas", name: "Adobe Creative Cloud", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["ADOBE"] },
+    { id: "sub_outras_assinaturas", categoryId: "cat_assinaturas", name: "Outras Assinaturas (Serasa, iCloud, Disney...)", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["SERASA", "ICLOUD", "APPLE.COM/BILL", "DISNEY", "PARAMOUNT", "MELI+", "ASSINATURA"] },
 
     // 8. Lazer, Cultura & Social
     { id: "sub_lazer_geral", categoryId: "cat_lazer", name: "Lazer & Passeios", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: ["CINEMA", "INGRESSO", "SYMPLA", "EVENTIM", "TEATRO", "LAZER", "SHOW", "BARZINHO", "CHOPP"] },
