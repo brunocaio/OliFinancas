@@ -124,8 +124,19 @@
         </button>
       </div>
 
-      <!-- Foco de Usuário (Bruno por padrão) -->
+      <!-- Foco de Usuário (Bruno por padrão) + Botão Desfazer (Ctrl+Z) -->
       <div class="flex items-center gap-2">
+        <button
+          id="undo-top-btn"
+          type="button"
+          onclick="App.undoLastAction()"
+          class="hidden items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 text-xs font-bold shadow-2xs transition cursor-pointer"
+          title="Desfazer última ação (Atalho: Ctrl + Z)"
+        >
+          <i data-lucide="undo-2" class="w-3.5 h-3.5"></i>
+          <span class="hidden sm:inline">Desfazer</span>
+          <span class="text-[10px] opacity-75">(Ctrl+Z)</span>
+        </button>
         <div class="flex items-center bg-white border border-[#e2e8dc] rounded-full p-0.5 shadow-sm text-xs">
           <button data-user-filter="bruno" onclick="App.setUserFilter('bruno')">Bruno</button>
           <button data-user-filter="nubia" onclick="App.setUserFilter('nubia')">Núbia</button>
@@ -380,11 +391,20 @@
             </h3>
             <p class="text-xs text-stone-500">Confira a categoria e a divisão padrão antes de confirmar a entrada no histórico</p>
           </div>
-          <div class="flex items-center gap-2.5">
+          <div class="flex flex-wrap items-center gap-2">
             <span id="import-selected-count" class="text-xs font-bold text-lime-800"></span>
             <button
               type="button"
-              onclick="App.stagedImports = []; App.renderImportTab(App.state.settings.activeMonth);"
+              onclick="App.deleteSelectedStagedImports()"
+              class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-1 transition"
+              title="Remover os itens marcados desta lista de revisão"
+            >
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              <span>Excluir Marcados</span>
+            </button>
+            <button
+              type="button"
+              onclick="App.cancelStagedImports()"
               class="px-3 py-1.5 rounded-xl bg-white border border-stone-200 text-stone-600 hover:text-stone-900 text-xs font-semibold transition"
             >
               Cancelar
@@ -403,7 +423,15 @@
           <table class="w-full text-left border-collapse">
             <thead>
               <tr class="border-b border-stone-200 text-[11px] font-bold uppercase text-stone-500 bg-stone-50/50">
-                <th class="py-2.5 px-3 w-8"></th>
+                <th class="py-2.5 px-3 w-8">
+                  <input
+                    id="import-select-all-checkbox"
+                    type="checkbox"
+                    onchange="App.toggleSelectAllStaged(this.checked)"
+                    class="w-4 h-4 rounded border-stone-300 text-lime-700 cursor-pointer"
+                    title="Marcar / desmarcar todos os itens (Dica: use Shift + Clique para selecionar intervalo)"
+                  />
+                </th>
                 <th class="py-2.5 px-3">Data Compra</th>
                 <th class="py-2.5 px-3">Competência (Saída)</th>
                 <th class="py-2.5 px-3">Descrição no Extrato</th>
@@ -417,7 +445,7 @@
         </div>
       </div>
 
-      <!-- SEÇÃO 3 DA HOME: HISTÓRICO DE LANÇAMENTOS DO MÊS (COM FILTROS E BUSCA) -->
+      <!-- SEÇÃO 3 DA HOME: HISTÓRICO DE LANÇAMENTOS DO MÊS (COM FILTROS E BUSCA + SELEÇÃO EM LOTE) -->
       <div class="oli-card rounded-3xl overflow-hidden shadow-xs">
         <div class="px-5 py-4 bg-stone-50/80 border-b border-stone-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
@@ -427,11 +455,22 @@
               <span id="history-count-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-stone-200/70 text-stone-600"></span>
             </h3>
             <p class="text-xs text-stone-500 mt-0.5">
-              Todos os lançamentos importados via OFX e ajustes rápidos do mês selecionado.
+              Marque vários itens (ou use <strong>Shift + Clique</strong>) para excluir em lote. Use <strong>Ctrl + Z</strong> para desfazer qualquer ação.
             </p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
+            <!-- Botão Excluir Selecionados em Lote -->
+            <button
+              id="history-bulk-delete-btn"
+              type="button"
+              onclick="App.deleteSelectedTransactions()"
+              class="hidden items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
+            >
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              <span id="history-bulk-delete-label">Excluir Selecionados</span>
+            </button>
+
             <!-- Busca -->
             <div class="relative min-w-[160px]">
               <i data-lucide="search" class="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5"></i>
@@ -485,6 +524,15 @@
           <table class="w-full text-left border-collapse">
             <thead>
               <tr class="border-b border-stone-200 text-[11px] font-bold uppercase text-stone-400 bg-white">
+                <th class="py-2.5 px-3 w-9 text-center">
+                  <input
+                    id="history-select-all-checkbox"
+                    type="checkbox"
+                    onchange="App.toggleSelectAllTransactions(this.checked)"
+                    class="w-4 h-4 rounded border-stone-300 text-lime-700 cursor-pointer"
+                    title="Selecionar / desmarcar todos os lançamentos visíveis"
+                  />
+                </th>
                 <th class="py-2.5 px-4">Data</th>
                 <th class="py-2.5 px-4">Descrição</th>
                 <th class="py-2.5 px-4">Categoria</th>
@@ -858,10 +906,33 @@
     </div>
   </div>
 
+  <!-- BARRA FLUTUANTE DE SELEÇÃO EM LOTE -->
+  <div
+    id="floating-bulk-bar"
+    class="hidden fixed bottom-16 lg:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-stone-900 text-white rounded-2xl px-4 py-2.5 shadow-2xl items-center gap-3 text-xs border border-stone-700"
+  >
+    <span id="floating-bulk-count" class="font-extrabold text-lime-400">0 selecionados</span>
+    <button
+      type="button"
+      onclick="App.deleteSelectedTransactions()"
+      class="bg-rose-600 hover:bg-rose-500 text-white font-extrabold px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+    >
+      <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+      <span>Deletar Selecionados</span>
+    </button>
+    <button
+      type="button"
+      onclick="App.clearTransactionSelection()"
+      class="text-stone-300 hover:text-white font-semibold px-2 py-1 rounded-lg transition cursor-pointer"
+    >
+      Desmarcar
+    </button>
+  </div>
+
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=10"></script>
-  <script src="./js/ofx-csv-parser.js?v=10"></script>
-  <script src="./js/supabase-sync.js?v=10"></script>
-  <script src="./js/app.js?v=10"></script>
+  <script src="./js/data-seed.js?v=11"></script>
+  <script src="./js/ofx-csv-parser.js?v=11"></script>
+  <script src="./js/supabase-sync.js?v=11"></script>
+  <script src="./js/app.js?v=11"></script>
 </body>
 </html>

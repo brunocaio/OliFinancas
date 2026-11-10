@@ -30,6 +30,11 @@ window.App = {
   },
   stagedImports: [],
   importTargetAccountId: "cc_bruno",
+  selectedTxIds: [],
+  lastClickedTxId: null,
+  lastClickedStagedIdx: null,
+  undoStack: [],
+  lastSavedSnapshot: null,
   charts: {},
 
   init() {
@@ -70,19 +75,43 @@ window.App = {
       if (saved) {
         this.state = JSON.parse(saved);
         if (this.upgradeStateToLatest(this.state)) {
-          this.saveState(true);
+          this.saveState(true, false);
         }
       } else {
         this.state = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
-        this.saveState(false);
+        this.saveState(false, false);
       }
     } catch (e) {
       console.error("Erro ao carregar estado local, usando seed inicial:", e);
       this.state = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
     }
+    this.lastSavedSnapshot = JSON.stringify({
+      state: this.state,
+      stagedImports: this.stagedImports
+    });
   },
 
-  saveState(syncCloud = true) {
+  pushUndoSnapshot() {
+    if (!this.lastSavedSnapshot) return;
+    const top = this.undoStack[this.undoStack.length - 1];
+    if (top !== this.lastSavedSnapshot) {
+      this.undoStack.push(this.lastSavedSnapshot);
+      if (this.undoStack.length > 30) {
+        this.undoStack.shift();
+      }
+    }
+  },
+
+  saveState(syncCloud = true, recordUndo = true) {
+    const currentSnapshot = JSON.stringify({
+      state: this.state,
+      stagedImports: this.stagedImports
+    });
+    if (recordUndo && syncCloud && this.lastSavedSnapshot && this.lastSavedSnapshot !== currentSnapshot) {
+      this.pushUndoSnapshot();
+    }
+    this.lastSavedSnapshot = currentSnapshot;
+
     localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
     if (syncCloud && window.SupabaseSync && window.SupabaseSync.isConfigured()) {
       const cfg = window.SupabaseSync.getConfig();
@@ -90,6 +119,60 @@ window.App = {
         window.SupabaseSync.pushState(this.state, this.loggedUser).catch(err => {
           console.warn("Sync automático pendente:", err.message);
         });
+      }
+    }
+  },
+
+  undoLastAction() {
+    if (!this.undoStack || this.undoStack.length === 0) {
+      this.showToast("Não há ações anteriores para desfazer.", "info");
+      return;
+    }
+    const prevSnapshotStr = this.undoStack.pop();
+    try {
+      const parsed = JSON.parse(prevSnapshotStr);
+      if (parsed && parsed.state) {
+        this.state = parsed.state;
+        this.stagedImports = Array.isArray(parsed.stagedImports) ? parsed.stagedImports : [];
+        this.selectedTxIds = [];
+        this.saveState(true, false);
+        this.renderAll();
+        this.showToast("↩️ Última ação desfeita (Ctrl+Z)!", "success");
+      }
+    } catch (err) {
+      console.error("Erro ao desfazer ação:", err);
+    }
+  },
+
+  updateUndoAndBulkUI() {
+    // Limpa IDs selecionados que não existem mais
+    const validIds = new Set((this.state.transactions || []).map(t => t.id));
+    this.selectedTxIds = (this.selectedTxIds || []).filter(id => validIds.has(id));
+    const selCount = this.selectedTxIds.length;
+
+    const undoBtn = document.getElementById("undo-top-btn");
+    if (undoBtn) {
+      undoBtn.classList.toggle("hidden", this.undoStack.length === 0);
+      undoBtn.classList.toggle("inline-flex", this.undoStack.length > 0);
+    }
+
+    const histBulkBtn = document.getElementById("history-bulk-delete-btn");
+    const histBulkLabel = document.getElementById("history-bulk-delete-label");
+    if (histBulkBtn) {
+      histBulkBtn.classList.toggle("hidden", selCount === 0);
+      histBulkBtn.classList.toggle("inline-flex", selCount > 0);
+      if (histBulkLabel) {
+        histBulkLabel.textContent = `Excluir (${selCount})`;
+      }
+    }
+
+    const floatBar = document.getElementById("floating-bulk-bar");
+    const floatCount = document.getElementById("floating-bulk-count");
+    if (floatBar) {
+      floatBar.classList.toggle("hidden", selCount === 0);
+      floatBar.classList.toggle("flex", selCount > 0);
+      if (floatCount) {
+        floatCount.textContent = `${selCount} ${selCount === 1 ? "item selecionado" : "itens selecionados"}`;
       }
     }
   },
@@ -436,6 +519,7 @@ window.App = {
     this.renderImportTab(monthYear);
     this.renderCategoriesTab();
     this.renderCloudTab();
+    this.updateUndoAndBulkUI();
 
     if (window.lucide) {
       window.lucide.createIcons();
@@ -1128,9 +1212,17 @@ window.App = {
                             const instTag = tx.installmentTotal > 1
                               ? `<span class="px-1.5 py-0.5 rounded bg-stone-200/80 text-stone-700 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
                               : "";
+                            const isChecked = this.selectedTxIds.includes(tx.id);
                             return `
-                              <div class="flex items-center justify-between gap-2 py-1 text-xs hover:bg-white/80 rounded-lg px-2 transition">
+                              <div class="flex items-center justify-between gap-2 py-1 text-xs ${isChecked ? "bg-lime-100/70" : "hover:bg-white/80"} rounded-lg px-2 transition">
                                 <div class="flex items-center gap-2 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    ${isChecked ? "checked" : ""}
+                                    onclick="App.handleTxCheckboxClick(event, '${tx.id}')"
+                                    class="w-3.5 h-3.5 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
+                                    title="Selecionar para exclusão em lote"
+                                  />
                                   <span class="font-mono text-lime-700 font-bold select-none">${branchChar}</span>
                                   <span class="text-[11px] text-stone-400 font-semibold w-11 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
                                   <span class="font-semibold text-stone-800 truncate">${tx.description}</span>
@@ -1750,15 +1842,28 @@ window.App = {
       badgeEl.textContent = `${txs.length} ${txs.length === 1 ? "item" : "itens"}`;
     }
 
+    const selectAllEl = document.getElementById("history-select-all-checkbox");
+    this.visibleHistoryTxIds = txs.map(t => t.id);
+
     if (txs.length === 0) {
+      if (selectAllEl) {
+        selectAllEl.checked = false;
+        selectAllEl.indeterminate = false;
+      }
       tbody.innerHTML = `
         <tr>
-          <td colspan="7" class="py-10 text-center text-stone-400 text-xs">
+          <td colspan="8" class="py-10 text-center text-stone-400 text-xs">
             Nenhum lançamento encontrado para os filtros selecionados neste mês.
           </td>
         </tr>
       `;
       return;
+    }
+
+    if (selectAllEl) {
+      const selectedVisibleCount = txs.filter(t => this.selectedTxIds.includes(t.id)).length;
+      selectAllEl.checked = selectedVisibleCount === txs.length && txs.length > 0;
+      selectAllEl.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < txs.length;
     }
 
     const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
@@ -1770,6 +1875,7 @@ window.App = {
         const acc = this.getAccount(tx.accountId);
         const user = this.getUser(tx.paidByUserId);
         const linkedProj = monthProjs.find(p => p.id === tx.projectionId);
+        const isChecked = this.selectedTxIds.includes(tx.id);
 
         const instBadge = tx.installmentTotal > 1
           ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
@@ -1781,7 +1887,16 @@ window.App = {
           : "";
 
         return `
-          <tr class="border-b border-stone-100 hover:bg-stone-50/80 transition text-xs sm:text-sm">
+          <tr class="border-b border-stone-100 ${isChecked ? "bg-lime-50/70" : "hover:bg-stone-50/80"} transition text-xs sm:text-sm">
+            <td class="py-3 px-3 text-center">
+              <input
+                type="checkbox"
+                ${isChecked ? "checked" : ""}
+                onclick="App.handleTxCheckboxClick(event, '${tx.id}')"
+                class="w-4 h-4 rounded border-stone-300 text-lime-700 cursor-pointer"
+                title="Selecionar (Shift + Clique para selecionar intervalo)"
+              />
+            </td>
             <td class="py-3 px-4 whitespace-nowrap text-stone-500 text-xs font-medium">
               <div>${this.formatDateBR(tx.transactionDate)}</div>
               ${shiftedBadge}
@@ -1807,7 +1922,7 @@ window.App = {
               ${tx.type === "INCOME" ? "+" : "-"}${this.formatBRL(tx.amount)}
             </td>
             <td class="py-3 px-4 text-right whitespace-nowrap">
-              <button onclick="App.deleteTransaction('${tx.id}')" class="p-1.5 rounded-lg text-stone-300 hover:text-rose-600 transition" title="Excluir">
+              <button onclick="App.deleteTransaction('${tx.id}')" class="p-1.5 rounded-lg text-stone-300 hover:text-rose-600 transition" title="Excluir (Ctrl+Z para desfazer)">
                 <i data-lucide="trash-2" class="w-4 h-4"></i>
               </button>
             </td>
@@ -1817,12 +1932,73 @@ window.App = {
       .join("");
   },
 
-  deleteTransaction(txId) {
-    if (!confirm("Deseja excluir este lançamento?")) return;
-    this.state.transactions = this.state.transactions.filter(t => t.id !== txId);
+  handleTxCheckboxClick(event, txId) {
+    const checked = event.target.checked;
+    const visibleIds = this.visibleHistoryTxIds || [];
+
+    if (event.shiftKey && this.lastClickedTxId && visibleIds.includes(this.lastClickedTxId) && visibleIds.includes(txId)) {
+      const startIdx = visibleIds.indexOf(this.lastClickedTxId);
+      const endIdx = visibleIds.indexOf(txId);
+      const [from, to] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+      const rangeIds = visibleIds.slice(from, to + 1);
+      rangeIds.forEach(id => {
+        if (checked && !this.selectedTxIds.includes(id)) {
+          this.selectedTxIds.push(id);
+        } else if (!checked) {
+          this.selectedTxIds = this.selectedTxIds.filter(x => x !== id);
+        }
+      });
+    } else {
+      if (checked) {
+        if (!this.selectedTxIds.includes(txId)) this.selectedTxIds.push(txId);
+      } else {
+        this.selectedTxIds = this.selectedTxIds.filter(x => x !== txId);
+      }
+    }
+
+    this.lastClickedTxId = txId;
+    this.renderAll();
+  },
+
+  toggleSelectAllTransactions(checked) {
+    const visibleIds = this.visibleHistoryTxIds || [];
+    if (checked) {
+      visibleIds.forEach(id => {
+        if (!this.selectedTxIds.includes(id)) {
+          this.selectedTxIds.push(id);
+        }
+      });
+    } else {
+      this.selectedTxIds = this.selectedTxIds.filter(id => !visibleIds.includes(id));
+    }
+    this.renderAll();
+  },
+
+  clearTransactionSelection() {
+    this.selectedTxIds = [];
+    this.lastClickedTxId = null;
+    this.renderAll();
+  },
+
+  deleteSelectedTransactions() {
+    const validIds = this.selectedTxIds.filter(id => this.state.transactions.some(t => t.id === id));
+    if (validIds.length === 0) return;
+
+    const count = validIds.length;
+    this.state.transactions = this.state.transactions.filter(t => !validIds.includes(t.id));
+    this.selectedTxIds = [];
+    this.lastClickedTxId = null;
     this.saveState(true);
     this.renderAll();
-    this.showToast("Lançamento removido.", "info");
+    this.showToast(`🗑️ ${count} ${count === 1 ? "lançamento excluído" : "lançamentos excluídos"}! (Pressione Ctrl+Z para desfazer)`, "info");
+  },
+
+  deleteTransaction(txId) {
+    this.state.transactions = this.state.transactions.filter(t => t.id !== txId);
+    this.selectedTxIds = this.selectedTxIds.filter(id => id !== txId);
+    this.saveState(true);
+    this.renderAll();
+    this.showToast("🗑️ Lançamento removido (Ctrl+Z para desfazer).", "info");
   },
 
   openTransactionModal(prefill = {}) {
@@ -2124,6 +2300,12 @@ window.App = {
       countSpan.textContent = `${selectedItems.length} selecionado(s) (${this.formatBRL(totalSelectedVal)})`;
     }
 
+    const importSelectAll = document.getElementById("import-select-all-checkbox");
+    if (importSelectAll) {
+      importSelectAll.checked = selectedItems.length === this.stagedImports.length && this.stagedImports.length > 0;
+      importSelectAll.indeterminate = selectedItems.length > 0 && selectedItems.length < this.stagedImports.length;
+    }
+
     const availableMonths = ["2026-09", "2026-10", "2026-11", "2026-12", "2027-01"];
 
     tbody.innerHTML = this.stagedImports
@@ -2151,8 +2333,9 @@ window.App = {
               <input
                 type="checkbox"
                 ${item.selected ? "checked" : ""}
-                onchange="App.toggleStagedItem(${idx}, this.checked)"
-                class="w-4 h-4 rounded border-stone-300 text-lime-700"
+                onclick="App.handleStagedCheckboxClick(event, ${idx})"
+                class="w-4 h-4 rounded border-stone-300 text-lime-700 cursor-pointer"
+                title="Selecionar (Shift + Clique para intervalo)"
               />
             </td>
             <td class="py-2.5 px-3 whitespace-nowrap">
@@ -2224,8 +2407,14 @@ window.App = {
         return;
       }
 
+      this.pushUndoSnapshot();
       this.stagedImports = parsed;
+      this.lastSavedSnapshot = JSON.stringify({
+        state: this.state,
+        stagedImports: this.stagedImports
+      });
       this.renderImportTab(monthYear);
+      this.updateUndoAndBulkUI();
       this.showToast(`🫒 ${parsed.length} transações classificadas! Revise abaixo.`, "success");
     };
     reader.readAsText(file, "UTF-8");
@@ -2241,8 +2430,14 @@ window.App = {
     const monthYear = this.state.settings.activeMonth;
     const sampleOFX = window.StatementParser.getSampleNubankOFX();
 
+    this.pushUndoSnapshot();
     this.stagedImports = window.StatementParser.parseOFX(sampleOFX, account, monthYear, this.state);
+    this.lastSavedSnapshot = JSON.stringify({
+      state: this.state,
+      stagedImports: this.stagedImports
+    });
     this.renderImportTab(monthYear);
+    this.updateUndoAndBulkUI();
     this.showToast("🫒 Extrato exemplo carregado!", "info");
   },
 
@@ -2250,6 +2445,60 @@ window.App = {
     if (!this.stagedImports[idx]) return;
     this.stagedImports[idx].selected = checked;
     this.renderImportTab(this.state.settings.activeMonth);
+  },
+
+  handleStagedCheckboxClick(event, idx) {
+    if (!this.stagedImports[idx]) return;
+    const checked = event.target.checked;
+    if (event.shiftKey && this.lastClickedStagedIdx !== null && this.stagedImports[this.lastClickedStagedIdx]) {
+      const [from, to] = this.lastClickedStagedIdx < idx ? [this.lastClickedStagedIdx, idx] : [idx, this.lastClickedStagedIdx];
+      for (let i = from; i <= to; i++) {
+        if (this.stagedImports[i]) this.stagedImports[i].selected = checked;
+      }
+    } else {
+      this.stagedImports[idx].selected = checked;
+    }
+    this.lastClickedStagedIdx = idx;
+    this.renderImportTab(this.state.settings.activeMonth);
+  },
+
+  toggleSelectAllStaged(checked) {
+    this.stagedImports.forEach(item => {
+      item.selected = Boolean(checked);
+    });
+    this.renderImportTab(this.state.settings.activeMonth);
+  },
+
+  deleteSelectedStagedImports() {
+    const selectedCount = this.stagedImports.filter(i => i.selected).length;
+    if (selectedCount === 0) {
+      this.showToast("Marque pelo menos um item na lista de revisão para excluir.", "error");
+      return;
+    }
+    this.pushUndoSnapshot();
+    this.stagedImports = this.stagedImports.filter(i => !i.selected);
+    this.lastSavedSnapshot = JSON.stringify({
+      state: this.state,
+      stagedImports: this.stagedImports
+    });
+    this.lastClickedStagedIdx = null;
+    this.renderImportTab(this.state.settings.activeMonth);
+    this.updateUndoAndBulkUI();
+    this.showToast(`🗑️ ${selectedCount} item(ns) removido(s) da revisão (Ctrl+Z para desfazer).`, "info");
+  },
+
+  cancelStagedImports() {
+    if (this.stagedImports.length === 0) return;
+    this.pushUndoSnapshot();
+    this.stagedImports = [];
+    this.lastSavedSnapshot = JSON.stringify({
+      state: this.state,
+      stagedImports: this.stagedImports
+    });
+    this.lastClickedStagedIdx = null;
+    this.renderImportTab(this.state.settings.activeMonth);
+    this.updateUndoAndBulkUI();
+    this.showToast("Revisão cancelada (Ctrl+Z para restaurar).", "info");
   },
 
   updateStagedItem(idx, field, value) {
@@ -2979,6 +3228,26 @@ window.App = {
         this.renderTransactionsTab(this.state.settings.activeMonth);
       });
     }
+
+    document.addEventListener("keydown", (e) => {
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
+      const isTyping = (tag === "INPUT" && e.target.type !== "checkbox") || tag === "TEXTAREA" || (e.target && e.target.isContentEditable);
+
+      // Atalho Global Ctrl+Z / Cmd+Z para Desfazer
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        if (!isTyping) {
+          e.preventDefault();
+          this.undoLastAction();
+        }
+        return;
+      }
+
+      // Tecla Delete quando há itens selecionados
+      if (e.key === "Delete" && !isTyping && this.selectedTxIds.length > 0) {
+        e.preventDefault();
+        this.deleteSelectedTransactions();
+      }
+    });
   },
 
   showToast(message, type = "info") {
