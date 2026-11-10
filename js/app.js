@@ -1386,88 +1386,133 @@ window.App = {
   // ABA 4: DIAGNÓSTICO DETALHADO & CASAL (EM PÁGINA PRÓPRIA)
   // ==========================================================================
   renderDiagnosticsTab(monthYear) {
-    const fullSummary = this.calculateMonthSummary(monthYear, "ALL");
+    const isCoupleView = this.activeUserFilter === "ALL";
+    const fullSummary = this.calculateMonthSummary(monthYear, isCoupleView ? "ALL" : this.activeUserFilter);
+    const activeUserName = isCoupleView ? "Casal" : this.getUser(this.activeUserFilter).name;
     const splitEl = document.getElementById("couple-split-panel");
     if (splitEl) {
-      const cs = fullSummary.coupleSplit;
-      const isProp = this.state.settings.splitMode === "PROPORTIONAL";
-      const brunoPct = (cs.brunoShareRatio * 100).toFixed(1);
-      const nubiaPct = (cs.nubiaShareRatio * 100).toFixed(1);
-
-      let settlementMsg = "";
-      if (Math.abs(cs.brunoNetCredit) < 1) {
-        settlementMsg = `<span class="text-lime-800 font-bold">🫒 Tudo em equilíbrio! As contas coletivas estão 100% acertadas.</span>`;
-      } else if (cs.brunoNetCredit > 0) {
-        settlementMsg = `Para equilibrar as despesas da casa, <strong>Núbia</strong> transfere <strong class="text-lime-800 text-sm">${this.formatBRL(cs.brunoNetCredit)}</strong> para <strong>Bruno</strong>.`;
+      if (!isCoupleView) {
+        splitEl.innerHTML = `
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-extrabold text-stone-900 flex items-center gap-2">
+                <i data-lucide="user" class="w-4 h-4 text-lime-700"></i>
+                Visão Individual: ${activeUserName}
+              </h3>
+              <p class="text-xs text-stone-500 mt-0.5">
+                Os indicadores e gráficos abaixo mostram apenas os dados de <strong>${activeUserName}</strong>. O acerto e os dados conjuntos do casal aparecem ao selecionar <strong>Ambos</strong>.
+              </p>
+            </div>
+            <button
+              type="button"
+              onclick="App.setUserFilter('ALL')"
+              class="px-3.5 py-2 rounded-xl bg-lime-700 hover:bg-lime-800 text-white text-xs font-bold whitespace-nowrap transition self-start sm:self-center"
+            >
+              👥 Ver Dados Conjuntos (Ambos)
+            </button>
+          </div>
+        `;
       } else {
-        settlementMsg = `Para equilibrar as despesas da casa, <strong>Bruno</strong> transfere <strong class="text-lime-800 text-sm">${this.formatBRL(Math.abs(cs.brunoNetCredit))}</strong> para <strong>Núbia</strong>.`;
+        const cs = fullSummary.coupleSplit;
+        const isProp = this.state.settings.splitMode === "PROPORTIONAL";
+        const brunoPct = (cs.brunoShareRatio * 100).toFixed(1);
+        const nubiaPct = (cs.nubiaShareRatio * 100).toFixed(1);
+
+        let settlementMsg = "";
+        if (Math.abs(cs.brunoNetCredit) < 1) {
+          settlementMsg = `<span class="text-lime-800 font-bold">🫒 Tudo em equilíbrio! As contas coletivas estão 100% acertadas.</span>`;
+        } else if (cs.brunoNetCredit > 0) {
+          settlementMsg = `Para equilibrar as despesas da casa, <strong>Núbia</strong> transfere <strong class="text-lime-800 text-sm">${this.formatBRL(cs.brunoNetCredit)}</strong> para <strong>Bruno</strong>.`;
+        } else {
+          settlementMsg = `Para equilibrar as despesas da casa, <strong>Bruno</strong> transfere <strong class="text-lime-800 text-sm">${this.formatBRL(Math.abs(cs.brunoNetCredit))}</strong> para <strong>Núbia</strong>.`;
+        }
+
+        splitEl.innerHTML = `
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-stone-100">
+            <div>
+              <h3 class="text-sm font-extrabold text-stone-900 flex items-center gap-2">
+                <i data-lucide="users" class="w-4 h-4 text-lime-700"></i>
+                Divisão do Casal • Gastos Coletivos da Casa: ${this.formatBRL(cs.totalHouseholdCollective)}
+              </h3>
+              <p class="text-xs text-stone-500 mt-0.5">Comparativo de quanto cada um pagou pelas despesas coletivas e cálculo de equilíbrio</p>
+            </div>
+            <div class="inline-flex bg-stone-100 p-1 rounded-xl self-start">
+              <button onclick="App.setSplitMode('PROPORTIONAL')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition ${isProp ? "bg-white text-stone-900 shadow-xs" : "text-stone-500 hover:text-stone-900"}">
+                Proporcional à Renda (${brunoPct}% / ${nubiaPct}%)
+              </button>
+              <button onclick="App.setSplitMode('EQUAL')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition ${!isProp ? "bg-white text-stone-900 shadow-xs" : "text-stone-500 hover:text-stone-900"}">
+                Meio a Meio (50% / 50%)
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div class="bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-extrabold text-lime-800 uppercase">Bruno (${brunoPct}%)</span>
+                <span class="text-xs text-stone-500">Quota Casa: ${this.formatBRL(cs.brunoFairShare)}</span>
+              </div>
+              <div class="mt-2 text-lg font-extrabold text-stone-900">Pagou: ${this.formatBRL(cs.paidByBrunoCollective)}</div>
+              <div class="text-xs text-stone-500 mt-1">Gastos Individuais Bruno: ${this.formatBRL(fullSummary.individualBrunoActual)}</div>
+            </div>
+
+            <div class="bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-extrabold text-rose-700 uppercase">Núbia (${nubiaPct}%)</span>
+                <span class="text-xs text-stone-500">Quota Casa: ${this.formatBRL(cs.nubiaFairShare)}</span>
+              </div>
+              <div class="mt-2 text-lg font-extrabold text-stone-900">Pagou: ${this.formatBRL(cs.paidByNubiaCollective)}</div>
+              <div class="text-xs text-stone-500 mt-1">Gastos Individuais Núbia: ${this.formatBRL(fullSummary.individualNubiaActual)}</div>
+            </div>
+
+            <div class="bg-lime-50 border border-lime-200 rounded-xl p-4 flex flex-col justify-center">
+              <div class="text-xs font-extrabold uppercase text-lime-800 mb-1">🫒 Acerto Sugerido</div>
+              <div class="text-xs text-stone-700 leading-relaxed">${settlementMsg}</div>
+            </div>
+          </div>
+        `;
       }
-
-      splitEl.innerHTML = `
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-stone-100">
-          <div>
-            <h3 class="text-sm font-extrabold text-stone-900 flex items-center gap-2">
-              <i data-lucide="users" class="w-4 h-4 text-lime-700"></i>
-              Divisão do Casal • Gastos Coletivos da Casa: ${this.formatBRL(cs.totalHouseholdCollective)}
-            </h3>
-            <p class="text-xs text-stone-500 mt-0.5">Comparativo de quanto cada um pagou pelas despesas coletivas e cálculo de equilíbrio</p>
-          </div>
-          <div class="inline-flex bg-stone-100 p-1 rounded-xl self-start">
-            <button onclick="App.setSplitMode('PROPORTIONAL')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition ${isProp ? "bg-white text-stone-900 shadow-xs" : "text-stone-500 hover:text-stone-900"}">
-              Proporcional à Renda (${brunoPct}% / ${nubiaPct}%)
-            </button>
-            <button onclick="App.setSplitMode('EQUAL')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition ${!isProp ? "bg-white text-stone-900 shadow-xs" : "text-stone-500 hover:text-stone-900"}">
-              Meio a Meio (50% / 50%)
-            </button>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-          <div class="bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-extrabold text-lime-800 uppercase">Bruno (${brunoPct}%)</span>
-              <span class="text-xs text-stone-500">Quota Casa: ${this.formatBRL(cs.brunoFairShare)}</span>
-            </div>
-            <div class="mt-2 text-lg font-extrabold text-stone-900">Pagou: ${this.formatBRL(cs.paidByBrunoCollective)}</div>
-            <div class="text-xs text-stone-500 mt-1">Gastos Individuais Bruno: ${this.formatBRL(fullSummary.individualBrunoActual)}</div>
-          </div>
-
-          <div class="bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-extrabold text-rose-700 uppercase">Núbia (${nubiaPct}%)</span>
-              <span class="text-xs text-stone-500">Quota Casa: ${this.formatBRL(cs.nubiaFairShare)}</span>
-            </div>
-            <div class="mt-2 text-lg font-extrabold text-stone-900">Pagou: ${this.formatBRL(cs.paidByNubiaCollective)}</div>
-            <div class="text-xs text-stone-500 mt-1">Gastos Individuais Núbia: ${this.formatBRL(fullSummary.individualNubiaActual)}</div>
-          </div>
-
-          <div class="bg-lime-50 border border-lime-200 rounded-xl p-4 flex flex-col justify-center">
-            <div class="text-xs font-extrabold uppercase text-lime-800 mb-1">🫒 Acerto Sugerido</div>
-            <div class="text-xs text-stone-700 leading-relaxed">${settlementMsg}</div>
-          </div>
-        </div>
-      `;
     }
 
     const diagKpis = document.getElementById("diagnostics-kpis");
     if (diagKpis) {
-      diagKpis.innerHTML = `
-        <div class="oli-card rounded-2xl p-4">
-          <div class="text-xs font-bold text-stone-500">Receita Total da Casa</div>
-          <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.incomeBruno + fullSummary.incomeNubia)}</div>
-          <div class="text-[11px] text-stone-500 mt-1">Bruno: ${this.formatBRL(fullSummary.incomeBruno)} • Núbia: ${this.formatBRL(fullSummary.incomeNubia)}</div>
-        </div>
-        <div class="oli-card rounded-2xl p-4">
-          <div class="text-xs font-bold text-stone-500">Gastos Coletivos (Realizado / Meta)</div>
-          <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.collectiveActual)}</div>
-          <div class="text-[11px] text-stone-500 mt-1">Meta Coletiva: ${this.formatBRL(fullSummary.collectivePlanned)}</div>
-        </div>
-        <div class="oli-card rounded-2xl p-4">
-          <div class="text-xs font-bold text-stone-500">Gastos Individuais Somados</div>
-          <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.individualBrunoActual + fullSummary.individualNubiaActual)}</div>
-          <div class="text-[11px] text-stone-500 mt-1">Meta Individual: ${this.formatBRL(fullSummary.individualTotalPlanned)}</div>
-        </div>
-      `;
+      if (!isCoupleView) {
+        diagKpis.innerHTML = `
+          <div class="oli-card rounded-2xl p-4">
+            <div class="text-xs font-bold text-stone-500">Entradas (${activeUserName})</div>
+            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.totalIncome)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Receitas nas contas de ${activeUserName}</div>
+          </div>
+          <div class="oli-card rounded-2xl p-4">
+            <div class="text-xs font-bold text-stone-500">Saídas Totais (${activeUserName})</div>
+            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.totalActualExpenses)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Meta das contas de ${activeUserName}: ${this.formatBRL(fullSummary.totalPlannedExpenses)}</div>
+          </div>
+          <div class="oli-card rounded-2xl p-4">
+            <div class="text-xs font-bold text-stone-500">Individuais (${activeUserName})</div>
+            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.individualTotalActual)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Meta individual: ${this.formatBRL(fullSummary.individualTotalPlanned)}</div>
+          </div>
+        `;
+      } else {
+        diagKpis.innerHTML = `
+          <div class="oli-card rounded-2xl p-4">
+            <div class="text-xs font-bold text-stone-500">Receita Total da Casa</div>
+            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.incomeBruno + fullSummary.incomeNubia)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Bruno: ${this.formatBRL(fullSummary.incomeBruno)} • Núbia: ${this.formatBRL(fullSummary.incomeNubia)}</div>
+          </div>
+          <div class="oli-card rounded-2xl p-4">
+            <div class="text-xs font-bold text-stone-500">Gastos Coletivos (Realizado / Meta)</div>
+            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.collectiveActual)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Meta Coletiva: ${this.formatBRL(fullSummary.collectivePlanned)}</div>
+          </div>
+          <div class="oli-card rounded-2xl p-4">
+            <div class="text-xs font-bold text-stone-500">Gastos Individuais Somados</div>
+            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.individualBrunoActual + fullSummary.individualNubiaActual)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Meta Individual: ${this.formatBRL(fullSummary.individualTotalPlanned)}</div>
+          </div>
+        `;
+      }
     }
 
     if (this.currentTab === "diagnostics") {
@@ -1478,8 +1523,17 @@ window.App = {
   renderDiagnosticsChart(monthYear) {
     if (!window.Chart) return;
 
-    const monthTxs = this.state.transactions.filter(t => t.competenceMonth === monthYear && t.type === "EXPENSE");
-    const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
+    const userFilter = this.activeUserFilter;
+    const summary = this.calculateMonthSummary(monthYear, userFilter);
+    const monthTxs = summary.filteredTxs.filter(t => t.type === "EXPENSE");
+    const allowedAccIds = new Set(this.getAccountsForActiveUser().map(a => a.id));
+    const monthProjs = this.state.projections.filter(p => {
+      if (p.monthYear !== monthYear) return false;
+      if (userFilter === "ALL") return true;
+      return allowedAccIds.has(p.accountId) ||
+        (userFilter === "bruno" && p.ownership === "INDIVIDUAL_BRUNO") ||
+        (userFilter === "nubia" && p.ownership === "INDIVIDUAL_NUBIA");
+    });
 
     const expenseCategories = this.state.categories.filter(c => c.type === "EXPENSE");
     const labels = [];
@@ -4506,7 +4560,7 @@ window.App = {
   },
 
   getRegisteredAccountsForStatements() {
-    return (this.state.accounts || []).filter(a => a && a.type !== "INVESTMENT");
+    return this.getAccountsForActiveUser();
   },
 
   getBatchedTransactions(batch) {
@@ -4992,8 +5046,11 @@ window.App = {
           })
           .join("");
 
-    // Histórico de lotes salvos
-    const allBatches = (this.state.statementImports || []).slice().sort((a, b) => (b.importedAt || "").localeCompare(a.importedAt || ""));
+    // Histórico de lotes salvos (filtrado pelas contas do usuário selecionado, ou todas em Ambos)
+    const visibleAccIds = new Set(accounts.map(a => a.id));
+    const allBatches = (this.state.statementImports || [])
+      .filter(b => b && visibleAccIds.has(b.accountId))
+      .sort((a, b) => (b.importedAt || "").localeCompare(a.importedAt || ""));
     const visibleBatches = this.statementsHistoryScope === "ALL"
       ? allBatches
       : allBatches.filter(b => b.competenceMonth === targetMonth);
@@ -5041,6 +5098,10 @@ window.App = {
           })
           .join("");
 
+    const userScopeLabel = this.activeUserFilter === "ALL"
+      ? `Todas as <strong>${totalAccounts} contas cadastradas do casal</strong>`
+      : `Contas de <strong>${this.getUser(this.activeUserFilter).name}</strong> (<strong>${totalAccounts} ${totalAccounts === 1 ? "conta cadastrada" : "contas cadastradas"}</strong>)`;
+
     panel.innerHTML = `
       <div class="px-5 py-4 bg-stone-50/80 border-b border-stone-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
@@ -5054,7 +5115,7 @@ window.App = {
             ${pendingCount > 0 ? `<span class="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-900 text-[11px] font-extrabold">⏳ ${pendingCount} pendentes</span>` : ""}
           </div>
           <p class="text-xs text-stone-500 mt-0.5">
-            Todas as <strong>${totalAccounts} contas cadastradas</strong> devem ter extrato no mês (cobertura atual: <strong>${overallCoveragePct}%</strong>). Extratos antes do fechamento aparecem como <strong>Parcial</strong>.
+            ${userScopeLabel} devem ter extrato no mês (cobertura atual: <strong>${overallCoveragePct}%</strong>).${this.activeUserFilter === "ALL" ? "" : ` Selecione <strong>Ambos</strong> no topo para ver os extratos conjuntos do casal.`}
           </p>
         </div>
 
@@ -5140,7 +5201,11 @@ window.App = {
     const container = document.getElementById("user-cards-sections-container");
     if (!container) return;
 
-    const users = ["bruno", "nubia"].map(uid => this.getUser(uid));
+    const userIds = this.activeUserFilter === "ALL"
+      ? ["bruno", "nubia"]
+      : [this.activeUserFilter];
+    container.className = `grid grid-cols-1 ${userIds.length > 1 ? "lg:grid-cols-2" : "lg:grid-cols-1"} gap-6 items-start`;
+    const users = userIds.map(uid => this.getUser(uid));
     const dayOptions = (selectedDay) => {
       let html = "";
       for (let d = 1; d <= 31; d++) {
