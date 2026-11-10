@@ -727,25 +727,69 @@
     <!-- ABA 4: CATEGORIAS & REGRAS -->
     <!-- ================================================================== -->
     <section id="tab-categories" class="tab-section hidden space-y-6">
-      <div class="oli-card rounded-2xl p-5">
-        <h3 class="font-extrabold text-stone-900 text-sm mb-1">Nova Subcategoria & Regra Automática</h3>
-        <p class="text-xs text-stone-500 mb-4">Cadastre subcategorias e palavras-chave para reconhecimento automático</p>
-        <form onsubmit="App.handleNewSubcategory(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          <select id="new-sub-category-id" class="oli-input rounded-xl px-3 py-2 text-xs"></select>
-          <input id="new-sub-name" type="text" required placeholder="Nome (Ex: Farmácia)" class="oli-input rounded-xl px-3 py-2 text-xs" />
-          <input id="new-sub-meta" type="number" step="0.01" placeholder="Meta Mensal R$ (Opcional)" class="oli-input rounded-xl px-3 py-2 text-xs" />
-          <select id="new-sub-ownership" class="oli-input rounded-xl px-3 py-2 text-xs">
-            <option value="COLLECTIVE">Coletivo Casa</option>
-            <option value="INDIVIDUAL_BRUNO">Individual Bruno</option>
-            <option value="INDIVIDUAL_NUBIA">Individual Núbia</option>
-          </select>
-          <div class="flex gap-2">
-            <input id="new-sub-keywords" type="text" placeholder="Palavras-chave (Ex: RAIA)" class="flex-1 oli-input rounded-xl px-3 py-2 text-xs" />
-            <button type="submit" class="bg-lime-700 hover:bg-lime-800 text-white text-xs font-bold px-4 py-2 rounded-xl whitespace-nowrap">
-              Criar
-            </button>
-          </div>
-        </form>
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <!-- CARD: CRIAR CATEGORIA MACRO -->
+        <div class="lg:col-span-5 oli-card rounded-2xl p-5 border-lime-600/25">
+          <h3 class="font-extrabold text-stone-900 text-sm mb-1 flex items-center gap-2">
+            <i data-lucide="folder-plus" class="w-4 h-4 text-lime-700"></i>
+            Nova Categoria Macro
+          </h3>
+          <p class="text-xs text-stone-500 mb-4">Crie grandes grupos (ex: Viagens, Reforma, Educação) para organizar suas subcategorias e metas</p>
+          <form onsubmit="App.handleNewMacroCategory(event)" class="space-y-3 text-xs">
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+              <div class="sm:col-span-7">
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">Nome da Categoria Macro</label>
+                <input id="new-cat-name" type="text" required placeholder="Ex: Reforma & Obra" class="w-full oli-input rounded-xl px-3 py-2 text-xs font-semibold" />
+              </div>
+              <div class="sm:col-span-3">
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">Tipo</label>
+                <select id="new-cat-type" class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-semibold">
+                  <option value="EXPENSE">Despesa</option>
+                  <option value="INCOME">Receita</option>
+                </select>
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">Cor</label>
+                <input id="new-cat-color" type="color" value="#4d7c0f" class="w-full h-[34px] rounded-xl border border-stone-200 bg-white p-0.5 cursor-pointer" />
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <label class="inline-flex items-center gap-2 text-[11px] text-stone-600 font-medium cursor-pointer">
+                <input id="new-cat-create-default-sub" type="checkbox" checked class="rounded border-stone-300 text-lime-700" />
+                <span>Criar subcategoria inicial com o mesmo nome</span>
+              </label>
+              <button type="submit" class="bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold px-4 py-2 rounded-xl whitespace-nowrap transition">
+                + Criar Macro
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- CARD: NOVA SUBCATEGORIA & REGRA AUTOMÁTICA -->
+        <div class="lg:col-span-7 oli-card rounded-2xl p-5">
+          <h3 class="font-extrabold text-stone-900 text-sm mb-1 flex items-center gap-2">
+            <i data-lucide="tag" class="w-4 h-4 text-lime-700"></i>
+            Nova Subcategoria & Regra Automática
+          </h3>
+          <p class="text-xs text-stone-500 mb-4">Cadastre subcategorias dentro de uma categoria macro e palavras-chave para reconhecimento automático</p>
+          <form onsubmit="App.handleNewSubcategory(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+            <select id="new-sub-category-id" class="lg:col-span-2 oli-input rounded-xl px-3 py-2 text-xs font-semibold"></select>
+            <input id="new-sub-name" type="text" required placeholder="Nome (Ex: Farmácia)" class="lg:col-span-2 oli-input rounded-xl px-3 py-2 text-xs" />
+            <input id="new-sub-meta" type="number" step="0.01" placeholder="Meta R$ (Opc.)" class="oli-input rounded-xl px-3 py-2 text-xs" />
+            <select id="new-sub-ownership" class="oli-input rounded-xl px-2.5 py-2 text-xs">
+              <option value="COLLECTIVE">Coletivo Casa</option>
+              <option value="INDIVIDUAL_BRUNO">Individual Bruno</option>
+              <option value="INDIVIDUAL_NUBIA">Individual Núbia</option>
+            </select>
+            <div class="sm:col-span-2 lg:col-span-6 flex gap-2">
+              <input id="new-sub-keywords" type="text" placeholder="Palavras-chave separadas por vírgula (Ex: RAIA, PACHECO, DROGASIL)" class="flex-1 oli-input rounded-xl px-3 py-2 text-xs" />
+              <button type="submit" class="bg-lime-700 hover:bg-lime-800 text-white text-xs font-bold px-4 py-2 rounded-xl whitespace-nowrap transition">
+                Criar Subcategoria
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
 
       <div id="categories-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-5"></div>
@@ -1036,9 +1080,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=14"></script>
-  <script src="./js/ofx-csv-parser.js?v=14"></script>
-  <script src="./js/supabase-sync.js?v=14"></script>
-  <script src="./js/app.js?v=14"></script>
+  <script src="./js/data-seed.js?v=15"></script>
+  <script src="./js/ofx-csv-parser.js?v=15"></script>
+  <script src="./js/supabase-sync.js?v=15"></script>
+  <script src="./js/app.js?v=15"></script>
 </body>
 </html>

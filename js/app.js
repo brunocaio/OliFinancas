@@ -3681,67 +3681,216 @@ window.App = {
   },
 
   // ==========================================================================
-  // ABA 6: CATEGORIAS & REGRAS
+  // ABA 6: CATEGORIAS MACRO, SUBCATEGORIAS & REGRAS
   // ==========================================================================
   renderCategoriesTab() {
     const container = document.getElementById("categories-list-container");
     if (!container) return;
 
     const catSelect = document.getElementById("new-sub-category-id");
-    if (catSelect && catSelect.options.length === 0) {
+    if (catSelect) {
+      const prevCat = catSelect.value;
       catSelect.innerHTML = this.state.categories
-        .map(c => `<option value="${c.id}">${c.name}</option>`)
+        .map(c => `<option value="${c.id}">${c.name} (${c.type === "INCOME" ? "Receita" : "Despesa"})</option>`)
         .join("");
+      if (prevCat && this.state.categories.some(c => c.id === prevCat)) {
+        catSelect.value = prevCat;
+      }
     }
 
     container.innerHTML = this.state.categories
       .map(cat => {
         const subs = this.state.subcategories.filter(s => s.categoryId === cat.id);
+        const typeBadge = cat.type === "INCOME"
+          ? `<span class="px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold">Receita</span>`
+          : `<span class="px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 text-[10px] font-bold">Despesa</span>`;
+
         return `
           <div class="oli-card rounded-2xl p-5">
-            <div class="flex items-center justify-between mb-3 pb-2 border-b border-stone-100">
-              <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full" style="background:${cat.color}"></span>
-                <h4 class="font-extrabold text-stone-900 text-sm">${cat.name}</h4>
+            <div class="flex items-center justify-between gap-2 mb-3 pb-2.5 border-b border-stone-100">
+              <div class="flex items-center gap-2 flex-1 min-w-0">
+                <input
+                  type="color"
+                  value="${cat.color || "#4d7c0f"}"
+                  onchange="App.updateMacroCategory('${cat.id}', 'color', this.value)"
+                  class="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                  title="Alterar cor da categoria macro"
+                />
+                <input
+                  type="text"
+                  value="${cat.name}"
+                  onchange="App.updateMacroCategory('${cat.id}', 'name', this.value)"
+                  class="font-extrabold text-stone-900 text-sm bg-transparent border-b border-transparent hover:border-stone-300 focus:border-lime-600 focus:outline-none py-0.5 min-w-0 flex-1"
+                  title="Clique para editar o nome da categoria macro"
+                />
+                ${typeBadge}
               </div>
-              <span class="text-xs text-stone-400">${subs.length} subcategorias</span>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <span class="text-[11px] text-stone-400 font-semibold">${subs.length} sub</span>
+                <button
+                  type="button"
+                  onclick="App.prefillNewSubcategory('${cat.id}')"
+                  class="px-2 py-1 rounded-lg bg-lime-50 hover:bg-lime-100 text-lime-800 text-[11px] font-bold transition"
+                  title="Adicionar subcategoria dentro desta categoria macro"
+                >
+                  + Sub
+                </button>
+                <button
+                  type="button"
+                  onclick="App.deleteMacroCategory('${cat.id}')"
+                  class="p-1 rounded-lg text-stone-300 hover:text-rose-600 hover:bg-rose-50 transition"
+                  title="Excluir categoria macro (somente se não houver subcategorias)"
+                >
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
             </div>
             <div class="space-y-2">
-              ${subs
-                .map(s => `
-                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-3 text-xs">
-                    <div>
-                      <div class="font-bold text-stone-800 flex items-center gap-2">
-                        ${s.name}
-                        <button
-                          onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')"
-                          title="Clique para alternar o padrão entre Casa (Casal) e Individual"
-                          class="cursor-pointer hover:opacity-80 transition"
-                        >
-                          ${this.getOwnershipBadge(s.defaultOwnership)}
-                        </button>
-                      </div>
-                      <div class="text-[11px] text-stone-400 mt-0.5">
-                        Regras: <span class="text-lime-700 font-medium">${(s.keywords || []).join(", ") || "Nenhuma"}</span>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2 self-end sm:self-center">
-                      <span class="text-stone-500">Meta: <strong class="text-stone-800">${this.formatBRL(s.defaultMeta)}</strong></span>
-                      <button onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')" class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 font-semibold transition">
-                        Alternar Divisão
-                      </button>
-                      <button onclick="App.addKeywordPrompt('${s.id}')" class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-700 font-bold transition">
-                        + Regra
-                      </button>
-                    </div>
-                  </div>
-                `)
-                .join("")}
+              ${
+                subs.length === 0
+                  ? `<div class="text-xs text-stone-400 italic py-3 text-center bg-stone-50/70 rounded-xl border border-dashed border-stone-200">Nenhuma subcategoria ainda. Clique em <strong>+ Sub</strong> acima para adicionar.</div>`
+                  : subs
+                      .map(s => `
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-3 text-xs">
+                          <div>
+                            <div class="font-bold text-stone-800 flex items-center gap-2">
+                              ${s.name}
+                              <button
+                                onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')"
+                                title="Clique para alternar o padrão entre Casa (Casal) e Individual"
+                                class="cursor-pointer hover:opacity-80 transition"
+                              >
+                                ${this.getOwnershipBadge(s.defaultOwnership)}
+                              </button>
+                            </div>
+                            <div class="text-[11px] text-stone-400 mt-0.5">
+                              Regras: <span class="text-lime-700 font-medium">${(s.keywords || []).join(", ") || "Nenhuma"}</span>
+                            </div>
+                          </div>
+                          <div class="flex items-center gap-2 self-end sm:self-center">
+                            <span class="text-stone-500">Meta: <strong class="text-stone-800">${this.formatBRL(s.defaultMeta)}</strong></span>
+                            <button onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')" class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 font-semibold transition">
+                              Alternar Divisão
+                            </button>
+                            <button onclick="App.addKeywordPrompt('${s.id}')" class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-700 font-bold transition">
+                              + Regra
+                            </button>
+                          </div>
+                        </div>
+                      `)
+                      .join("")
+              }
             </div>
           </div>
         `;
       })
       .join("");
+  },
+
+  handleNewMacroCategory(e) {
+    e.preventDefault();
+    const nameInput = document.getElementById("new-cat-name");
+    const typeSelect = document.getElementById("new-cat-type");
+    const colorInput = document.getElementById("new-cat-color");
+    const createDefaultSub = document.getElementById("new-cat-create-default-sub");
+
+    const name = (nameInput && nameInput.value || "").trim();
+    if (!name) return;
+
+    const alreadyExists = this.state.categories.some(
+      c => c.name.trim().toLowerCase() === name.toLowerCase()
+    );
+    if (alreadyExists) {
+      this.showToast(`Já existe uma categoria macro chamada "${name}".`, "error");
+      return;
+    }
+
+    const newCatId = "cat_" + Date.now();
+    const type = (typeSelect && typeSelect.value) || "EXPENSE";
+    const color = (colorInput && colorInput.value) || "#4d7c0f";
+    const nextOrder = this.state.categories.reduce((max, c) => Math.max(max, Number(c.sortOrder) || 0), 0) + 1;
+
+    this.state.categories.push({
+      id: newCatId,
+      name,
+      type,
+      icon: "folder",
+      color,
+      sortOrder: nextOrder
+    });
+
+    if (createDefaultSub && createDefaultSub.checked) {
+      const defaultAcc = this.state.accounts.find(a => a.type === "CREDIT_CARD") || this.state.accounts[0] || { id: "cc_bruno" };
+      this.state.subcategories.push({
+        id: "sub_" + (Date.now() + 1),
+        categoryId: newCatId,
+        name,
+        defaultOwnership: "COLLECTIVE",
+        defaultAccountId: defaultAcc.id,
+        defaultMeta: 0,
+        isFixed: false,
+        keywords: []
+      });
+    }
+
+    if (nameInput) nameInput.value = "";
+    this.saveState(true);
+    this.renderAll();
+
+    const subCatSelect = document.getElementById("new-sub-category-id");
+    if (subCatSelect) subCatSelect.value = newCatId;
+
+    this.showToast(`📁 Categoria macro "${name}" criada!`, "success");
+  },
+
+  updateMacroCategory(catId, field, value) {
+    const cat = this.state.categories.find(c => c.id === catId);
+    if (!cat) return;
+    if (field === "name") {
+      const clean = (value || "").trim();
+      if (!clean) {
+        this.renderCategoriesTab();
+        return;
+      }
+      cat.name = clean;
+    } else if (field === "color") {
+      cat.color = value || "#4d7c0f";
+    }
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`Categoria macro "${cat.name}" atualizada!`, "success");
+  },
+
+  deleteMacroCategory(catId) {
+    const cat = this.state.categories.find(c => c.id === catId);
+    if (!cat) return;
+    const childSubs = this.state.subcategories.filter(s => s.categoryId === catId);
+    if (childSubs.length > 0) {
+      const subIds = new Set(childSubs.map(s => s.id));
+      const usedInTxs = this.state.transactions.some(t => subIds.has(t.subcategoryId));
+      if (usedInTxs) {
+        this.showToast(`Não é possível excluir "${cat.name}" porque existem lançamentos vinculados às suas subcategorias.`, "error");
+        return;
+      }
+      if (!confirm(`"${cat.name}" possui ${childSubs.length} subcategoria(s) sem lançamentos. Deseja excluir a categoria macro e suas subcategorias vazias?`)) {
+        return;
+      }
+      this.state.subcategories = this.state.subcategories.filter(s => s.categoryId !== catId);
+    }
+    this.state.categories = this.state.categories.filter(c => c.id !== catId);
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`Categoria macro "${cat.name}" removida (Ctrl+Z para desfazer).`, "info");
+  },
+
+  prefillNewSubcategory(catId) {
+    const catSelect = document.getElementById("new-sub-category-id");
+    const nameInput = document.getElementById("new-sub-name");
+    if (catSelect) catSelect.value = catId;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => {
+      if (nameInput) nameInput.focus();
+    }, 200);
   },
 
   toggleSubcategoryDefaultOwnership(subId) {
@@ -3780,13 +3929,14 @@ window.App = {
       .map(k => k.trim().toUpperCase())
       .filter(Boolean);
 
+    const defaultAcc = this.state.accounts.find(a => a.type === "CREDIT_CARD") || this.state.accounts[0] || { id: "cc_bruno" };
     const newSubId = "sub_" + Date.now();
     this.state.subcategories.push({
       id: newSubId,
       categoryId,
       name,
       defaultOwnership,
-      defaultAccountId: "card_nubank_bruno",
+      defaultAccountId: defaultAcc.id,
       defaultMeta,
       isFixed: false,
       keywords
@@ -3799,7 +3949,7 @@ window.App = {
         subcategoryId: newSubId,
         title: name,
         plannedAmount: defaultMeta,
-        accountId: "card_nubank_bruno",
+        accountId: defaultAcc.id,
         ownership: defaultOwnership,
         isFixed: false,
         dueDay: 10
