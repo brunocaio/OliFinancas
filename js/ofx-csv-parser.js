@@ -26,6 +26,53 @@ window.StatementParser = {
     return { current: 1, total: 1 };
   },
 
+  getInstallmentBaseName(description) {
+    return (description || "")
+      .replace(/\s*-?\s*(?:PARC(?:ELA)?\s*)?\d{1,2}\s*\/\s*\d{1,2}\s*$/i, "")
+      .trim();
+  },
+
+  monthToInt(ym) {
+    if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return 0;
+    const [y, m] = ym.split("-").map(Number);
+    return y * 12 + m;
+  },
+
+  areCorrelatedInstallments(txA, txB) {
+    if (!txA || !txB) return false;
+    const totalA = Number(txA.installmentTotal) || 1;
+    const totalB = Number(txB.installmentTotal) || 1;
+    if (totalA <= 1 || totalA !== totalB) return false;
+    if (txA.accountId && txB.accountId && txA.accountId !== txB.accountId) return false;
+
+    const baseA = this.normalizeText(this.getInstallmentBaseName(txA.description));
+    const baseB = this.normalizeText(this.getInstallmentBaseName(txB.description));
+    if (!baseA || baseA !== baseB) return false;
+
+    const curA = Number(txA.installmentCurrent) || 1;
+    const curB = Number(txB.installmentCurrent) || 1;
+    const startA = this.monthToInt(txA.competenceMonth) - curA;
+    const startB = this.monthToInt(txB.competenceMonth) - curB;
+    if (startA !== startB) return false;
+
+    const amtDiff = Math.abs(Math.abs(Number(txA.amount)) - Math.abs(Number(txB.amount)));
+    return amtDiff <= 0.10;
+  },
+
+  findSiblingInstallmentClassification(candidateTx, state) {
+    if (!candidateTx || (Number(candidateTx.installmentTotal) || 1) <= 1) return null;
+    const existing = (state && state.transactions) || [];
+    const fallbackIds = new Set(["sub_parceladas", "sub_outros"]);
+    const matches = existing.filter(t => t.type === "EXPENSE" && this.areCorrelatedInstallments(t, candidateTx));
+    if (matches.length === 0) return null;
+    // Prioriza parcela já recategorizada fora de Parceladas/Outros
+    const preferred = matches.find(m => !fallbackIds.has(m.subcategoryId)) || matches[0];
+    return {
+      subcategoryId: preferred.subcategoryId,
+      ownership: preferred.ownership
+    };
+  },
+
   detectSubcategory(description, state) {
     const normDesc = this.normalizeText(description);
     if (!normDesc || !state || !state.subcategories) return null;
@@ -313,6 +360,18 @@ window.StatementParser = {
 
       const alreadyExists = state.transactions.some(t => t.importHash === importHash);
 
+      const candidateForSibling = {
+        description,
+        accountId: account.id,
+        competenceMonth: resolvedCompetence,
+        installmentCurrent: inst.current,
+        installmentTotal: inst.total,
+        amount: finalAmount
+      };
+      const siblingMatch = finalType === "EXPENSE"
+        ? this.findSiblingInstallmentClassification(candidateForSibling, state)
+        : null;
+
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
         selected: !alreadyExists && finalType !== "TRANSFER",
@@ -326,13 +385,13 @@ window.StatementParser = {
         type: finalType,
         accountId: account.id,
         paidByUserId: account.ownerId || "bruno",
-        ownership: classification.ownership,
-        subcategoryId: classification.subcategoryId,
+        ownership: siblingMatch ? siblingMatch.ownership : classification.ownership,
+        subcategoryId: siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId,
         projectionId: classification.projectionId,
         installmentCurrent: inst.current,
         installmentTotal: inst.total,
         importHash,
-        confidence: classification.confidence
+        confidence: siblingMatch ? "HIGH" : classification.confidence
       });
     }
 
@@ -492,6 +551,18 @@ window.StatementParser = {
       const importHash = `csv_${account.id}_${txDate}_${absAmount.toFixed(2)}_${this.normalizeText(rawDesc).slice(0, 24)}`;
       const alreadyExists = state.transactions.some(t => t.importHash === importHash);
 
+      const candidateForSibling = {
+        description: rawDesc,
+        accountId: account.id,
+        competenceMonth: resolvedCompetence,
+        installmentCurrent: inst.current,
+        installmentTotal: inst.total,
+        amount: finalAmount
+      };
+      const siblingMatch = finalType === "EXPENSE"
+        ? this.findSiblingInstallmentClassification(candidateForSibling, state)
+        : null;
+
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
         selected: !alreadyExists && finalType !== "TRANSFER",
@@ -505,13 +576,13 @@ window.StatementParser = {
         type: finalType,
         accountId: account.id,
         paidByUserId: account.ownerId || "bruno",
-        ownership: classification.ownership,
-        subcategoryId: classification.subcategoryId,
+        ownership: siblingMatch ? siblingMatch.ownership : classification.ownership,
+        subcategoryId: siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId,
         projectionId: classification.projectionId,
         installmentCurrent: inst.current,
         installmentTotal: inst.total,
         importHash,
-        confidence: classification.confidence
+        confidence: siblingMatch ? "HIGH" : classification.confidence
       });
     }
 

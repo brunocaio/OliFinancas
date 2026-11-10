@@ -1993,18 +1993,21 @@ window.App = {
     if (!txIdsCSV || !newSubId) return;
     const ids = txIdsCSV.split(",").filter(Boolean);
     const idSet = new Set(ids);
+
+    // Garante inclusão de qualquer parcela correlata adicional
+    ids.forEach(id => {
+      const baseTx = this.state.transactions.find(t => t.id === id);
+      if (baseTx) {
+        this.findCorrelatedInstallmentTxs(baseTx).forEach(sib => idSet.add(sib.id));
+      }
+    });
+
     const newSub = this.getSubcategory(newSubId);
     let updated = 0;
 
     this.state.transactions.forEach(tx => {
       if (!idSet.has(tx.id)) return;
-      const acc = this.getAccount(tx.accountId);
-      tx.subcategoryId = newSubId;
-      tx.ownership = this.resolveDefaultOwnership(newSubId, acc.ownerId || tx.paidByUserId);
-      const monthProjs = this.state.projections.filter(p => p.monthYear === tx.competenceMonth);
-      const matchProj = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
-        || monthProjs.find(p => p.subcategoryId === newSubId);
-      tx.projectionId = matchProj ? matchProj.id : null;
+      this.applySubcategoryToTx(tx, newSubId);
       updated++;
     });
 
@@ -2547,49 +2550,75 @@ window.App = {
     this.renderAll();
   },
 
-  recategorizeTransaction(txId, newSubId) {
-    const tx = this.state.transactions.find(t => t.id === txId);
-    if (!tx || !newSubId || tx.subcategoryId === newSubId) return;
-    const newSub = this.getSubcategory(newSubId);
+  applySubcategoryToTx(tx, newSubId) {
+    if (!tx || !newSubId) return;
     const acc = this.getAccount(tx.accountId);
-
     tx.subcategoryId = newSubId;
     tx.ownership = this.resolveDefaultOwnership(newSubId, acc.ownerId || tx.paidByUserId);
-
     const monthProjs = this.state.projections.filter(p => p.monthYear === tx.competenceMonth);
     const matchProj = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
       || monthProjs.find(p => p.subcategoryId === newSubId);
     tx.projectionId = matchProj ? matchProj.id : null;
+  },
+
+  findCorrelatedInstallmentTxs(tx) {
+    if (!tx || (Number(tx.installmentTotal) || 1) <= 1) return tx ? [tx] : [];
+    if (!window.StatementParser || !window.StatementParser.areCorrelatedInstallments) {
+      return [tx];
+    }
+    const matches = (this.state.transactions || []).filter(
+      other => other.id === tx.id || window.StatementParser.areCorrelatedInstallments(tx, other)
+    );
+    return matches.length > 0 ? matches : [tx];
+  },
+
+  recategorizeTransaction(txId, newSubId) {
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx || !newSubId || tx.subcategoryId === newSubId) return;
+    const newSub = this.getSubcategory(newSubId);
+    const correlated = this.findCorrelatedInstallmentTxs(tx);
+
+    let extraParcels = 0;
+    correlated.forEach(item => {
+      this.applySubcategoryToTx(item, newSubId);
+      if (item.id !== tx.id) extraParcels++;
+    });
 
     this.saveState(true);
     this.renderAll();
-    this.showToast(`🏷️ "${tx.description}" movido para "${newSub.name}" (Ctrl+Z p/ desfazer).`, "success");
+    const extraMsg = extraParcels > 0 ? ` + ${extraParcels} parcela(s) correlata(s) atualizada(s)` : "";
+    this.showToast(`🏷️ "${tx.description}" movido para "${newSub.name}"${extraMsg} (Ctrl+Z p/ desfazer).`, "success");
   },
 
   recategorizeSelectedTransactions(newSubId) {
     if (!newSubId) return;
-    const validSet = new Set(this.selectedTxIds);
-    const newSub = this.getSubcategory(newSubId);
-    let count = 0;
-
-    this.state.transactions.forEach(tx => {
-      if (!validSet.has(tx.id)) return;
-      const acc = this.getAccount(tx.accountId);
-      tx.subcategoryId = newSubId;
-      tx.ownership = this.resolveDefaultOwnership(newSubId, acc.ownerId || tx.paidByUserId);
-      const monthProjs = this.state.projections.filter(p => p.monthYear === tx.competenceMonth);
-      const matchProj = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
-        || monthProjs.find(p => p.subcategoryId === newSubId);
-      tx.projectionId = matchProj ? matchProj.id : null;
-      count++;
+    const expandedIds = new Set(this.selectedTxIds);
+    this.selectedTxIds.forEach(id => {
+      const tx = this.state.transactions.find(t => t.id === id);
+      if (tx) {
+        this.findCorrelatedInstallmentTxs(tx).forEach(sib => expandedIds.add(sib.id));
+      }
     });
 
-    if (count === 0) return;
+    const newSub = this.getSubcategory(newSubId);
+    let directCount = 0;
+    let extraCount = 0;
+    const origSet = new Set(this.selectedTxIds);
+
+    this.state.transactions.forEach(tx => {
+      if (!expandedIds.has(tx.id)) return;
+      this.applySubcategoryToTx(tx, newSubId);
+      if (origSet.has(tx.id)) directCount++;
+      else extraCount++;
+    });
+
+    if (directCount + extraCount === 0) return;
     this.selectedTxIds = [];
     this.lastClickedTxId = null;
     this.saveState(true);
     this.renderAll();
-    this.showToast(`🏷️ ${count} item(ns) recategorizado(s) para "${newSub.name}"! (Ctrl+Z p/ desfazer)`, "success");
+    const extraMsg = extraCount > 0 ? ` (+ ${extraCount} parcela(s) correlata(s) de outros meses)` : "";
+    this.showToast(`🏷️ ${directCount} item(ns) recategorizado(s) para "${newSub.name}"${extraMsg}! (Ctrl+Z p/ desfazer)`, "success");
   },
 
   learnKeywordFromTransaction(txId) {
@@ -3308,8 +3337,9 @@ window.App = {
       return;
     }
 
+    const fallbackIds = new Set(["sub_parceladas", "sub_outros"]);
     for (const item of selected) {
-      this.state.transactions.push({
+      const newTx = {
         id: "tx_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
         transactionDate: item.transactionDate,
         competenceMonth: item.competenceMonth,
@@ -3325,7 +3355,18 @@ window.App = {
         installmentCurrent: item.installmentCurrent,
         installmentTotal: item.installmentTotal,
         importHash: item.importHash
-      });
+      };
+      this.state.transactions.push(newTx);
+
+      // Se esta parcela importada foi classificada para uma categoria específica,
+      // propaga para parcelas correlatas já existentes no histórico
+      if (Number(newTx.installmentTotal) > 1 && !fallbackIds.has(newTx.subcategoryId)) {
+        this.findCorrelatedInstallmentTxs(newTx).forEach(sib => {
+          if (sib.id !== newTx.id && sib.subcategoryId !== newTx.subcategoryId) {
+            this.applySubcategoryToTx(sib, newTx.subcategoryId);
+          }
+        });
+      }
     }
 
     const compMonths = Array.from(new Set(selected.map(i => i.competenceMonth))).map(m => this.getMonthLabel(m));
