@@ -96,11 +96,11 @@ window.StatementParser = {
       }
     }
 
-    // Padrão 3 (Itaú / Genérico): "PIX TRANSF NOME", "PIX QRS NOME", "TED NOME"
+    // Padrão 3 (Itaú / Genérico): "PIX TRANSF NOME", "PIX TRANSF NUBIA F08/11", "PIX QRS NOME", "TED NOME"
     if (!counterparty) {
       const genMatch = raw.match(/(?:PIX\s+(?:TRANSF|QRS|ENVIADO|RECEBIDO)|TED|DOC)\s*[:-]?\s*(.+)$/i);
       if (genMatch) {
-        counterparty = genMatch[1].replace(/\s+\d{2}\/\d{2}$/, "").trim();
+        counterparty = genMatch[1].replace(/\s+[FC]?\d{2}\/\d{2}$/i, "").trim();
       }
     }
 
@@ -548,11 +548,21 @@ window.StatementParser = {
     let matchedBy = "FALLBACK";
     let memoryOwnership = null;
 
+    const isCheckingInflow = !isCreditCard && Number(amount) > 0;
+    const isSubAllowedForDirection = (sub) => {
+      if (!sub) return false;
+      if (isCheckingInflow) {
+        return sub.categoryId === "cat_receitas" || sub.categoryId === "cat_transferencia";
+      }
+      return true;
+    };
+
     // 1. Memória explícita de recategorizações anteriores desse estabelecimento
     const explicitMem = state ? this.findHistoricalMerchantMatch(description, state, true) : null;
     if (explicitMem) {
-      matchedSub = subcategories.find(s => s.id === explicitMem.subcategoryId) || null;
-      if (matchedSub) {
+      const candidate = subcategories.find(s => s.id === explicitMem.subcategoryId) || null;
+      if (isSubAllowedForDirection(candidate)) {
+        matchedSub = candidate;
         matchedBy = "MEMORY";
         memoryOwnership = explicitMem.ownership;
       }
@@ -560,19 +570,29 @@ window.StatementParser = {
 
     // 2. Regras por palavras-chave cadastradas (prioriza palavra-chave mais longa/específica)
     if (!matchedSub) {
-      const kwSub = this.findBestKeywordMatch(normDesc, subcategories);
+      const pool = isCheckingInflow
+        ? (subcategories || []).filter(s => s.categoryId === "cat_receitas" || s.categoryId === "cat_transferencia")
+        : subcategories;
+      const kwSub = this.findBestKeywordMatch(normDesc, pool);
       if (kwSub) {
         matchedSub = kwSub;
         matchedBy = "KEYWORD";
       }
     }
 
+    // Fallbacks específicos para conta corrente (ex: financiamento imobiliário abreviado "FINANC IMOB...")
+    if (!matchedSub && !isCreditCard && Number(amount) < 0 && /\bFINANC(?:\.|IAMENTO)?\s+IMOB/i.test(normDesc)) {
+      matchedSub = (subcategories || []).find(s => s.id === "sub_financiamento_imob") || null;
+      if (matchedSub) matchedBy = "KEYWORD";
+    }
+
     // 3. Memória automática baseada em transações históricas desse mesmo estabelecimento
     if (!matchedSub && state) {
       const histMatch = this.findHistoricalMerchantMatch(description, state, false);
       if (histMatch) {
-        matchedSub = subcategories.find(s => s.id === histMatch.subcategoryId) || null;
-        if (matchedSub) {
+        const candidate = subcategories.find(s => s.id === histMatch.subcategoryId) || null;
+        if (isSubAllowedForDirection(candidate)) {
+          matchedSub = candidate;
           matchedBy = "HISTORY";
           memoryOwnership = histMatch.ownership;
         }
@@ -585,7 +605,13 @@ window.StatementParser = {
     }
 
     if (!matchedSub) {
-      matchedSub = subcategories.find(s => s.id === "sub_outros") || subcategories[0];
+      if (isCheckingInflow) {
+        matchedSub = subcategories.find(s => s.id === "sub_rt_rendimentos") ||
+          subcategories.find(s => s.categoryId === "cat_receitas") ||
+          subcategories[0];
+      } else {
+        matchedSub = subcategories.find(s => s.id === "sub_outros") || subcategories[0];
+      }
     }
 
     const monthProjections = projections.filter(p => p.monthYear === competenceMonth);
@@ -1285,13 +1311,15 @@ VERSION:102
 
       const txDate = this.resolveItauDateToken(dateToken, meta.refYear, meta.refMonth);
 
-      // Convenção interna: em CREDIT_CARD, despesas são < 0 e créditos/estornos/pagamentos são > 0
+      // Convenção interna:
+      // - Cartão de crédito: despesas < 0 e estornos/créditos > 0
+      // - Conta corrente: valores positivos (verde, sem '-') são ENTRADAS (> 0); negativos (vermelho, com '-' ou 'D') são SAÍDAS (< 0)
       let signedVal;
       if (isCreditCard) {
         const isCreditLine = hasMinus || hasCreditTag || this.isLikelyRefundDescription(desc);
         signedVal = isCreditLine ? absAmount : -absAmount;
       } else {
-        const isDebitLine = hasMinus || hasDebitTag || !hasCreditTag;
+        const isDebitLine = hasMinus || hasDebitTag;
         signedVal = isDebitLine ? -absAmount : absAmount;
       }
 

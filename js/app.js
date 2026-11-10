@@ -380,7 +380,7 @@ window.App = {
               defaultAccountId: itauChecking.id,
               defaultMeta: 5297.87,
               isFixed: true,
-              keywords: ["FINANCIAMENTO", "HABITACIONAL", "CREDITO IMOBILIARIO", "PRESTACAO IMOVEL", "SFH", "10307559107"]
+              keywords: ["FINANCIAMENTO", "FINANC IMOB", "HABITACIONAL", "CREDITO IMOBILIARIO", "PRESTACAO IMOVEL", "SFH", "10307559107"]
             });
             changed = true;
           }
@@ -4513,15 +4513,23 @@ window.App = {
     }
 
     const selectedItems = this.stagedImports.filter(i => i.selected);
+    const importTargetAcc = this.getAccount(this.importTargetAccountId);
+    const isCheckingImport = importTargetAcc && importTargetAcc.type === "CHECKING";
     if (countSpan) {
+      const incomesTotal = selectedItems
+        .filter(i => i.type === "INCOME")
+        .reduce((s, i) => s + Math.abs(Number(i.amount)), 0);
       const grossPurchases = selectedItems
-        .filter(i => Number(i.amount) > 0)
+        .filter(i => i.type === "EXPENSE" && Number(i.amount) > 0)
         .reduce((s, i) => s + Number(i.amount), 0);
       const creditsTotal = selectedItems
-        .filter(i => Number(i.amount) < 0)
+        .filter(i => i.type === "EXPENSE" && Number(i.amount) < 0)
         .reduce((s, i) => s + Math.abs(Number(i.amount)), 0);
       const netInvoice = grossPurchases - creditsTotal;
-      if (creditsTotal > 0) {
+      if (incomesTotal > 0) {
+        const netFlow = incomesTotal - grossPurchases;
+        countSpan.innerHTML = `${selectedItems.length} selecionado(s) • <span class="text-emerald-700">Entradas +${this.formatBRL(incomesTotal)}</span> • <span class="text-rose-700">Saídas -${this.formatBRL(grossPurchases)}</span> = <strong class="underline">Saldo: ${netFlow >= 0 ? "+" : ""}${this.formatBRL(netFlow)}</strong>`;
+      } else if (creditsTotal > 0) {
         countSpan.innerHTML = `${selectedItems.length} selecionado(s) • Compras ${this.formatBRL(grossPurchases)} − Estornos <span class="text-emerald-700">${this.formatBRL(creditsTotal)}</span> = <strong class="underline">Líquido Fatura: ${this.formatBRL(netInvoice)}</strong>`;
       } else {
         countSpan.textContent = `${selectedItems.length} selecionado(s) (${this.formatBRL(netInvoice)})`;
@@ -4555,14 +4563,28 @@ window.App = {
         const txMonthPrefix = item.transactionDate ? item.transactionDate.substring(0, 7) : item.competenceMonth;
         const shiftedToNext = item.competenceMonth > txMonthPrefix;
         const isCredit = Number(item.amount) < 0 || item.isInvoiceCredit;
+        const isIncome = item.type === "INCOME";
 
         const rowClass = item.alreadyExists
           ? "opacity-45 bg-stone-50"
           : item.type === "TRANSFER"
           ? "bg-stone-50 text-stone-400"
-          : isCredit
+          : isIncome || isCredit
           ? "bg-emerald-50/50 hover:bg-emerald-50/80"
           : "hover:bg-stone-50/80";
+
+        const amountColorClass = isIncome || isCredit
+          ? "text-emerald-700"
+          : isCheckingImport && item.type === "EXPENSE"
+          ? "text-rose-700"
+          : "text-stone-900";
+        const amountFormatted = isIncome
+          ? `+${this.formatBRL(Math.abs(item.amount))}`
+          : isCredit
+          ? `-${this.formatBRL(Math.abs(item.amount))}`
+          : isCheckingImport && item.type === "EXPENSE"
+          ? `-${this.formatBRL(Math.abs(item.amount))}`
+          : this.formatBRL(item.amount);
 
         return `
           <tr class="border-b border-stone-100 text-xs ${rowClass}">
@@ -4597,6 +4619,8 @@ window.App = {
                 ${!item.alreadyExists ? this.buildPixFlowBadgesHTML(null, item, idx) : ""}
               </div>
               ${item.memoryMatched && !item.alreadyExists && item.type !== "TRANSFER" ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
+              ${isIncome && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5 mr-1">↓ Entrada</span>` : ""}
+              ${!isIncome && isCheckingImport && item.type === "EXPENSE" && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-bold mt-0.5 mr-1">↑ Saída</span>` : ""}
               ${isCredit ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
               ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">${item.subcategoryId === "sub_transf_propria" ? "⇄ Movimentação entre contas próprias (excluída dos gastos)" : "Pagamento de fatura ignorado p/ não duplicar"}</span>` : ""}
@@ -4619,8 +4643,8 @@ window.App = {
                 <option value="INDIVIDUAL_NUBIA" ${item.ownership === "INDIVIDUAL_NUBIA" ? "selected" : ""}>Só Núbia</option>
               </select>
             </td>
-            <td class="py-2.5 px-3 text-right font-extrabold whitespace-nowrap ${isCredit ? "text-emerald-700" : "text-stone-900"}">
-              ${isCredit ? `-${this.formatBRL(Math.abs(item.amount))}` : this.formatBRL(item.amount)}
+            <td class="py-2.5 px-3 text-right font-extrabold whitespace-nowrap ${amountColorClass}">
+              ${amountFormatted}
             </td>
           </tr>
         `;
