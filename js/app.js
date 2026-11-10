@@ -2550,6 +2550,21 @@ window.App = {
     this.renderAll();
   },
 
+  recordMerchantMemory(description, subcategoryId, ownership = null) {
+    if (!window.StatementParser || !window.StatementParser.normalizeMerchantKey) return;
+    const fallbackIds = new Set(["sub_outros", "sub_parceladas", "sub_pag_fatura"]);
+    if (!subcategoryId || fallbackIds.has(subcategoryId)) return;
+
+    const key = window.StatementParser.normalizeMerchantKey(description);
+    if (!key) return;
+    if (!this.state.merchantMemory) this.state.merchantMemory = {};
+    this.state.merchantMemory[key] = {
+      subcategoryId,
+      ownership: ownership || this.resolveDefaultOwnership(subcategoryId),
+      updatedAt: new Date().toISOString()
+    };
+  },
+
   applySubcategoryToTx(tx, newSubId) {
     if (!tx || !newSubId) return;
     const acc = this.getAccount(tx.accountId);
@@ -2559,6 +2574,7 @@ window.App = {
     const matchProj = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
       || monthProjs.find(p => p.subcategoryId === newSubId);
     tx.projectionId = matchProj ? matchProj.id : null;
+    this.recordMerchantMemory(tx.description, newSubId, tx.ownership);
   },
 
   findCorrelatedInstallmentTxs(tx) {
@@ -3135,6 +3151,7 @@ window.App = {
             </td>
             <td class="py-2.5 px-3">
               <div class="font-bold text-stone-800">${item.description}</div>
+              ${item.memoryMatched && !item.alreadyExists && item.type !== "TRANSFER" ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
               ${isCredit ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
               ${item.type === "TRANSFER" ? `<span class="text-[10px] text-lime-700 font-semibold">Pagamento de fatura ignorado p/ não duplicar</span>` : ""}
@@ -3359,7 +3376,8 @@ window.App = {
       this.state.transactions.push(newTx);
 
       // Se esta parcela importada foi classificada para uma categoria específica,
-      // propaga para parcelas correlatas já existentes no histórico
+      // propaga para parcelas correlatas já existentes no histórico e salva na memória
+      this.recordMerchantMemory(newTx.description, newTx.subcategoryId, newTx.ownership);
       if (Number(newTx.installmentTotal) > 1 && !fallbackIds.has(newTx.subcategoryId)) {
         this.findCorrelatedInstallmentTxs(newTx).forEach(sib => {
           if (sib.id !== newTx.id && sib.subcategoryId !== newTx.subcategoryId) {

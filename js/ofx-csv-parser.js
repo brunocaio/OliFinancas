@@ -73,9 +73,78 @@ window.StatementParser = {
     };
   },
 
+  normalizeMerchantKey(description) {
+    let s = this.normalizeText(description);
+    if (!s) return null;
+    s = s
+      .replace(/^ESTORNO\s+DE\s+/i, "")
+      .replace(/\s*-?\s*(?:PARC(?:ELA)?\s*)?\d{1,2}\s*\/\s*\d{1,2}\s*$/i, "")
+      .replace(/\s*-\s*NUPAY\b/gi, "")
+      .replace(/^(?:IFD|MP|EC|ZP|PB|PAG|FLY)\s*\*?\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (s.length < 3) return null;
+
+    // Evita memorizar marketplaces genéricos sem identificação do vendedor
+    const genericMarketplaces = new Set([
+      "MERCADOLIVRE*MERCADOL",
+      "MERCADO*MERCADOLIVRE",
+      "MERCADOLIVRE",
+      "MERCADO LIVRE",
+      "AMAZONMKTPLC",
+      "AMAZON MARKETPLACE CC",
+      "ALIEXPRESS",
+      "SHOPEE"
+    ]);
+    if (genericMarketplaces.has(s)) return null;
+    return s;
+  },
+
+  findHistoricalMerchantMatch(description, state, requireExplicitMemory = false) {
+    if (!state) return null;
+    const key = this.normalizeMerchantKey(description);
+    if (!key) return null;
+
+    const validSubIds = new Set((state.subcategories || []).map(s => s.id));
+    const memory = state.merchantMemory || {};
+    if (memory[key] && validSubIds.has(memory[key].subcategoryId)) {
+      return {
+        subcategoryId: memory[key].subcategoryId,
+        ownership: memory[key].ownership || null,
+        source: "MEMORY"
+      };
+    }
+
+    if (requireExplicitMemory) return null;
+
+    const fallbackIds = new Set(["sub_outros", "sub_parceladas", "sub_pag_fatura"]);
+    const txs = state.transactions || [];
+    for (let i = txs.length - 1; i >= 0; i--) {
+      const t = txs[i];
+      if (!t || t.type === "TRANSFER" || fallbackIds.has(t.subcategoryId)) continue;
+      if (!validSubIds.has(t.subcategoryId)) continue;
+      if (this.normalizeMerchantKey(t.description) === key) {
+        return {
+          subcategoryId: t.subcategoryId,
+          ownership: t.ownership || null,
+          source: "HISTORY"
+        };
+      }
+    }
+    return null;
+  },
+
   detectSubcategory(description, state) {
     const normDesc = this.normalizeText(description);
     if (!normDesc || !state || !state.subcategories) return null;
+
+    const explicitMem = this.findHistoricalMerchantMatch(description, state, true);
+    if (explicitMem) {
+      const found = state.subcategories.find(s => s.id === explicitMem.subcategoryId);
+      if (found) return found;
+    }
+
     for (const sub of state.subcategories) {
       if (!sub.keywords || sub.keywords.length === 0) continue;
       for (const kw of sub.keywords) {
@@ -84,6 +153,11 @@ window.StatementParser = {
           return sub;
         }
       }
+    }
+
+    const histMatch = this.findHistoricalMerchantMatch(description, state, false);
+    if (histMatch) {
+      return state.subcategories.find(s => s.id === histMatch.subcategoryId) || null;
     }
     return null;
   },
@@ -197,7 +271,7 @@ window.StatementParser = {
     return `${preview.fullText}${vCards}`;
   },
 
-  autoClassify(description, amount, isCreditCard, subcategories, projections, competenceMonth, ownerId = "bruno") {
+  autoClassify(description, amount, isCreditCard, subcategories, projections, competenceMonth, ownerId = "bruno", state = null) {
     const normDesc = this.normalizeText(description);
 
     const faturaKeywords = ["PAGAMENTO DE FATURA", "PAGTO FATURA", "PAGAMENTO FATURA", "PAGAMENTO RECEBIDO", "FATURA CARTAO", "DEBITO AUTOMATICO FATURA"];
@@ -208,22 +282,52 @@ window.StatementParser = {
           subcategoryId: "sub_pag_fatura",
           ownership: "COLLECTIVE",
           projectionId: null,
-          confidence: "HIGH"
+          confidence: "HIGH",
+          matchedBy: "TRANSFER"
         };
       }
     }
 
     let matchedSub = null;
-    for (const sub of subcategories) {
-      if (!sub.keywords || sub.keywords.length === 0) continue;
-      for (const kw of sub.keywords) {
-        const normKw = this.normalizeText(kw);
-        if (normKw && normDesc.includes(normKw)) {
-          matchedSub = sub;
-          break;
+    let matchedBy = "FALLBACK";
+    let memoryOwnership = null;
+
+    // 1. Memória explícita de recategorizações anteriores desse estabelecimento
+    const explicitMem = state ? this.findHistoricalMerchantMatch(description, state, true) : null;
+    if (explicitMem) {
+      matchedSub = subcategories.find(s => s.id === explicitMem.subcategoryId) || null;
+      if (matchedSub) {
+        matchedBy = "MEMORY";
+        memoryOwnership = explicitMem.ownership;
+      }
+    }
+
+    // 2. Regras por palavras-chave cadastradas
+    if (!matchedSub) {
+      for (const sub of subcategories) {
+        if (!sub.keywords || sub.keywords.length === 0) continue;
+        for (const kw of sub.keywords) {
+          const normKw = this.normalizeText(kw);
+          if (normKw && normDesc.includes(normKw)) {
+            matchedSub = sub;
+            matchedBy = "KEYWORD";
+            break;
+          }
+        }
+        if (matchedSub) break;
+      }
+    }
+
+    // 3. Memória automática baseada em transações históricas desse mesmo estabelecimento
+    if (!matchedSub && state) {
+      const histMatch = this.findHistoricalMerchantMatch(description, state, false);
+      if (histMatch) {
+        matchedSub = subcategories.find(s => s.id === histMatch.subcategoryId) || null;
+        if (matchedSub) {
+          matchedBy = "HISTORY";
+          memoryOwnership = histMatch.ownership;
         }
       }
-      if (matchedSub) break;
     }
 
     const inst = this.detectInstallments(description);
@@ -245,7 +349,7 @@ window.StatementParser = {
       txType = "TRANSFER";
     }
 
-    let resolvedOwnership = matchedProj ? matchedProj.ownership : (matchedSub.defaultOwnership || "COLLECTIVE");
+    let resolvedOwnership = memoryOwnership || (matchedProj ? matchedProj.ownership : (matchedSub.defaultOwnership || "COLLECTIVE"));
     if (resolvedOwnership !== "COLLECTIVE") {
       resolvedOwnership = ownerId === "nubia" ? "INDIVIDUAL_NUBIA" : "INDIVIDUAL_BRUNO";
     }
@@ -255,7 +359,8 @@ window.StatementParser = {
       subcategoryId: matchedSub.id,
       ownership: resolvedOwnership,
       projectionId: matchedProj ? matchedProj.id : null,
-      confidence: matchedSub.id !== "sub_outros" ? "HIGH" : "LOW"
+      confidence: matchedSub.id !== "sub_outros" ? "HIGH" : "LOW",
+      matchedBy
     };
   },
 
@@ -325,7 +430,8 @@ window.StatementParser = {
         state.subcategories,
         state.projections,
         resolvedCompetence,
-        account.ownerId || "bruno"
+        account.ownerId || "bruno",
+        state
       );
 
       let finalType = classification.type;
@@ -391,7 +497,8 @@ window.StatementParser = {
         installmentCurrent: inst.current,
         installmentTotal: inst.total,
         importHash,
-        confidence: siblingMatch ? "HIGH" : classification.confidence
+        confidence: siblingMatch ? "HIGH" : classification.confidence,
+        memoryMatched: Boolean(siblingMatch || classification.matchedBy === "MEMORY" || classification.matchedBy === "HISTORY")
       });
     }
 
@@ -521,7 +628,8 @@ window.StatementParser = {
         state.subcategories,
         state.projections,
         resolvedCompetence,
-        account.ownerId || "bruno"
+        account.ownerId || "bruno",
+        state
       );
 
       let finalType = classification.type;
@@ -582,7 +690,8 @@ window.StatementParser = {
         installmentCurrent: inst.current,
         installmentTotal: inst.total,
         importHash,
-        confidence: siblingMatch ? "HIGH" : classification.confidence
+        confidence: siblingMatch ? "HIGH" : classification.confidence,
+        memoryMatched: Boolean(siblingMatch || classification.matchedBy === "MEMORY" || classification.matchedBy === "HISTORY")
       });
     }
 
