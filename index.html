@@ -546,6 +546,14 @@
             Cadastre cada conta de cartão informando o <strong>Dia da Virada</strong> e se a competência da fatura vai para o <strong>Mês da virada</strong> ou <strong>Mês anterior</strong>. Cartões virtuais pertencem à mesma conta e somam na mesma fatura.
           </p>
         </div>
+        <button
+          type="button"
+          onclick="App.resetToSpreadsheetSeed()"
+          class="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition self-start md:self-center"
+        >
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          Zerar Banco de Dados
+        </button>
       </div>
 
       <!-- Duas seções lado a lado (Bruno e Núbia) -->
@@ -851,9 +859,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=9"></script>
-  <script src="./js/ofx-csv-parser.js?v=9"></script>
-  <script src="./js/supabase-sync.js?v=9"></script>
-  <script src="./js/app.js?v=9"></script>
+  <script src="./js/data-seed.js?v=10"></script>
+  <script src="./js/ofx-csv-parser.js?v=10"></script>
+  <script src="./js/supabase-sync.js?v=10"></script>
+  <script src="./js/app.js?v=10"></script>
 </body>
 </html>

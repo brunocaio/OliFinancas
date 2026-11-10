@@ -29,7 +29,7 @@ window.App = {
     ownership: "ALL"
   },
   stagedImports: [],
-  importTargetAccountId: "card_nubank_bruno",
+  importTargetAccountId: "cc_bruno",
   charts: {},
 
   init() {
@@ -57,108 +57,10 @@ window.App = {
   },
 
   upgradeStateToLatest(stateObj) {
-    if (!stateObj || stateObj.version === "1.5.0-oli") return false;
-    stateObj.version = "1.5.0-oli";
-
-    if (!stateObj.settings) stateObj.settings = {};
-    if (!stateObj.settings.cardCustomMeta) stateObj.settings.cardCustomMeta = {};
-
-    if (Array.isArray(stateObj.accounts)) {
-      stateObj.accounts.forEach(acc => {
-        if (acc.id === "card_nubank_bruno") {
-          acc.name = "Cartão Nubank Bruno";
-          acc.closingDay = acc.closingDay || 9;
-          acc.dueDay = acc.dueDay || 16;
-          if (typeof acc.competenceOffset !== "number") acc.competenceOffset = 0;
-          if (!Array.isArray(acc.virtualCards)) {
-            acc.virtualCards = ["Cartão Físico", "Virtual Compras Online", "Virtual Assinaturas / Recorrente"];
-          }
-        } else if (acc.id === "card_itau_bruno") {
-          acc.name = "Cartão Itaú Bruno";
-          acc.closingDay = acc.closingDay || 21;
-          acc.dueDay = acc.dueDay || 28;
-          if (typeof acc.competenceOffset !== "number") acc.competenceOffset = 0;
-          if (!Array.isArray(acc.virtualCards)) {
-            acc.virtualCards = ["Cartão Físico", "Virtual Carteira Digital"];
-          }
-        } else if (acc.id === "card_nubia") {
-          acc.name = "Cartão Nubank Núbia";
-          acc.closingDay = acc.closingDay || 5;
-          acc.dueDay = acc.dueDay || 12;
-          if (typeof acc.competenceOffset !== "number") acc.competenceOffset = 0;
-          if (!Array.isArray(acc.virtualCards)) {
-            acc.virtualCards = ["Cartão Físico", "Virtual Compras Online"];
-          }
-        } else if (acc.type === "CREDIT_CARD") {
-          acc.closingDay = acc.closingDay || 10;
-          if (typeof acc.competenceOffset !== "number") acc.competenceOffset = 0;
-          if (!Array.isArray(acc.virtualCards)) acc.virtualCards = ["Cartão Físico"];
-        }
-      });
-    }
-
-    const individualSubIds = ["sub_lazer_geral", "sub_parceladas", "sub_transporte_app", "sub_jogos", "sub_autocuidado", "sub_analise", "sub_chatgpt", "sub_adobe", "sub_anuidade", "sub_outros"];
-    if (Array.isArray(stateObj.subcategories)) {
-      stateObj.subcategories.forEach(s => {
-        if (individualSubIds.includes(s.id)) {
-          s.defaultOwnership = "INDIVIDUAL_BRUNO";
-        }
-      });
-      if (!stateObj.subcategories.some(s => s.id === "sub_feira_cc")) {
-        stateObj.subcategories.push({
-          id: "sub_feira_cc",
-          categoryId: "cat_alimentacao",
-          name: "Feira (Conta Corrente / Pix)",
-          defaultOwnership: "COLLECTIVE",
-          defaultAccountId: "cc_bruno",
-          defaultMeta: 0.00,
-          isFixed: false,
-          keywords: []
-        });
-      }
-    }
-
-    if (Array.isArray(stateObj.projections)) {
-      stateObj.projections.forEach(p => {
-        if (p.id === "proj_lazer" || p.id === "proj_parceladas") {
-          p.ownership = "INDIVIDUAL_BRUNO";
-        }
-      });
-      if (!stateObj.projections.some(p => p.id === "proj_manut_itau")) {
-        stateObj.projections.push({
-          id: "proj_manut_itau",
-          monthYear: "2026-11",
-          subcategoryId: "sub_manut_carro",
-          title: "Manutenção Carro (Itaú)",
-          plannedAmount: 130.40,
-          accountId: "card_itau_bruno",
-          ownership: "COLLECTIVE",
-          isFixed: false,
-          dueDay: 19
-        });
-      }
-      if (!stateObj.projections.some(p => p.id === "proj_outros_itau")) {
-        stateObj.projections.push({
-          id: "proj_outros_itau",
-          monthYear: "2026-11",
-          subcategoryId: "sub_outros",
-          title: "Outros Itaú",
-          plannedAmount: 33.70,
-          accountId: "card_itau_bruno",
-          ownership: "INDIVIDUAL_BRUNO",
-          isFixed: false,
-          dueDay: 19
-        });
-      }
-    }
-
-    if (Array.isArray(stateObj.transactions)) {
-      const userAddedTxs = stateObj.transactions.filter(t => !t.id.startsWith("tx_rec_") && !t.id.startsWith("tx_cc_") && !t.id.startsWith("tx_nu_") && !t.id.startsWith("tx_it_"));
-      stateObj.transactions = [
-        ...JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA.transactions)),
-        ...userAddedTxs
-      ];
-    }
+    if (!stateObj || stateObj.version === "2.0.0-clean") return false;
+    const cleanSeed = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
+    Object.keys(stateObj).forEach(k => delete stateObj[k]);
+    Object.assign(stateObj, cleanSeed);
     return true;
   },
 
@@ -193,13 +95,15 @@ window.App = {
   },
 
   resetToSpreadsheetSeed() {
-    if (!confirm("Deseja restaurar os dados originais extraídos da sua planilha do Google? Isso substituirá alterações locais.")) {
+    if (!confirm("Deseja zerar o banco de dados (lançamentos, metas e cartões) para começar do zero?")) {
       return;
     }
     this.state = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
+    this.stagedImports = [];
+    this.importTargetAccountId = "cc_bruno";
     this.saveState(true);
     this.renderAll();
-    this.showToast("🫒 Dados originais da planilha restaurados!", "success");
+    this.showToast("🫒 Banco de dados zerado! Pronto para cadastrar do zero.", "success");
   },
 
   async initSupabase() {
@@ -2328,9 +2232,11 @@ window.App = {
   },
 
   loadSampleNubankExtract() {
-    const accId = "card_nubank_bruno";
     const accSelect = document.getElementById("import-account-select");
+    const firstCard = this.state.accounts.find(a => a.type === "CREDIT_CARD");
+    const accId = (accSelect && accSelect.value) || (firstCard && firstCard.id) || "cc_bruno";
     if (accSelect) accSelect.value = accId;
+    this.importTargetAccountId = accId;
     const account = this.getAccount(accId);
     const monthYear = this.state.settings.activeMonth;
     const sampleOFX = window.StatementParser.getSampleNubankOFX();
@@ -2740,6 +2646,7 @@ window.App = {
     };
 
     this.state.accounts.push(newCard);
+    this.importTargetAccountId = newCard.id;
     if (nameEl) nameEl.value = "";
     this.saveState(true);
     this.renderAll();
