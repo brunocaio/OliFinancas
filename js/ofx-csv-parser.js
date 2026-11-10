@@ -41,6 +41,53 @@ window.StatementParser = {
     return null;
   },
 
+  shiftYearMonth(year, month, deltaMonths) {
+    const d = new Date(year, month - 1 + deltaMonths, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  },
+
+  // Equaciona a regra de virada do cartão:
+  // • Cartão Nubank (vira dia 9, competenceOffset = 1):
+  //   Lançamentos deste mês antes do dia 9 (01/M a 08/M, junto com 09/M-1 a 31/M-1) fecham no dia 9/M e saem da conta no mês seguinte (M+1).
+  // • Cartão Itaú (vira dia 21, competenceOffset = 0):
+  //   Lançamentos deste mês antes do dia 21 (01/M a 20/M, junto com 21/M-1 a 31/M-1) fecham no dia 21/M e são considerados gastos do próprio mês (M).
+  // • Conta Corrente (débito / espécie): sempre próprio mês da data do lançamento.
+  computeCompetenceMonth(txDate, account, fallbackMonth = "2026-11") {
+    if (!txDate || !/^\d{4}-\d{2}-\d{2}/.test(txDate)) {
+      return fallbackMonth;
+    }
+    const y = parseInt(txDate.substring(0, 4), 10);
+    const m = parseInt(txDate.substring(5, 7), 10);
+    const day = parseInt(txDate.substring(8, 10), 10);
+
+    if (!account || account.type !== "CREDIT_CARD") {
+      return `${y}-${String(m).padStart(2, "0")}`;
+    }
+
+    const closingDay = Number(account.closingDay) || 9;
+    const offset = typeof account.competenceOffset === "number"
+      ? account.competenceOffset
+      : (closingDay <= 10 ? 1 : 0);
+
+    const invoiceClosingDelta = day < closingDay ? 0 : 1;
+    return this.shiftYearMonth(y, m, invoiceClosingDelta + offset);
+  },
+
+  describeCardCycleRule(account) {
+    if (!account || account.type !== "CREDIT_CARD") {
+      return "Débito / Espécie: competência no próprio mês da data do gasto.";
+    }
+    const closingDay = Number(account.closingDay) || 9;
+    const offset = typeof account.competenceOffset === "number"
+      ? account.competenceOffset
+      : (closingDay <= 10 ? 1 : 0);
+
+    if (offset >= 1) {
+      return `Vira dia ${closingDay}: compras antes do dia ${closingDay} entram como gasto do mês seguinte (quando o dinheiro sai da conta).`;
+    }
+    return `Vira dia ${closingDay}: compras antes do dia ${closingDay} entram como gasto do próprio mês.`;
+  },
+
   autoClassify(description, amount, isCreditCard, subcategories, projections, competenceMonth, ownerId = "bruno") {
     const normDesc = this.normalizeText(description);
 
@@ -141,13 +188,14 @@ window.StatementParser = {
 
       const absAmount = Math.abs(signedVal);
       const inst = this.detectInstallments(description);
+      const resolvedCompetence = this.computeCompetenceMonth(txDate, account, competenceMonth);
       const classification = this.autoClassify(
         description,
         signedVal,
         isCreditCard,
         state.subcategories,
         state.projections,
-        competenceMonth,
+        resolvedCompetence,
         account.ownerId || "bruno"
       );
 
@@ -171,7 +219,7 @@ window.StatementParser = {
         selected: !alreadyExists && finalType !== "TRANSFER",
         alreadyExists,
         transactionDate: txDate,
-        competenceMonth,
+        competenceMonth: resolvedCompetence,
         description,
         amount: absAmount,
         type: finalType,
@@ -283,13 +331,14 @@ window.StatementParser = {
       const txDate = this.parseDateString(rawDate, competenceMonth);
       const absAmount = Math.abs(signedVal);
       const inst = this.detectInstallments(rawDesc);
+      const resolvedCompetence = this.computeCompetenceMonth(txDate, account, competenceMonth);
       const classification = this.autoClassify(
         rawDesc,
         signedVal,
         isCreditCard,
         state.subcategories,
         state.projections,
-        competenceMonth,
+        resolvedCompetence,
         account.ownerId || "bruno"
       );
 
@@ -310,7 +359,7 @@ window.StatementParser = {
         selected: !alreadyExists && finalType !== "TRANSFER",
         alreadyExists,
         transactionDate: txDate,
-        competenceMonth,
+        competenceMonth: resolvedCompetence,
         description: rawDesc.replace(/^"|"$/g, ""),
         amount: absAmount,
         type: finalType,
@@ -340,38 +389,38 @@ VERSION:102
 <BANKTRANLIST>
 <STMTTRN>
 <TRNTYPE>DEBIT
-<DTPOSTED>20261114120000[-3:BRT]
+<DTPOSTED>20261004120000[-3:BRT]
 <TRNAMT>-245.80
 <FITID>OLI_DEMO_001
-<MEMO>Supermercado Guanabara - Feira & Azeitonas
+<MEMO>Supermercado Guanabara - Feira & Suprimentos
 </STMTTRN>
 <STMTTRN>
 <TRNTYPE>DEBIT
-<DTPOSTED>20261115193000[-3:BRT]
+<DTPOSTED>20261007193000[-3:BRT]
 <TRNAMT>-68.90
 <FITID>OLI_DEMO_002
-<MEMO>IFD*Ifood Pizza com Azeitona Preta
+<MEMO>IFD*Ifood Jantar
 </STMTTRN>
 <STMTTRN>
 <TRNTYPE>DEBIT
-<DTPOSTED>20261116101500[-3:BRT]
+<DTPOSTED>20261103101500[-3:BRT]
 <TRNAMT>-180.00
 <FITID>OLI_DEMO_003
-<MEMO>Posto Ipiranga Gasolina
+<MEMO>Posto Ipiranga Gasolina (Antes do dia 9 -> Vai p/ Dezembro)
 </STMTTRN>
 <STMTTRN>
 <TRNTYPE>DEBIT
-<DTPOSTED>20261116150000[-3:BRT]
+<DTPOSTED>20261106150000[-3:BRT]
 <TRNAMT>-115.00
 <FITID>OLI_DEMO_004
-<MEMO>Petz - Racao e Petiscos Chico
+<MEMO>Petz - Racao Chico (Antes do dia 9 -> Vai p/ Dezembro)
 </STMTTRN>
 <STMTTRN>
 <TRNTYPE>DEBIT
-<DTPOSTED>20261117090000[-3:BRT]
+<DTPOSTED>20261107090000[-3:BRT]
 <TRNAMT>-34.90
 <FITID>OLI_DEMO_005
-<MEMO>Uber *Viagem Trabalho
+<MEMO>Uber *Viagem Trabalho (Antes do dia 9 -> Vai p/ Dezembro)
 </STMTTRN>
 <STMTTRN>
 <TRNTYPE>CREDIT

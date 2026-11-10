@@ -212,9 +212,10 @@
                 <label class="block text-[11px] font-bold text-stone-500 mb-1">1. Conta ou Cartão do Arquivo</label>
                 <select
                   id="import-account-select"
-                  onchange="App.importTargetAccountId = this.value"
+                  onchange="App.onImportAccountChange(this.value)"
                   class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"
                 ></select>
+                <p id="import-cycle-rule-hint" class="text-[11px] text-lime-800 bg-lime-50/80 border border-lime-200/70 rounded-xl px-2.5 py-1.5 mt-2 leading-snug"></p>
               </div>
 
               <div>
@@ -391,10 +392,10 @@
             <thead>
               <tr class="border-b border-stone-200 text-[11px] font-bold uppercase text-stone-500 bg-stone-50/50">
                 <th class="py-2.5 px-3 w-8"></th>
-                <th class="py-2.5 px-3">Data</th>
+                <th class="py-2.5 px-3">Data Compra</th>
+                <th class="py-2.5 px-3">Competência (Saída)</th>
                 <th class="py-2.5 px-3">Descrição no Extrato</th>
                 <th class="py-2.5 px-3">Subcategoria</th>
-                <th class="py-2.5 px-3">Vincular à Meta</th>
                 <th class="py-2.5 px-3">Divisão</th>
                 <th class="py-2.5 px-3 text-right">Valor</th>
               </tr>
@@ -814,9 +815,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=7"></script>
-  <script src="./js/ofx-csv-parser.js?v=7"></script>
-  <script src="./js/supabase-sync.js?v=7"></script>
-  <script src="./js/app.js?v=7"></script>
+  <script src="./js/data-seed.js?v=8"></script>
+  <script src="./js/ofx-csv-parser.js?v=8"></script>
+  <script src="./js/supabase-sync.js?v=8"></script>
+  <script src="./js/app.js?v=8"></script>
 </body>
 </html>

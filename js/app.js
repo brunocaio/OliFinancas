@@ -57,11 +57,28 @@ window.App = {
   },
 
   upgradeStateToLatest(stateObj) {
-    if (!stateObj || stateObj.version === "1.3.0-oli") return false;
-    stateObj.version = "1.3.0-oli";
+    if (!stateObj || stateObj.version === "1.4.0-oli") return false;
+    stateObj.version = "1.4.0-oli";
 
     if (!stateObj.settings) stateObj.settings = {};
     if (!stateObj.settings.cardCustomMeta) stateObj.settings.cardCustomMeta = {};
+
+    // Atualiza regras de virada dos cartões (Nubank vira dia 9 -> mês seguinte; Itaú vira dia 21 -> próprio mês)
+    if (Array.isArray(stateObj.accounts)) {
+      stateObj.accounts.forEach(acc => {
+        if (acc.id === "card_nubank_bruno") {
+          acc.name = "Nubank Bruno (Vira dia 9)";
+          acc.closingDay = 9;
+          acc.dueDay = 16;
+          acc.competenceOffset = 1;
+        } else if (acc.id === "card_itau_bruno") {
+          acc.name = "Itaucard Bruno (Vira dia 21)";
+          acc.closingDay = 21;
+          acc.dueDay = 28;
+          acc.competenceOffset = 0;
+        }
+      });
+    }
 
     const individualSubIds = ["sub_lazer_geral", "sub_parceladas", "sub_transporte_app", "sub_jogos", "sub_autocuidado", "sub_analise", "sub_chatgpt", "sub_adobe", "sub_anuidade", "sub_outros"];
     if (Array.isArray(stateObj.subcategories)) {
@@ -118,8 +135,7 @@ window.App = {
       }
     }
 
-    // Atualiza as transações iniciais da seed caso ainda estejam no formato antigo para mostrar múltiplos itens na árvore [+]
-    if (Array.isArray(stateObj.transactions) && stateObj.transactions.some(t => t.id === "tx_nu_1")) {
+    if (Array.isArray(stateObj.transactions)) {
       const userAddedTxs = stateObj.transactions.filter(t => !t.id.startsWith("tx_rec_") && !t.id.startsWith("tx_cc_") && !t.id.startsWith("tx_nu_") && !t.id.startsWith("tx_it_"));
       stateObj.transactions = [
         ...JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA.transactions)),
@@ -1830,9 +1846,17 @@ window.App = {
           ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
           : "";
 
+        const txMonthPrefix = tx.transactionDate ? tx.transactionDate.substring(0, 7) : tx.competenceMonth;
+        const shiftedBadge = tx.competenceMonth > txMonthPrefix
+          ? `<div class="text-[10px] text-amber-700 font-semibold mt-0.5">↳ Vira dia ${acc.closingDay || 9} → Comp. ${this.getMonthLabel(tx.competenceMonth).split(" ")[0]}</div>`
+          : "";
+
         return `
           <tr class="border-b border-stone-100 hover:bg-stone-50/80 transition text-xs sm:text-sm">
-            <td class="py-3 px-4 whitespace-nowrap text-stone-500 text-xs font-medium">${this.formatDateBR(tx.transactionDate)}</td>
+            <td class="py-3 px-4 whitespace-nowrap text-stone-500 text-xs font-medium">
+              <div>${this.formatDateBR(tx.transactionDate)}</div>
+              ${shiftedBadge}
+            </td>
             <td class="py-3 px-4">
               <div class="font-bold text-stone-800">${tx.description} ${instBadge}</div>
               ${linkedProj ? `<div class="text-[11px] text-lime-700 font-medium mt-0.5">Meta: ${linkedProj.title}</div>` : ""}
@@ -1976,7 +2000,10 @@ window.App = {
       return;
     }
 
-    const baseMonth = this.state.settings.activeMonth;
+    const acc = this.getAccount(accountId);
+    const baseMonth = window.StatementParser
+      ? window.StatementParser.computeCompetenceMonth(txDate, acc, this.state.settings.activeMonth)
+      : this.state.settings.activeMonth;
     const [baseY, baseM] = baseMonth.split("-").map(Number);
 
     for (let i = 0; i < installments; i++) {
@@ -2005,8 +2032,8 @@ window.App = {
     this.renderAll();
     this.showToast(
       installments > 1
-        ? `🫒 Compra parcelada registrada (${installments}x)!`
-        : "🫒 Lançamento salvo com sucesso!",
+        ? `🫒 Compra parcelada registrada (${installments}x a partir de ${this.getMonthLabel(baseMonth)})!`
+        : `🫒 Lançamento salvo na competência ${this.getMonthLabel(baseMonth)}!`,
       "success"
     );
   },
@@ -2100,14 +2127,43 @@ window.App = {
   // ==========================================================================
   // ABA 5: IMPORTAR EXTRATO (OFX / CSV)
   // ==========================================================================
+  onImportAccountChange(accId) {
+    this.importTargetAccountId = accId;
+    this.updateImportCycleRuleHint();
+    if (this.stagedImports && this.stagedImports.length > 0 && window.StatementParser) {
+      const account = this.getAccount(accId);
+      this.stagedImports.forEach(item => {
+        item.accountId = accId;
+        item.paidByUserId = account.ownerId || "bruno";
+        item.competenceMonth = window.StatementParser.computeCompetenceMonth(
+          item.transactionDate,
+          account,
+          this.state.settings.activeMonth
+        );
+      });
+      this.renderImportTab(this.state.settings.activeMonth);
+    }
+  },
+
+  updateImportCycleRuleHint() {
+    const hintEl = document.getElementById("import-cycle-rule-hint");
+    if (!hintEl || !window.StatementParser) return;
+    const acc = this.getAccount(this.importTargetAccountId);
+    hintEl.innerHTML = `<strong>Regra de Virada (${acc.name}):</strong> ${window.StatementParser.describeCardCycleRule(acc)}`;
+  },
+
   renderImportTab(monthYear) {
     const accSelect = document.getElementById("import-account-select");
-    if (accSelect && accSelect.options.length === 0) {
+    if (accSelect) {
+      const currentVal = accSelect.value || this.importTargetAccountId;
       accSelect.innerHTML = this.state.accounts
-        .map(a => `<option value="${a.id}">${a.name} (${a.type === "CREDIT_CARD" ? "Cartão" : "Conta"})</option>`)
+        .filter(a => a.type !== "INVESTMENT")
+        .map(a => `<option value="${a.id}">${a.name}</option>`)
         .join("");
-      accSelect.value = this.importTargetAccountId;
+      accSelect.value = currentVal;
+      this.importTargetAccountId = accSelect.value;
     }
+    this.updateImportCycleRuleHint();
 
     const stagingArea = document.getElementById("import-staging-area");
     const tbody = document.getElementById("import-staging-tbody");
@@ -2126,7 +2182,7 @@ window.App = {
       countSpan.textContent = `${selectedItems.length} selecionado(s) (${this.formatBRL(totalSelectedVal)})`;
     }
 
-    const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
+    const availableMonths = ["2026-09", "2026-10", "2026-11", "2026-12", "2027-01"];
 
     tbody.innerHTML = this.stagedImports
       .map((item, idx) => {
@@ -2134,10 +2190,12 @@ window.App = {
           .map(s => `<option value="${s.id}" ${s.id === item.subcategoryId ? "selected" : ""}>${s.name}</option>`)
           .join("");
 
-        const projOptions = `<option value="">-- Automático --</option>` +
-          monthProjs
-            .map(p => `<option value="${p.id}" ${p.id === item.projectionId ? "selected" : ""}>${p.title} (${this.formatBRL(p.plannedAmount)})</option>`)
-            .join("");
+        const compOptions = availableMonths
+          .map(m => `<option value="${m}" ${m === item.competenceMonth ? "selected" : ""}>${this.getMonthLabel(m)}</option>`)
+          .join("");
+
+        const txMonthPrefix = item.transactionDate ? item.transactionDate.substring(0, 7) : item.competenceMonth;
+        const shiftedToNext = item.competenceMonth > txMonthPrefix;
 
         const rowClass = item.alreadyExists
           ? "opacity-45 bg-stone-50"
@@ -2155,7 +2213,21 @@ window.App = {
                 class="w-4 h-4 rounded border-stone-300 text-lime-700"
               />
             </td>
-            <td class="py-2.5 px-3 whitespace-nowrap text-stone-500">${this.formatDateBR(item.transactionDate)}</td>
+            <td class="py-2.5 px-3 whitespace-nowrap">
+              <div class="font-bold text-stone-700">${this.formatDateBR(item.transactionDate)}</div>
+              <div class="text-[10px] text-stone-400">${item.transactionDate.substring(0, 4)}</div>
+            </td>
+            <td class="py-2.5 px-3 whitespace-nowrap">
+              <select
+                onchange="App.updateStagedItem(${idx}, 'competenceMonth', this.value)"
+                class="oli-input rounded-lg px-2 py-1 text-xs font-bold ${shiftedToNext ? "bg-amber-50 border-amber-300 text-amber-900" : "text-stone-800"}"
+              >
+                ${compOptions}
+              </select>
+              <div class="text-[10px] mt-0.5 ${shiftedToNext ? "text-amber-700 font-semibold" : "text-lime-700 font-medium"}">
+                ${shiftedToNext ? "↳ Mês seguinte (Vira dia 9)" : "• Próprio mês"}
+              </div>
+            </td>
             <td class="py-2.5 px-3">
               <div class="font-bold text-stone-800">${item.description}</div>
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
@@ -2164,17 +2236,9 @@ window.App = {
             <td class="py-2.5 px-3">
               <select
                 onchange="App.updateStagedItem(${idx}, 'subcategoryId', this.value)"
-                class="oli-input rounded-lg px-2 py-1 text-xs w-40"
-              >
-                ${subOptions}
-              </select>
-            </td>
-            <td class="py-2.5 px-3">
-              <select
-                onchange="App.updateStagedItem(${idx}, 'projectionId', this.value)"
                 class="oli-input rounded-lg px-2 py-1 text-xs w-44"
               >
-                ${projOptions}
+                ${subOptions}
               </select>
             </td>
             <td class="py-2.5 px-3">
@@ -2284,10 +2348,11 @@ window.App = {
       });
     }
 
+    const compMonths = Array.from(new Set(selected.map(i => i.competenceMonth))).map(m => this.getMonthLabel(m));
     this.stagedImports = [];
     this.saveState(true);
     this.renderAll();
-    this.showToast(`🫒 ${selected.length} lançamentos importados com sucesso!`, "success");
+    this.showToast(`🫒 ${selected.length} lançamentos importados (${compMonths.join(" / ")})!`, "success");
   },
 
   // ==========================================================================
