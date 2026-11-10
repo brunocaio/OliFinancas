@@ -209,6 +209,57 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 6: corrige Pix com data DD/MM detectada erroneamente como parcela,
+    // separa transferências próprias "BRUNO CAIO DE OLIVEIRA" de "sub_caio" e extrai De/Para e Origem/Destino
+    if ((stateObj.schemaPatch || 0) < 6 && Array.isArray(stateObj.transactions)) {
+      const accMap = new Map((stateObj.accounts || []).map(a => [a.id, a]));
+      stateObj.transactions.forEach(tx => {
+        if (!tx) return;
+        const acc = accMap.get(tx.accountId) || null;
+        const desc = (tx.description || "").toUpperCase();
+        const isChecking = acc && acc.type === "CHECKING";
+
+        // 1. Remove falsas parcelas de datas DD/MM em Pix ou conta corrente
+        if ((isChecking || desc.includes("PIX")) && Number(tx.installmentTotal) > 1 && !desc.includes("PARC")) {
+          tx.installmentCurrent = 1;
+          tx.installmentTotal = 1;
+          if (tx.subcategoryId === "sub_parceladas") {
+            tx.subcategoryId = tx.type === "INCOME" ? "sub_rt_rendimentos" : "sub_outros";
+          }
+          changed = true;
+        }
+
+        // 2. Corrige Pix entre contas próprias de "BRUNO CAIO DE OLIVEIRA" que caíram em Caio
+        if (isChecking && (desc.includes("BRUNO CAIO") || desc.includes("MESMA TITULARIDADE")) && (desc.includes("PIX") || desc.includes("TRANSF"))) {
+          tx.type = "TRANSFER";
+          tx.subcategoryId = "sub_transf_propria";
+          tx.projectionId = null;
+          changed = true;
+        }
+
+        // 3. Extrai De quem/Para quem foi e Origem/Destino quando for Pix ou Transferência
+        if (window.StatementParser && window.StatementParser.extractTransferPixDetails) {
+          const info = window.StatementParser.extractTransferPixDetails(tx.description, tx.type, acc);
+          if (info.isPixOrTransfer) {
+            if (!tx.counterparty && info.counterparty) {
+              tx.counterparty = info.counterparty;
+              changed = true;
+            }
+            if (!tx.originLabel && info.originLabel) {
+              tx.originLabel = info.originLabel;
+              changed = true;
+            }
+            if (!tx.destinationLabel && info.destinationLabel) {
+              tx.destinationLabel = info.destinationLabel;
+              changed = true;
+            }
+          }
+        }
+      });
+      stateObj.schemaPatch = 6;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -338,6 +389,71 @@ window.App = {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  },
+
+  buildPixFlowBadgesHTML(txId, txObj, stagedIdx = null) {
+    if (!txObj) return "";
+    const normDesc = (txObj.description || "").toUpperCase();
+    const isPixOrTransfer =
+      txObj.type === "TRANSFER" ||
+      Boolean(txObj.counterparty || txObj.originLabel || txObj.destinationLabel) ||
+      /\b(PIX|TED|DOC|TRANSF|TRANSFERENCIA|RESGATE|APLICACAO)\b/i.test(normDesc);
+    if (!isPixOrTransfer) return "";
+
+    const clickCall = stagedIdx !== null
+      ? `App.openTxNoteModal(null, ${stagedIdx})`
+      : `App.openTxNoteModal('${txId}', null)`;
+
+    const cp = (txObj.counterparty || "").trim();
+    const orig = (txObj.originLabel || "").trim();
+    const dest = (txObj.destinationLabel || "").trim();
+    const dirPrefix = txObj.type === "INCOME" ? "De:" : txObj.type === "EXPENSE" ? "Para:" : "De/Para:";
+
+    const parts = [];
+    if (cp) {
+      parts.push(`
+        <button
+          type="button"
+          onclick="${clickCall}"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-[10px] font-bold transition cursor-pointer"
+          title="Clique para editar quem enviou/recebeu e as contas de origem/destino"
+        >
+          <span>👤</span>
+          <span>${dirPrefix} ${this.escapeHTML(cp)}</span>
+        </button>
+      `);
+    }
+    if (orig || dest) {
+      const flowText = orig && dest
+        ? `${orig} → ${dest}`
+        : orig
+        ? `Origem: ${orig}`
+        : `Destino: ${dest}`;
+      parts.push(`
+        <button
+          type="button"
+          onclick="${clickCall}"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 text-[10px] font-semibold transition cursor-pointer max-w-full"
+          title="Contas de origem e destino detectadas (clique para editar)"
+        >
+          <span>🏦</span>
+          <span class="truncate max-w-[300px]">${this.escapeHTML(flowText)}</span>
+        </button>
+      `);
+    }
+    if (parts.length === 0) {
+      parts.push(`
+        <button
+          type="button"
+          onclick="${clickCall}"
+          class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[10px] font-bold transition cursor-pointer"
+          title="Informar de quem/para quem foi este Pix ou transferência"
+        >
+          + De/Para
+        </button>
+      `);
+    }
+    return parts.join("");
   },
 
   buildTxNoteBadgeHTML(txId, notes, stagedIdx = null) {
@@ -879,12 +995,33 @@ window.App = {
   },
 
   populateQuickTargetAccounts() {
+    const wrap = document.getElementById("quick-counterparty-wrap");
+    const labelEl = document.getElementById("quick-counterparty-label");
     const targetWrap = document.getElementById("quick-target-account-wrap");
+    const transferHint = document.getElementById("quick-transfer-hint");
     const targetSelect = document.getElementById("quick-tx-target-account");
     const originSelect = document.getElementById("quick-tx-account");
-    if (!targetWrap || !targetSelect) return;
+    const descInput = document.getElementById("quick-tx-desc");
 
+    const descText = (descInput && descInput.value || "").toUpperCase();
     const isTransfer = this.quickTxType === "TRANSFER";
+    const isPixOrTransferDesc = /\b(PIX|TRANSF|TRANSFERENCIA|TED|DOC)\b/i.test(descText);
+
+    if (wrap) {
+      wrap.classList.toggle("hidden", !isTransfer && !isPixOrTransferDesc);
+    }
+    if (labelEl) {
+      labelEl.textContent = isTransfer
+        ? "👤 De quem / Para quem foi? (Transferência)"
+        : this.quickTxType === "INCOME"
+        ? "👤 De quem veio? (Remetente do Pix)"
+        : "👤 Para quem foi? (Beneficiário do Pix)";
+    }
+    if (transferHint) {
+      transferHint.classList.toggle("hidden", !isTransfer);
+    }
+
+    if (!targetWrap || !targetSelect) return;
     targetWrap.classList.toggle("hidden", !isTransfer);
     if (!isTransfer) return;
 
@@ -902,6 +1039,20 @@ window.App = {
       const checking = list.find(a => a.type === "CHECKING") || list[0];
       targetSelect.value = checking.id;
     }
+  },
+
+  applyQuickPixPreset() {
+    const descInput = document.getElementById("quick-tx-desc");
+    const accSelect = document.getElementById("quick-tx-account");
+    const cpInput = document.getElementById("quick-tx-counterparty");
+    const userAccounts = this.getAccountsForActiveUser();
+    const checking = userAccounts.find(a => a.type === "CHECKING") || userAccounts[0];
+    if (accSelect && checking) accSelect.value = checking.id;
+    if (descInput) descInput.value = "Pix ";
+    this.populateQuickTargetAccounts();
+    setTimeout(() => {
+      if (cpInput) cpInput.focus();
+    }, 40);
   },
 
   setQuickType(type, autoSelectSub = true) {
@@ -945,6 +1096,7 @@ window.App = {
   },
 
   onQuickDescInput(text) {
+    this.populateQuickTargetAccounts();
     const hint = document.getElementById("quick-auto-cat-hint");
     if (!text || text.trim().length < 2 || !window.StatementParser) {
       if (hint) hint.textContent = "";
@@ -1007,14 +1159,29 @@ window.App = {
 
     let finalDescription = description;
     let targetAccountId = null;
+    const counterpartyEl = document.getElementById("quick-tx-counterparty");
+    const counterparty = (counterpartyEl && counterpartyEl.value || "").trim();
+    let originLabel = "";
+    let destinationLabel = "";
+
     if (effectiveType === "TRANSFER") {
       const targetEl = document.getElementById("quick-tx-target-account");
       targetAccountId = (targetEl && targetEl.value) || null;
+      originLabel = acc.name;
       if (targetAccountId) {
         const targetAcc = this.getAccount(targetAccountId);
+        destinationLabel = targetAcc.name;
         if (!finalDescription.includes("→") && !finalDescription.includes(targetAcc.name)) {
           finalDescription = `${finalDescription} → ${targetAcc.name}`;
         }
+      }
+    } else if (/\b(PIX|TRANSF|TRANSFERENCIA|TED|DOC)\b/i.test(description) || counterparty) {
+      if (effectiveType === "INCOME") {
+        originLabel = counterparty ? `Pix de ${counterparty}` : "";
+        destinationLabel = acc.name;
+      } else {
+        originLabel = acc.name;
+        destinationLabel = counterparty ? `Pix p/ ${counterparty}` : "";
       }
     }
 
@@ -1030,6 +1197,9 @@ window.App = {
       transactionDate: todayISO,
       competenceMonth: monthYear,
       description: finalDescription,
+      counterparty,
+      originLabel,
+      destinationLabel,
       amount,
       type: effectiveType,
       accountId,
@@ -1044,6 +1214,8 @@ window.App = {
 
     amountInput.value = "";
     descInput.value = "";
+    if (counterpartyEl) counterpartyEl.value = "";
+    this.populateQuickTargetAccounts();
     if (hint) hint.textContent = "";
 
     this.saveState(true);
@@ -1668,6 +1840,7 @@ window.App = {
                                   <span class="text-[11px] text-stone-400 font-semibold w-11 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
                                   <span class="font-semibold text-stone-800 truncate">${tx.description}</span>
                                   ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
+                                  ${this.buildPixFlowBadgesHTML(tx.id, tx)}
                                   ${instTag}
                                   ${creditTag}
                                   ${this.getOwnershipBadge(tx.ownership)}
@@ -2761,7 +2934,10 @@ window.App = {
       const q = this.txFilter.search.toLowerCase();
       txs = txs.filter(t =>
         (t.description || "").toLowerCase().includes(q) ||
-        (t.notes || "").toLowerCase().includes(q)
+        (t.notes || "").toLowerCase().includes(q) ||
+        (t.counterparty || "").toLowerCase().includes(q) ||
+        (t.originLabel || "").toLowerCase().includes(q) ||
+        (t.destinationLabel || "").toLowerCase().includes(q)
       );
     }
 
@@ -2845,6 +3021,7 @@ window.App = {
                 ${creditBadge}
                 ${transferBadge}
                 ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
+                ${this.buildPixFlowBadgesHTML(tx.id, tx)}
               </div>
               ${linkedProj ? `<div class="text-[11px] text-lime-700 font-medium mt-0.5">Meta: ${linkedProj.title}</div>` : ""}
             </td>
@@ -3137,6 +3314,9 @@ window.App = {
     const rawDescEl = document.getElementById("note-modal-raw-desc");
     const instHintEl = document.getElementById("note-modal-installment-hint");
     const inputEl = document.getElementById("note-modal-input");
+    const cpInput = document.getElementById("note-modal-counterparty");
+    const origInput = document.getElementById("note-modal-origin");
+    const destInput = document.getElementById("note-modal-destination");
     if (!modal || !inputEl) return;
 
     let target = null;
@@ -3151,6 +3331,16 @@ window.App = {
 
     if (rawDescEl) rawDescEl.textContent = target.description || "";
     inputEl.value = target.notes || "";
+
+    // Preenche campos de Pix/Transferência (com extração automática se ainda estiverem vazios)
+    let autoPix = null;
+    if (window.StatementParser && window.StatementParser.extractTransferPixDetails) {
+      const acc = this.getAccount(target.accountId);
+      autoPix = window.StatementParser.extractTransferPixDetails(target.description, target.type, acc);
+    }
+    if (cpInput) cpInput.value = target.counterparty || (autoPix && autoPix.counterparty) || "";
+    if (origInput) origInput.value = target.originLabel || (autoPix && autoPix.originLabel) || "";
+    if (destInput) destInput.value = target.destinationLabel || (autoPix && autoPix.destinationLabel) || "";
 
     const totalInst = Number(target.installmentTotal) || 1;
     if (instHintEl) {
@@ -3175,15 +3365,23 @@ window.App = {
     this.editingNoteTarget = null;
   },
 
-  applyTxNoteValue(noteValue) {
+  applyTxNoteValue(noteValue, pixOverrides = null) {
     const clean = (noteValue || "").trim();
     const targetInfo = this.editingNoteTarget;
     if (!targetInfo) return;
+
+    const cp = pixOverrides ? (pixOverrides.counterparty || "").trim() : undefined;
+    const orig = pixOverrides ? (pixOverrides.originLabel || "").trim() : undefined;
+    const dest = pixOverrides ? (pixOverrides.destinationLabel || "").trim() : undefined;
 
     if (targetInfo.stagedIdx !== undefined && targetInfo.stagedIdx !== null) {
       const item = this.stagedImports[targetInfo.stagedIdx];
       if (!item) return;
       item.notes = clean;
+      if (cp !== undefined) item.counterparty = cp;
+      if (orig !== undefined) item.originLabel = orig;
+      if (dest !== undefined) item.destinationLabel = dest;
+
       if (Number(item.installmentTotal) > 1 && window.StatementParser && window.StatementParser.areCorrelatedInstallments) {
         this.stagedImports.forEach(other => {
           if (other !== item && window.StatementParser.areCorrelatedInstallments(item, other)) {
@@ -3193,13 +3391,17 @@ window.App = {
       }
       this.closeTxNoteModal();
       this.renderImportTab(this.state.settings.activeMonth);
-      this.showToast(clean ? `📝 Identificação "${clean}" salva na prévia!` : "Nota removida da prévia.", "success");
+      this.showToast(clean || cp ? `📝 Detalhes salvos na prévia!` : "Nota removida da prévia.", "success");
       return;
     }
 
     if (targetInfo.txId) {
       const tx = this.state.transactions.find(t => t.id === targetInfo.txId);
       if (!tx) return;
+      if (cp !== undefined) tx.counterparty = cp;
+      if (orig !== undefined) tx.originLabel = orig;
+      if (dest !== undefined) tx.destinationLabel = dest;
+
       const correlated = this.findCorrelatedInstallmentTxs(tx);
       let extraParcels = 0;
       correlated.forEach(item => {
@@ -3211,14 +3413,14 @@ window.App = {
       this.saveState(true);
       this.renderAll();
 
-      if (!clean) {
+      if (!clean && !cp && !orig && !dest) {
         const msg = extraParcels > 0
           ? `Identificação removida desta e de ${extraParcels} parcela(s) correlata(s) (Ctrl+Z p/ desfazer).`
           : "Identificação removida (Ctrl+Z p/ desfazer).";
         this.showToast(msg, "info");
       } else {
         const extraMsg = extraParcels > 0 ? ` + propagada para ${extraParcels} parcela(s) correlata(s)` : "";
-        this.showToast(`📝 "${clean}" salva${extraMsg}! (Ctrl+Z p/ desfazer)`, "success");
+        this.showToast(`📝 Identificação salva${extraMsg}! (Ctrl+Z p/ desfazer)`, "success");
       }
     }
   },
@@ -3226,11 +3428,18 @@ window.App = {
   saveTxNoteFromModal(e) {
     e.preventDefault();
     const inputEl = document.getElementById("note-modal-input");
-    this.applyTxNoteValue(inputEl ? inputEl.value : "");
+    const cpEl = document.getElementById("note-modal-counterparty");
+    const origEl = document.getElementById("note-modal-origin");
+    const destEl = document.getElementById("note-modal-destination");
+    this.applyTxNoteValue(inputEl ? inputEl.value : "", {
+      counterparty: cpEl ? cpEl.value : "",
+      originLabel: origEl ? origEl.value : "",
+      destinationLabel: destEl ? destEl.value : ""
+    });
   },
 
   clearTxNote() {
-    this.applyTxNoteValue("");
+    this.applyTxNoteValue("", { counterparty: "", originLabel: "", destinationLabel: "" });
   },
 
   populateModalAccountSelect(userId, preferredAccId = null) {
@@ -3661,6 +3870,7 @@ window.App = {
               <div class="font-bold text-stone-800 flex items-center gap-1.5 flex-wrap">
                 <span>${item.description}</span>
                 ${!item.alreadyExists && item.type !== "TRANSFER" ? this.buildTxNoteBadgeHTML(null, item.notes, idx) : ""}
+                ${!item.alreadyExists ? this.buildPixFlowBadgesHTML(null, item, idx) : ""}
               </div>
               ${item.memoryMatched && !item.alreadyExists && item.type !== "TRANSFER" ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
               ${isCredit ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
@@ -3884,6 +4094,9 @@ window.App = {
         competenceMonth: item.competenceMonth,
         description: item.description,
         notes: (item.notes || "").trim(),
+        counterparty: (item.counterparty || "").trim(),
+        originLabel: (item.originLabel || "").trim(),
+        destinationLabel: (item.destinationLabel || "").trim(),
         amount: item.amount,
         isInvoiceCredit: Boolean(item.isInvoiceCredit),
         type: item.type,

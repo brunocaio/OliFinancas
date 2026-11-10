@@ -380,21 +380,38 @@
                 </div>
               </div>
 
-              <!-- Seletor de Conta Destino (visível apenas quando Tipo = Transferência entre Contas Próprias) -->
-              <div id="quick-target-account-wrap" class="hidden rounded-xl bg-sky-50/80 border border-sky-200 px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                <div class="text-sky-900 font-bold flex items-center gap-1.5">
-                  <span>⇄</span>
-                  <span>Movimentação entre contas próprias (não entra em gastos nem receitas)</span>
+              <!-- Campos extras para Transferência / Pix (De quem foi / Para quem foi e Conta Origem/Destino) -->
+              <div id="quick-counterparty-wrap" class="hidden rounded-xl bg-sky-50/80 border border-sky-200 px-3 py-2.5 space-y-2 text-xs">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-end">
+                  <div>
+                    <label id="quick-counterparty-label" class="block text-[11px] font-bold text-sky-900 mb-1">
+                      👤 De quem foi / Para quem foi (Pix ou Transferência)
+                    </label>
+                    <input
+                      id="quick-tx-counterparty"
+                      type="text"
+                      placeholder="Ex: Maria Silva, Bruno Caio, Pedro Gomes..."
+                      class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white"
+                    />
+                  </div>
+                  <div id="quick-target-account-wrap" class="hidden">
+                    <label class="block text-[11px] font-bold text-sky-900 mb-1">
+                      🏦 Conta Destino (entre contas próprias)
+                    </label>
+                    <select id="quick-tx-target-account" class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white"></select>
+                  </div>
                 </div>
-                <div class="flex items-center gap-2">
-                  <label class="text-[11px] font-bold text-sky-800 whitespace-nowrap">Conta Destino:</label>
-                  <select id="quick-tx-target-account" class="oli-input rounded-lg px-2.5 py-1 text-xs font-semibold bg-white"></select>
+                <div id="quick-transfer-hint" class="hidden text-[10px] text-sky-800 font-semibold">
+                  ⇄ Movimentação entre contas próprias: excluída automaticamente de gastos e receitas.
                 </div>
               </div>
 
-              <!-- Atalhos rápidos focados em Dinheiro Sacado & Ajustes -->
+              <!-- Atalhos rápidos focados em Dinheiro Sacado, Pix & Ajustes -->
               <div class="pt-2.5 border-t border-stone-100 flex items-center gap-1.5 overflow-x-auto pb-0.5">
                 <span class="text-[11px] font-semibold text-stone-400 mr-1 whitespace-nowrap">Rápido:</span>
+                <button type="button" onclick="App.applyQuickPixPreset()" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 whitespace-nowrap transition">
+                  ⚡ Pix
+                </button>
                 <button type="button" onclick="App.applyQuickPreset('Flanelinhas (Dinheiro)', 'sub_flanelinhas', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
                   🅿️ Flanelinhas <span class="text-[10px] text-stone-400">(Casa)</span>
                 </button>
@@ -1121,6 +1138,42 @@
           <p class="text-[11px] text-stone-400 mt-1">O texto original do banco continua preservado para regras e duplicidade.</p>
         </div>
 
+        <div id="note-modal-pix-fields" class="space-y-2.5 rounded-xl bg-sky-50/70 border border-sky-200/80 p-3">
+          <div class="text-[11px] font-extrabold text-sky-900 flex items-center gap-1.5">
+            <span>⇄</span>
+            <span>Detalhes de Pix / Transferência (quem e contas)</span>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-stone-600 mb-1">👤 De quem foi / Para quem foi</label>
+            <input
+              id="note-modal-counterparty"
+              type="text"
+              placeholder="Ex: Bruno Caio, Diarista Maria..."
+              class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white"
+            />
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] font-bold text-stone-600 mb-1">🏦 Conta de Origem</label>
+              <input
+                id="note-modal-origin"
+                type="text"
+                placeholder="Ex: Conta Corrente Nubank"
+                class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs bg-white"
+              />
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-stone-600 mb-1">🏦 Conta de Destino</label>
+              <input
+                id="note-modal-destination"
+                type="text"
+                placeholder="Ex: Itaú (0341) Ag. 706 Cc. 69334-8"
+                class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs bg-white"
+              />
+            </div>
+          </div>
+        </div>
+
         <div class="flex items-center justify-between gap-2 pt-3 border-t border-stone-100">
           <button
             type="button"
@@ -1183,9 +1236,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=22"></script>
-  <script src="./js/ofx-csv-parser.js?v=22"></script>
-  <script src="./js/supabase-sync.js?v=22"></script>
-  <script src="./js/app.js?v=22"></script>
+  <script src="./js/data-seed.js?v=23"></script>
+  <script src="./js/ofx-csv-parser.js?v=23"></script>
+  <script src="./js/supabase-sync.js?v=23"></script>
+  <script src="./js/app.js?v=23"></script>
 </body>
 </html>

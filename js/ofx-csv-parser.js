@@ -13,9 +13,22 @@ window.StatementParser = {
       .trim();
   },
 
-  detectInstallments(description) {
+  detectInstallments(description, isCreditCard = true) {
+    const desc = description || "";
+    // Nunca confundir datas de Pix/extrato (ex: "08/11 13:06" ou "Pix - Enviado - 08/11") com parcelas
+    if (/\b\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}\b/.test(desc) || /\bPIX\b/i.test(desc)) {
+      const explicitParc = desc.match(/PARC(?:ELA)?\s*(\d{1,2})\s*\/\s*(\d{1,2})/i);
+      if (!explicitParc) return { current: 1, total: 1 };
+      const c = parseInt(explicitParc[1], 10);
+      const t = parseInt(explicitParc[2], 10);
+      return (c >= 1 && t >= c && t <= 48) ? { current: c, total: t } : { current: 1, total: 1 };
+    }
+    if (!isCreditCard) {
+      const explicitParc = desc.match(/PARC(?:ELA)?\s*(\d{1,2})\s*\/\s*(\d{1,2})/i);
+      if (!explicitParc) return { current: 1, total: 1 };
+    }
     const regex = /(?:PARC(?:ELA)?\s*)?\b(\d{1,2})\s*\/\s*(\d{1,2})\b/i;
-    const match = description.match(regex);
+    const match = desc.match(regex);
     if (match) {
       const current = parseInt(match[1], 10);
       const total = parseInt(match[2], 10);
@@ -24,6 +37,94 @@ window.StatementParser = {
       }
     }
     return { current: 1, total: 1 };
+  },
+
+  extractTransferPixDetails(description, finalType = "EXPENSE", account = null) {
+    const raw = (description || "").trim();
+    const norm = this.normalizeText(raw);
+    const isPixOrTransfer =
+      finalType === "TRANSFER" ||
+      /\b(PIX|TED|DOC|TRANSF|TRANSFERENCIA|RESGATE|APLICACAO|RESGATE RDB|APLICACAO RDB)\b/i.test(norm);
+
+    if (!isPixOrTransfer) {
+      return {
+        isPixOrTransfer: false,
+        direction: null,
+        counterparty: "",
+        originLabel: "",
+        destinationLabel: ""
+      };
+    }
+
+    let direction = "SENT";
+    if (/\b(RECEBID[OA]|CREDITO EM CONTA|RESGATE)\b/i.test(norm) || finalType === "INCOME") {
+      direction = "RECEIVED";
+    } else if (/\b(ENVIAD[OA]|APLICACAO)\b/i.test(norm)) {
+      direction = "SENT";
+    }
+
+    let counterparty = "";
+    let bankDetails = "";
+
+    // Padrão 1 (Nubank Conta): "Transferência enviada pelo Pix - NOME - CPF/CNPJ - BANCO (COD) Agência: AG Conta: CC"
+    const nubankMatch = raw.match(/Transfer[êe]ncia\s+(?:enviada|recebida)\s+pelo\s+Pix\s*-\s*(.+)$/i);
+    if (nubankMatch) {
+      const rest = nubankMatch[1]
+        .replace(/\s*\(Transfer[êe]ncia\s+(?:enviada|recebida)\)\s*$/i, "")
+        .trim();
+      const parts = rest.split(/\s+-\s+/);
+      counterparty = (parts[0] || "").trim();
+
+      // Extrai Banco, Agência e Conta quando presentes (geralmente após CPF/CNPJ mascarado)
+      const bankChunkMatch = rest.match(/([A-Za-z0-9À-ÿ.\s/&-]+\(\d{3,4}\).*)$/i);
+      if (bankChunkMatch) {
+        bankDetails = bankChunkMatch[1]
+          .replace(/Ag[êe]ncia:\s*/i, "Ag. ")
+          .replace(/\s+Conta:\s*/i, " • Cc. ")
+          .replace(/\s+/g, " ")
+          .trim();
+      } else if (parts.length >= 3) {
+        bankDetails = parts.slice(2).join(" - ").trim();
+      }
+    }
+
+    // Padrão 2 (Banco do Brasil OFX): "Pix - Enviado - 08/11 13:06 [CPF/CNPJ opcional] NOME"
+    if (!counterparty) {
+      const bbMatch = raw.match(/Pix\s*-\s*(?:Enviado|Recebido)\s*-\s*(?:\d{2}\/\d{2}\s+\d{2}:\d{2}\s+)?(?:\d{11,14}\s+)?(.+)$/i);
+      if (bbMatch) {
+        counterparty = bbMatch[1].trim();
+      }
+    }
+
+    // Padrão 3 (Itaú / Genérico): "PIX TRANSF NOME", "PIX QRS NOME", "TED NOME"
+    if (!counterparty) {
+      const genMatch = raw.match(/(?:PIX\s+(?:TRANSF|QRS|ENVIADO|RECEBIDO)|TED|DOC)\s*[:-]?\s*(.+)$/i);
+      if (genMatch) {
+        counterparty = genMatch[1].replace(/\s+\d{2}\/\d{2}$/, "").trim();
+      }
+    }
+
+    const accName = (account && account.name) || "Conta do Extrato";
+    const counterpartAccountStr = bankDetails || (counterparty ? `Não informado (${counterparty})` : "");
+
+    let originLabel = "";
+    let destinationLabel = "";
+    if (direction === "SENT") {
+      originLabel = accName;
+      destinationLabel = bankDetails || (finalType === "TRANSFER" && counterparty ? `Conta de ${counterparty} (Banco não informado no OFX)` : "");
+    } else {
+      originLabel = bankDetails || (counterparty ? `Origem: ${counterparty}` : "");
+      destinationLabel = accName;
+    }
+
+    return {
+      isPixOrTransfer: true,
+      direction,
+      counterparty,
+      bankDetails,
+      originLabel,
+      destinationLabel
+    };
   },
 
   getInstallmentBaseName(description) {
@@ -310,11 +411,13 @@ window.StatementParser = {
       "RESGATE RDB",
       "APLICACAO RDB"
     ];
-    const ownerNameUpper = ownerId === "nubia" ? "NUBIA" : "BRUNO";
+    const ownerSelfTokens = ownerId === "nubia"
+      ? ["NUBIA "]
+      : ["BRUNO CAIO", "BRUNO CAIO DE OLIVEIRA"];
     const looksLikeSelfTransfer =
       ownTransferKeywords.some(kw => normDesc.includes(kw)) ||
       (!isCreditCard &&
-        normDesc.includes(ownerNameUpper) &&
+        ownerSelfTokens.some(tok => normDesc.includes(tok)) &&
         (normDesc.includes("PIX") || normDesc.includes("TRANSF") || normDesc.includes("TED") || normDesc.includes("DOC")));
     if (looksLikeSelfTransfer) {
       return {
@@ -362,7 +465,7 @@ window.StatementParser = {
       }
     }
 
-    const inst = this.detectInstallments(description);
+    const inst = this.detectInstallments(description, isCreditCard);
     if (!matchedSub && inst.total > 1) {
       matchedSub = subcategories.find(s => s.id === "sub_parceladas") || null;
     }
@@ -452,7 +555,7 @@ window.StatementParser = {
     for (const raw of rawItems) {
       const { trnType, txDate, signedVal, fitId, description } = raw;
       const absAmount = Math.abs(signedVal);
-      const inst = this.detectInstallments(description);
+      const inst = this.detectInstallments(description, isCreditCard);
       const itemCycleMonth = this.computeCompetenceMonth(txDate, account, competenceMonth);
       const resolvedCompetence = forcedInvoiceMonth || itemCycleMonth;
       const classification = this.autoClassify(
@@ -509,6 +612,7 @@ window.StatementParser = {
       const siblingMatch = finalType === "EXPENSE"
         ? this.findSiblingInstallmentClassification(candidateForSibling, state)
         : null;
+      const pixInfo = this.extractTransferPixDetails(description, finalType, account);
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
@@ -519,6 +623,9 @@ window.StatementParser = {
         cycleCompetenceMonth: itemCycleMonth,
         description,
         notes: (siblingMatch && siblingMatch.notes) || "",
+        counterparty: pixInfo.counterparty || "",
+        originLabel: pixInfo.originLabel || "",
+        destinationLabel: pixInfo.destinationLabel || "",
         amount: finalAmount,
         isInvoiceCredit,
         type: finalType,
@@ -651,7 +758,7 @@ window.StatementParser = {
     for (const row of parsedRows) {
       const { txDate, rawDesc, signedVal } = row;
       const absAmount = Math.abs(signedVal);
-      const inst = this.detectInstallments(rawDesc);
+      const inst = this.detectInstallments(rawDesc, isCreditCard);
       const itemCycleMonth = this.computeCompetenceMonth(txDate, account, competenceMonth);
       const resolvedCompetence = forcedInvoiceMonth || itemCycleMonth;
       const classification = this.autoClassify(
@@ -703,6 +810,7 @@ window.StatementParser = {
       const siblingMatch = finalType === "EXPENSE"
         ? this.findSiblingInstallmentClassification(candidateForSibling, state)
         : null;
+      const pixInfo = this.extractTransferPixDetails(rawDesc, finalType, account);
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
@@ -713,6 +821,9 @@ window.StatementParser = {
         cycleCompetenceMonth: itemCycleMonth,
         description: rawDesc,
         notes: (siblingMatch && siblingMatch.notes) || "",
+        counterparty: pixInfo.counterparty || "",
+        originLabel: pixInfo.originLabel || "",
+        destinationLabel: pixInfo.destinationLabel || "",
         amount: finalAmount,
         isInvoiceCredit,
         type: finalType,
