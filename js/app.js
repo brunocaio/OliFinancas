@@ -505,6 +505,9 @@ window.App = {
   },
 
   switchTab(tabName) {
+    if (tabName === "transactions" || tabName === "import") {
+      tabName = "dashboard";
+    }
     this.currentTab = tabName;
     this.renderAll();
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -576,13 +579,14 @@ window.App = {
       if (prevVal && userAccounts.some(a => a.id === prevVal)) {
         accSelect.value = prevVal;
       } else {
-        accSelect.value = this.activeUserFilter === "nubia" ? "card_nubia" : "card_nubank_bruno";
+        // Por padrão aponta para Conta Corrente (foco em dinheiro sacado / espécie / ajustes)
+        accSelect.value = this.activeUserFilter === "nubia" ? "cc_nubia" : "cc_bruno";
       }
     }
 
     const subSelect = document.getElementById("quick-tx-subcategory");
     if (subSelect) {
-      const currentSub = subSelect.value || "sub_feira_sup";
+      const currentSub = subSelect.value || "sub_flanelinhas";
       subSelect.innerHTML = this.state.categories
         .map(cat => {
           const subs = this.state.subcategories.filter(s => s.categoryId === cat.id);
@@ -654,11 +658,15 @@ window.App = {
     }
   },
 
-  applyQuickPreset(descPlaceholder, subId) {
+  applyQuickPreset(descPlaceholder, subId, preferredAccountId = null) {
     const descInput = document.getElementById("quick-tx-desc");
     const subSelect = document.getElementById("quick-tx-subcategory");
+    const accSelect = document.getElementById("quick-tx-account");
     const amountInput = document.getElementById("quick-tx-amount");
 
+    if (preferredAccountId && accSelect && Array.from(accSelect.options).some(o => o.value === preferredAccountId)) {
+      accSelect.value = preferredAccountId;
+    }
     if (descInput) descInput.value = descPlaceholder;
     if (subSelect) subSelect.value = subId;
     this.onQuickSubcategoryChange(subId);
@@ -752,63 +760,27 @@ window.App = {
         : `Últimos Lançamentos (${userLabel})`;
     }
 
-    // 1. 3 KPIs Minimalistas
+    // Pílulas discretas e minimalistas no topo da Home (sem poluir a página inicial)
     const kpiContainer = document.getElementById("dashboard-kpis");
     if (kpiContainer) {
-      const expenseDiff = summary.totalPlannedExpenses - summary.totalActualExpenses;
-      const expensePct = summary.totalPlannedExpenses > 0
-        ? Math.round((summary.totalActualExpenses / summary.totalPlannedExpenses) * 100)
-        : 0;
-
       kpiContainer.innerHTML = `
-        <!-- Receita -->
-        <div class="oli-card rounded-2xl p-5">
-          <div class="flex items-center justify-between text-xs font-bold text-stone-500 mb-1.5">
-            <span>Receitas (${userLabel})</span>
-            <i data-lucide="arrow-up-right" class="w-4 h-4 text-lime-700"></i>
-          </div>
-          <div class="text-2xl font-extrabold text-stone-900">${this.formatBRL(summary.totalIncome)}</div>
-          <div class="mt-1.5 text-[11px] text-stone-400">
-            Competência ${this.getMonthLabel(monthYear)}
-          </div>
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-xs shadow-2xs">
+          <span class="text-stone-400 font-semibold">Saídas (${userLabel}):</span>
+          <strong class="text-stone-900 font-extrabold">${this.formatBRL(summary.totalActualExpenses)}</strong>
         </div>
-
-        <!-- Gastos Realizado vs Meta -->
-        <div class="oli-card rounded-2xl p-5">
-          <div class="flex items-center justify-between text-xs font-bold text-stone-500 mb-1.5">
-            <span>Despesas (Realizado vs. Meta)</span>
-            <span class="text-[11px] font-bold ${expensePct > 100 ? "text-rose-600" : "text-lime-700"}">${expensePct}%</span>
-          </div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-2xl font-extrabold text-stone-900">${this.formatBRL(summary.totalActualExpenses)}</span>
-            <span class="text-xs text-stone-400">/ ${this.formatBRL(summary.totalPlannedExpenses)}</span>
-          </div>
-          <div class="mt-2.5 w-full bg-stone-100 h-2 rounded-full overflow-hidden">
-            <div class="h-full rounded-full ${expensePct > 100 ? "bg-rose-500" : expensePct > 85 ? "bg-amber-500" : "bg-lime-600"}" style="width: ${Math.min(expensePct, 100)}%"></div>
-          </div>
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-xs shadow-2xs">
+          <span class="text-stone-400 font-semibold">Meta Geral:</span>
+          <strong class="text-stone-700 font-bold">${this.formatBRL(summary.totalPlannedExpenses)}</strong>
         </div>
-
-        <!-- Saldo Disponível -->
-        <div class="oli-card rounded-2xl p-5">
-          <div class="flex items-center justify-between text-xs font-bold text-stone-500 mb-1.5">
-            <span>Saldo Livre do Mês</span>
-            <i data-lucide="wallet" class="w-4 h-4 text-stone-400"></i>
-          </div>
-          <div class="text-2xl font-extrabold ${summary.actualBalance >= 0 ? "text-lime-700" : "text-rose-600"}">
-            ${this.formatBRL(summary.actualBalance)}
-          </div>
-          <div class="mt-1.5 text-[11px] text-stone-400 flex justify-between">
-            <span>Caixa previsto pós-metas:</span>
-            <strong class="text-stone-700">${this.formatBRL(summary.projectedBalance)}</strong>
-          </div>
-        </div>
+        <button
+          type="button"
+          onclick="App.switchTab('projections')"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-lime-700/10 hover:bg-lime-700/20 text-lime-900 font-bold text-xs transition"
+        >
+          <i data-lucide="target" class="w-3.5 h-3.5 text-lime-700"></i>
+          <span>Ver Metas &rarr;</span>
+        </button>
       `;
-    }
-
-    // 2. Renderiza a Estrutura de Metas & Gastos (Conta Corrente + Cartões por Categoria com Árvore [+]) na Home
-    const homeTreeContainer = document.getElementById("home-structured-budget-container");
-    if (homeTreeContainer) {
-      homeTreeContainer.innerHTML = this.buildStructuredBudgetHTML(monthYear);
     }
   },
 
@@ -1827,6 +1799,11 @@ window.App = {
     }
 
     txs.sort((a, b) => b.transactionDate.localeCompare(a.transactionDate));
+
+    const badgeEl = document.getElementById("history-count-badge");
+    if (badgeEl) {
+      badgeEl.textContent = `${txs.length} ${txs.length === 1 ? "item" : "itens"}`;
+    }
 
     if (txs.length === 0) {
       tbody.innerHTML = `

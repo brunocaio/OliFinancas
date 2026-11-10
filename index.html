@@ -138,19 +138,13 @@
     <div class="max-w-5xl mx-auto px-4 sm:px-6 hidden lg:flex items-center justify-between border-t border-[#ebf0e6] py-1.5">
       <nav class="flex items-center gap-1">
         <button data-tab-target="dashboard" onclick="App.switchTab('dashboard')">
-          <i data-lucide="home" class="w-4 h-4"></i> Início & Lançar
+          <i data-lucide="home" class="w-4 h-4"></i> Início & Lançamentos
         </button>
         <button data-tab-target="projections" onclick="App.switchTab('projections')">
-          <i data-lucide="target" class="w-4 h-4"></i> Metas (Previsto vs. Realizado)
-        </button>
-        <button data-tab-target="transactions" onclick="App.switchTab('transactions')">
-          <i data-lucide="list" class="w-4 h-4"></i> Extrato
+          <i data-lucide="target" class="w-4 h-4"></i> Metas & Orçamento
         </button>
         <button data-tab-target="diagnostics" onclick="App.switchTab('diagnostics')">
           <i data-lucide="pie-chart" class="w-4 h-4"></i> Diagnóstico & Casal
-        </button>
-        <button data-tab-target="import" onclick="App.switchTab('import')">
-          <i data-lucide="upload" class="w-4 h-4"></i> Importar OFX/CSV
         </button>
       </nav>
       <div class="flex items-center gap-1">
@@ -168,158 +162,334 @@
   <main class="max-w-5xl mx-auto px-4 sm:px-6 pt-6">
 
     <!-- ================================================================== -->
-    <!-- ABA 1: HOME MINIMALISTA (FOCO EM NOVO LANÇAMENTO + RESUMO PESSOAL) -->
+    <!-- ABA 1: PÁGINA INICIAL & LANÇAMENTOS (OFX + DINHEIRO/AJUSTES + HISTÓRICO) -->
     <!-- ================================================================== -->
     <section id="tab-dashboard" class="tab-section space-y-6">
 
-      <!-- Saudação Contextual + Dica sutil -->
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <!-- Cabeçalho Enxuto + Resumo Compacto em Pílulas -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 id="home-greeting-title" class="text-xl sm:text-2xl font-extrabold text-stone-900 tracking-tight">
             Olá, Bruno 🫒
           </h1>
-          <p id="oli-humorous-banner-text" onclick="App.nextQuote()" class="text-xs text-stone-500 cursor-pointer hover:text-lime-700 transition mt-0.5" title="Clique para outra nota">
-            Visão focada nas suas contas e lançamentos rápidos do mês.
+          <p id="oli-humorous-banner-text" onclick="App.nextQuote()" class="text-xs text-stone-500 cursor-pointer hover:text-lime-700 transition mt-0.5" title="Clique para outra dica">
+            Importe seus arquivos OFX dos bancos ou lance saques em espécie e ajustes rápidos.
           </p>
         </div>
-        <button onclick="App.openTransactionModal()" class="self-start sm:self-auto text-xs font-bold text-lime-800 bg-lime-100/80 hover:bg-lime-200/80 border border-lime-300/60 px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition">
-          <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
-          Lançamento Completo / Parcelado
-        </button>
+
+        <!-- Pílulas discretas de contexto do mês -->
+        <div id="dashboard-kpis" class="flex flex-wrap items-center gap-2"></div>
       </div>
 
-      <!-- CARD PROTAGONISTA: LANÇAMENTO RÁPIDO EM 3 SEGUNDOS -->
-      <div class="oli-card rounded-3xl p-5 sm:p-6 border-lime-600/25 shadow-md">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-lime-600"></span>
-            <h2 class="text-sm font-extrabold uppercase tracking-wider text-stone-700">Novo Lançamento Rápido</h2>
+      <!-- GRID DE ENTRADA DE DADOS: 1) IMPORTAÇÃO OFX/CSV + 2) LANÇAMENTO RÁPIDO (DINHEIRO SACADO / AJUSTES) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+
+        <!-- CARD 1 (5 COLUNAS): IMPORTAÇÃO DE OFX / CSV -->
+        <div class="lg:col-span-5 oli-card rounded-3xl p-5 sm:p-6 flex flex-col justify-between border-stone-200/90 shadow-xs">
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-xl bg-lime-100 text-lime-800 flex items-center justify-center">
+                  <i data-lucide="file-up" class="w-4 h-4"></i>
+                </div>
+                <div>
+                  <h2 class="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-800">Importar OFX / CSV</h2>
+                  <p class="text-[11px] text-stone-400">Faturas de cartão e extrato da conta</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onclick="App.loadSampleNubankExtract()"
+                class="text-[11px] font-bold text-lime-700 hover:text-lime-900 bg-lime-50 hover:bg-lime-100 px-2.5 py-1 rounded-lg transition"
+                title="Carregar arquivo OFX de exemplo para testar"
+              >
+                Testar OFX
+              </button>
+            </div>
+
+            <div class="space-y-3 mt-4">
+              <div>
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">1. Conta ou Cartão do Arquivo</label>
+                <select
+                  id="import-account-select"
+                  onchange="App.importTargetAccountId = this.value"
+                  class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"
+                ></select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">2. Selecionar Extrato (.OFX ou .CSV)</label>
+                <label class="flex flex-col items-center justify-center gap-1.5 w-full border-2 border-dashed border-lime-600/35 hover:border-lime-600 bg-[#f9fbf6] hover:bg-lime-50/50 rounded-2xl px-4 py-5 cursor-pointer transition text-center">
+                  <i data-lucide="upload-cloud" class="w-6 h-6 text-lime-700"></i>
+                  <span class="text-xs font-bold text-stone-700">Clique para enviar arquivo .OFX ou .CSV</span>
+                  <span class="text-[11px] text-stone-400">Classifica categorias e ignora pagamento de fatura</span>
+                  <input type="file" accept=".ofx,.csv,.txt" class="hidden" onchange="App.handleStatementFileUpload(this.files)" />
+                </label>
+              </div>
+            </div>
           </div>
-          <div class="inline-flex bg-stone-100 p-0.5 rounded-lg text-xs">
-            <button type="button" id="quick-type-expense" onclick="App.setQuickType('EXPENSE')" class="px-2.5 py-1 rounded-md font-bold bg-white text-stone-900 shadow-sm transition">
-              Despesa
-            </button>
-            <button type="button" id="quick-type-income" onclick="App.setQuickType('INCOME')" class="px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition">
-              Receita
+
+          <div class="pt-3 mt-3 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-400">
+            <span>Reconhecimento automático por palavras-chave</span>
+            <button type="button" onclick="App.switchTab('categories')" class="font-bold text-stone-600 hover:text-lime-700">
+              Regras &rarr;
             </button>
           </div>
         </div>
 
-        <form onsubmit="App.handleQuickTransaction(event)" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-            <!-- Valor em destaque -->
-            <div class="sm:col-span-4 relative">
-              <label class="block text-[11px] font-bold text-stone-500 mb-1">Valor (R$)</label>
-              <div class="relative">
-                <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-extrabold text-stone-400">R$</span>
-                <input
-                  id="quick-tx-amount"
-                  type="number"
-                  step="0.01"
-                  required
-                  placeholder="0,00"
-                  class="w-full oli-input rounded-2xl pl-10 pr-4 py-3 text-lg font-extrabold text-stone-900"
-                />
+        <!-- CARD 2 (7 COLUNAS): LANÇAMENTO RÁPIDO (DINHEIRO SACADO / ESPÉCIE / AJUSTES) -->
+        <div class="lg:col-span-7 oli-card rounded-3xl p-5 sm:p-6 border-lime-600/25 shadow-xs flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-xl bg-amber-100/80 text-amber-800 flex items-center justify-center">
+                  <i data-lucide="banknote" class="w-4 h-4"></i>
+                </div>
+                <div>
+                  <h2 class="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-800">Lançamento Rápido</h2>
+                  <p class="text-[11px] text-stone-400">Dinheiro sacado (espécie), pagamentos na rua ou ajustes</p>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <div class="inline-flex bg-stone-100 p-0.5 rounded-lg text-xs">
+                  <button type="button" id="quick-type-expense" onclick="App.setQuickType('EXPENSE')" class="px-2.5 py-1 rounded-md font-bold bg-white text-stone-900 shadow-2xs transition">
+                    Saída / Ajuste
+                  </button>
+                  <button type="button" id="quick-type-income" onclick="App.setQuickType('INCOME')" class="px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition">
+                    Entrada
+                  </button>
+                </div>
               </div>
             </div>
 
-            <!-- Descrição inteligente -->
-            <div class="sm:col-span-8">
-              <label class="block text-[11px] font-bold text-stone-500 mb-1">O que foi? <span id="quick-auto-cat-hint" class="text-lime-700 font-semibold ml-1"></span></label>
-              <input
-                id="quick-tx-desc"
-                type="text"
-                required
-                oninput="App.onQuickDescInput(this.value)"
-                placeholder="Ex: Mercado, Uber, Almoço, Farmácia, Ração..."
-                class="w-full oli-input rounded-2xl px-4 py-3 text-sm font-semibold text-stone-900"
-              />
-            </div>
+            <form onsubmit="App.handleQuickTransaction(event)" class="space-y-3.5 mt-4">
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <!-- Valor -->
+                <div class="sm:col-span-4">
+                  <label class="block text-[11px] font-bold text-stone-500 mb-1">Valor (R$)</label>
+                  <div class="relative">
+                    <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-extrabold text-stone-400">R$</span>
+                    <input
+                      id="quick-tx-amount"
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="0,00"
+                      class="w-full oli-input rounded-2xl pl-10 pr-3 py-2.5 text-base font-extrabold text-stone-900"
+                    />
+                  </div>
+                </div>
+
+                <!-- Descrição -->
+                <div class="sm:col-span-8">
+                  <label class="block text-[11px] font-bold text-stone-500 mb-1">
+                    Descrição (Dinheiro / Ajuste)
+                    <span id="quick-auto-cat-hint" class="text-lime-700 font-semibold ml-1"></span>
+                  </label>
+                  <input
+                    id="quick-tx-desc"
+                    type="text"
+                    required
+                    oninput="App.onQuickDescInput(this.value)"
+                    placeholder="Ex: Saque em espécie, Flanelinha, Vigia da rua, Ajuste..."
+                    class="w-full oli-input rounded-2xl px-3.5 py-2.5 text-sm font-semibold text-stone-900"
+                  />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 sm:grid-cols-12 gap-2.5 items-end">
+                <!-- Origem (Conta Corrente por padrão p/ saques/ajustes) -->
+                <div class="col-span-1 sm:col-span-4">
+                  <label class="block text-[11px] font-bold text-stone-500 mb-1">Origem / Conta</label>
+                  <select id="quick-tx-account" onchange="App.onQuickAccountChange(this.value)" class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-semibold"></select>
+                </div>
+
+                <!-- Categoria -->
+                <div class="col-span-1 sm:col-span-4">
+                  <label class="block text-[11px] font-bold text-stone-500 mb-1">Categoria</label>
+                  <select id="quick-tx-subcategory" onchange="App.onQuickSubcategoryChange(this.value)" class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-semibold"></select>
+                </div>
+
+                <!-- Divisão Automática -->
+                <div class="col-span-1 sm:col-span-2">
+                  <label class="block text-[11px] font-bold text-stone-500 mb-1">Divisão <span id="quick-ownership-auto-tag" class="text-[10px] text-lime-700 font-normal"></span></label>
+                  <select id="quick-tx-ownership" class="w-full oli-input rounded-xl px-2 py-2 text-xs font-semibold">
+                    <option value="COLLECTIVE">Casa</option>
+                    <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
+                    <option value="INDIVIDUAL_NUBIA">Só Núbia</option>
+                  </select>
+                </div>
+
+                <!-- Botão Lançar -->
+                <div class="col-span-1 sm:col-span-2">
+                  <button
+                    type="submit"
+                    class="w-full bg-lime-700 hover:bg-lime-800 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1 transition"
+                  >
+                    <i data-lucide="plus" class="w-4 h-4"></i>
+                    <span>Lançar</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Atalhos rápidos focados em Dinheiro Sacado & Ajustes -->
+              <div class="pt-2.5 border-t border-stone-100 flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                <span class="text-[11px] font-semibold text-stone-400 mr-1 whitespace-nowrap">Rápido:</span>
+                <button type="button" onclick="App.applyQuickPreset('Flanelinhas (Dinheiro)', 'sub_flanelinhas', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                  🅿️ Flanelinhas <span class="text-[10px] text-stone-400">(Casa)</span>
+                </button>
+                <button type="button" onclick="App.applyQuickPreset('Vigias da Rua (Dinheiro)', 'sub_vigias', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                  🛡️ Vigias <span class="text-[10px] text-stone-400">(Casa)</span>
+                </button>
+                <button type="button" onclick="App.applyQuickPreset('Feira em Espécie / Dinheiro', 'sub_feira_cc', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                  🥬 Feira em Dinheiro <span class="text-[10px] text-stone-400">(Casa)</span>
+                </button>
+                <button type="button" onclick="App.applyQuickPreset('Saque / Dinheiro Pessoal', 'sub_lazer_geral', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                  💵 Dinheiro Sacado <span class="text-[10px] text-stone-400">(Individual)</span>
+                </button>
+                <button type="button" onclick="App.applyQuickPreset('Ajuste Manual', 'sub_outros', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                  ⚖️ Ajuste <span class="text-[10px] text-stone-400">(Individual)</span>
+                </button>
+              </div>
+            </form>
           </div>
-
-          <div class="grid grid-cols-2 sm:grid-cols-12 gap-3 items-end">
-            <!-- Conta / Cartão -->
-            <div class="col-span-1 sm:col-span-4">
-              <label class="block text-[11px] font-bold text-stone-500 mb-1">Conta / Cartão</label>
-              <select id="quick-tx-account" onchange="App.onQuickAccountChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"></select>
-            </div>
-
-            <!-- Categoria -->
-            <div class="col-span-1 sm:col-span-4">
-              <label class="block text-[11px] font-bold text-stone-500 mb-1">Categoria</label>
-              <select id="quick-tx-subcategory" onchange="App.onQuickSubcategoryChange(this.value)" class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"></select>
-            </div>
-
-            <!-- Divisão Individual vs Coletivo -->
-            <div class="col-span-1 sm:col-span-2">
-              <label class="block text-[11px] font-bold text-stone-500 mb-1">Divisão <span id="quick-ownership-auto-tag" class="text-[10px] text-lime-700 font-normal"></span></label>
-              <select id="quick-tx-ownership" class="w-full oli-input rounded-xl px-2.5 py-2.5 text-xs font-semibold">
-                <option value="COLLECTIVE">Casa (Casal)</option>
-                <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
-                <option value="INDIVIDUAL_NUBIA">Só Núbia</option>
-              </select>
-            </div>
-
-            <!-- Botão Salvar -->
-            <div class="col-span-1 sm:col-span-2">
-              <button
-                type="submit"
-                class="w-full bg-lime-700 hover:bg-lime-800 text-white font-extrabold text-xs sm:text-sm py-2.5 px-4 rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition"
-              >
-                <i data-lucide="check" class="w-4 h-4"></i>
-                <span>Lançar</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Atalhos de 1 clique -->
-          <div class="pt-2 border-t border-stone-100 flex items-center gap-1.5 overflow-x-auto pb-1">
-            <span class="text-[11px] font-semibold text-stone-400 mr-1 whitespace-nowrap">Atalhos:</span>
-            <button type="button" onclick="App.applyQuickPreset('Mercado / Feira', 'sub_feira_sup')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🛒 Feira/Mercado <span class="text-[10px] text-stone-400">(Casa)</span>
-            </button>
-            <button type="button" onclick="App.applyQuickPreset('Restaurante', 'sub_restaurantes')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🍽️ Restaurante <span class="text-[10px] text-stone-400">(Casa)</span>
-            </button>
-            <button type="button" onclick="App.applyQuickPreset('Lazer / Saída', 'sub_lazer_geral')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🎉 Lazer <span class="text-[10px] text-stone-400">(Individual)</span>
-            </button>
-            <button type="button" onclick="App.applyQuickPreset('Uber / Transporte', 'sub_transporte_app')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🚗 Transporte <span class="text-[10px] text-stone-400">(Individual)</span>
-            </button>
-            <button type="button" onclick="App.applyQuickPreset('Chicó / Petshop', 'sub_chico')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              🐕 Chicó <span class="text-[10px] text-stone-400">(Casa)</span>
-            </button>
-            <button type="button" onclick="App.applyQuickPreset('Auto Cuidado / Farmácia', 'sub_autocuidado')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-              ✨ Auto Cuidado <span class="text-[10px] text-stone-400">(Individual)</span>
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
 
-      <!-- 3 INDICADORES ESSENCIAIS E LIMPOS -->
-      <div id="dashboard-kpis" class="grid grid-cols-1 sm:grid-cols-3 gap-4"></div>
+      <!-- ÁREA DE REVISÃO DO OFX/CSV (Aparece automaticamente ao selecionar um arquivo ou clicar em Testar OFX) -->
+      <div id="import-staging-area" class="hidden oli-card rounded-3xl overflow-hidden border-lime-600/40 shadow-md">
+        <div class="px-5 py-4 bg-lime-50/70 border-b border-lime-200/80 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="font-extrabold text-stone-900 text-sm flex items-center gap-2">
+              <i data-lucide="check-circle-2" class="w-4 h-4 text-lime-700"></i>
+              Revisão de Lançamentos do Arquivo (.OFX / .CSV)
+            </h3>
+            <p class="text-xs text-stone-500">Confira a categoria e a divisão padrão antes de confirmar a entrada no histórico</p>
+          </div>
+          <div class="flex items-center gap-2.5">
+            <span id="import-selected-count" class="text-xs font-bold text-lime-800"></span>
+            <button
+              type="button"
+              onclick="App.stagedImports = []; App.renderImportTab(App.state.settings.activeMonth);"
+              class="px-3 py-1.5 rounded-xl bg-white border border-stone-200 text-stone-600 hover:text-stone-900 text-xs font-semibold transition"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onclick="App.confirmStagedImports()"
+              class="bg-lime-700 hover:bg-lime-800 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition"
+            >
+              <i data-lucide="check-check" class="w-4 h-4"></i>
+              Confirmar Importação
+            </button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-stone-200 text-[11px] font-bold uppercase text-stone-500 bg-stone-50/50">
+                <th class="py-2.5 px-3 w-8"></th>
+                <th class="py-2.5 px-3">Data</th>
+                <th class="py-2.5 px-3">Descrição no Extrato</th>
+                <th class="py-2.5 px-3">Subcategoria</th>
+                <th class="py-2.5 px-3">Vincular à Meta</th>
+                <th class="py-2.5 px-3">Divisão</th>
+                <th class="py-2.5 px-3 text-right">Valor</th>
+              </tr>
+            </thead>
+            <tbody id="import-staging-tbody"></tbody>
+          </table>
+        </div>
+      </div>
 
-      <!-- ESTRUTURA PRINCIPAL EM DOIS BLOCOS: 1) CONTA CORRENTE (CARTÕES + CONTAS DÉBITO) E 2) CARTÕES POR CATEGORIA COM ÁRVORE [+] -->
-      <div id="home-structured-budget-container" class="space-y-6"></div>
+      <!-- SEÇÃO 3 DA HOME: HISTÓRICO DE LANÇAMENTOS DO MÊS (COM FILTROS E BUSCA) -->
+      <div class="oli-card rounded-3xl overflow-hidden shadow-xs">
+        <div class="px-5 py-4 bg-stone-50/80 border-b border-stone-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h3 class="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
+              <i data-lucide="history" class="w-4 h-4 text-lime-700"></i>
+              Histórico de Lançamentos
+              <span id="history-count-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-stone-200/70 text-stone-600"></span>
+            </h3>
+            <p class="text-xs text-stone-500 mt-0.5">
+              Todos os lançamentos importados via OFX e ajustes rápidos do mês selecionado.
+            </p>
+          </div>
 
-      <!-- Atalho discreto para Diagnóstico & Casal e Extrato Completo -->
-      <div class="oli-card rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-500">
-        <span>Quer visualizar a divisão proporcional do casal (Bruno & Núbia) ou o extrato linear completo?</span>
-        <div class="flex items-center gap-4">
-          <button onclick="App.switchTab('transactions')" class="font-bold text-stone-700 hover:text-lime-700 hover:underline whitespace-nowrap">
-            Ver Extrato Linear &rarr;
-          </button>
-          <button onclick="App.switchTab('diagnostics')" class="font-bold text-lime-700 hover:underline whitespace-nowrap">
-            Abrir Diagnóstico & Casal &rarr;
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Busca -->
+            <div class="relative min-w-[160px]">
+              <i data-lucide="search" class="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5"></i>
+              <input
+                id="tx-filter-search"
+                type="text"
+                placeholder="Buscar no histórico..."
+                class="w-full oli-input rounded-xl pl-8 pr-3 py-1.5 text-xs"
+              />
+            </div>
+
+            <!-- Filtro Conta/Cartão -->
+            <select
+              id="tx-filter-account"
+              onchange="App.txFilter.accountId = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
+              class="oli-input rounded-xl px-2.5 py-1.5 text-xs font-medium"
+            ></select>
+
+            <!-- Filtro Categoria -->
+            <select
+              id="tx-filter-category"
+              onchange="App.txFilter.categoryId = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
+              class="oli-input rounded-xl px-2.5 py-1.5 text-xs font-medium"
+            ></select>
+
+            <!-- Filtro Divisão -->
+            <select
+              onchange="App.txFilter.ownership = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
+              class="oli-input rounded-xl px-2.5 py-1.5 text-xs font-medium"
+            >
+              <option value="ALL">Todas as Divisões</option>
+              <option value="COLLECTIVE">Casa (Casal)</option>
+              <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
+              <option value="INDIVIDUAL_NUBIA">Só Núbia</option>
+            </select>
+
+            <!-- Modal Completo / Parcelado quando precisar -->
+            <button
+              type="button"
+              onclick="App.openTransactionModal()"
+              class="text-xs font-bold text-stone-700 bg-white hover:bg-stone-100 border border-stone-200 px-3 py-1.5 rounded-xl flex items-center gap-1 transition"
+              title="Abrir formulário com data específica ou parcelamento"
+            >
+              <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-lime-700"></i>
+              <span>Completo</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-stone-200 text-[11px] font-bold uppercase text-stone-400 bg-white">
+                <th class="py-2.5 px-4">Data</th>
+                <th class="py-2.5 px-4">Descrição</th>
+                <th class="py-2.5 px-4">Categoria</th>
+                <th class="py-2.5 px-4">Conta / Cartão</th>
+                <th class="py-2.5 px-4">Divisão</th>
+                <th class="py-2.5 px-4 text-right">Valor</th>
+                <th class="py-2.5 px-4 text-right"></th>
+              </tr>
+            </thead>
+            <tbody id="transactions-table-body"></tbody>
+          </table>
         </div>
       </div>
 
     </section>
 
     <!-- ================================================================== -->
-    <!-- ABA 2: METAS (PREVISTO VS. REALIZADO) -->
+    <!-- ABA 2: METAS & ORÇAMENTO (CONTA CORRENTE + CARTÕES POR CATEGORIA [+]) -->
     <!-- ================================================================== -->
     <section id="tab-projections" class="tab-section hidden space-y-6">
       <div class="oli-card rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -350,71 +520,7 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- ABA 3: EXTRATO DE LANÇAMENTOS -->
-    <!-- ================================================================== -->
-    <section id="tab-transactions" class="tab-section hidden space-y-5">
-      <div class="oli-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-2.5 flex-1">
-          <div class="relative flex-1 min-w-[180px]">
-            <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-2.5"></i>
-            <input
-              id="tx-filter-search"
-              type="text"
-              placeholder="Buscar lançamento..."
-              class="w-full oli-input rounded-xl pl-9 pr-3 py-2 text-xs"
-            />
-          </div>
-
-          <select
-            id="tx-filter-account"
-            onchange="App.txFilter.accountId = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
-            class="oli-input rounded-xl px-3 py-2 text-xs font-medium"
-          ></select>
-
-          <select
-            id="tx-filter-category"
-            onchange="App.txFilter.categoryId = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
-            class="oli-input rounded-xl px-3 py-2 text-xs font-medium"
-          ></select>
-
-          <select
-            onchange="App.txFilter.ownership = this.value; App.renderTransactionsTab(App.state.settings.activeMonth)"
-            class="oli-input rounded-xl px-3 py-2 text-xs font-medium"
-          >
-            <option value="ALL">Todas as Divisões</option>
-            <option value="COLLECTIVE">Coletivo Casa</option>
-            <option value="INDIVIDUAL_BRUNO">Individual Bruno</option>
-            <option value="INDIVIDUAL_NUBIA">Individual Núbia</option>
-          </select>
-        </div>
-
-        <button onclick="App.openTransactionModal()" class="bg-lime-700 hover:bg-lime-800 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 transition">
-          <i data-lucide="plus" class="w-4 h-4"></i> Novo Lançamento
-        </button>
-      </div>
-
-      <div class="oli-card rounded-2xl overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse">
-            <thead>
-              <tr class="border-b border-stone-200 text-[11px] font-bold uppercase text-stone-500 bg-stone-50/80">
-                <th class="py-3 px-4">Data</th>
-                <th class="py-3 px-4">Descrição</th>
-                <th class="py-3 px-4">Categoria</th>
-                <th class="py-3 px-4">Conta / Quem Pagou</th>
-                <th class="py-3 px-4">Divisão</th>
-                <th class="py-3 px-4 text-right">Valor</th>
-                <th class="py-3 px-4 text-right"></th>
-              </tr>
-            </thead>
-            <tbody id="transactions-table-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================================================================== -->
-    <!-- ABA 4: DIAGNÓSTICO DETALHADO & DIVISÃO DO CASAL (PÁGINA SEPARADA) -->
+    <!-- ABA 3: DIAGNÓSTICO DETALHADO & DIVISÃO DO CASAL (PÁGINA SEPARADA) -->
     <!-- ================================================================== -->
     <section id="tab-diagnostics" class="tab-section hidden space-y-6">
       <div class="oli-card rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -448,88 +554,7 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- ABA 5: IMPORTAR EXTRATO (OFX E CSV) -->
-    <!-- ================================================================== -->
-    <section id="tab-import" class="tab-section hidden space-y-6">
-      <div class="oli-card rounded-2xl p-6">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-stone-200">
-          <div>
-            <h2 class="text-base font-extrabold text-stone-900 flex items-center gap-2">
-              <i data-lucide="file-spreadsheet" class="w-5 h-5 text-lime-700"></i>
-              Importar Extrato Bancário ou Fatura (.OFX e .CSV)
-            </h2>
-            <p class="text-xs text-stone-500 mt-1">
-              Classifica automaticamente a subcategoria, ignora pagamentos duplicados de fatura e sugere o vínculo com suas metas previstas.
-            </p>
-          </div>
-          <button
-            onclick="App.loadSampleNubankExtract()"
-            class="px-3.5 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold border border-stone-200 flex items-center gap-1.5 self-start transition"
-          >
-            <i data-lucide="sparkles" class="w-4 h-4 text-lime-700"></i>
-            Testar com Extrato Exemplo
-          </button>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 mt-5 items-end">
-          <div class="md:col-span-5">
-            <label class="block text-xs font-bold text-stone-700 mb-1.5">1. Conta ou Cartão do Extrato</label>
-            <select
-              id="import-account-select"
-              onchange="App.importTargetAccountId = this.value"
-              class="w-full oli-input rounded-xl px-3.5 py-2.5 text-sm font-medium"
-            ></select>
-          </div>
-
-          <div class="md:col-span-7">
-            <label class="block text-xs font-bold text-stone-700 mb-1.5">2. Arquivo .OFX ou .CSV do Banco</label>
-            <label class="flex items-center justify-center gap-3 w-full border-2 border-dashed border-lime-600/40 hover:border-lime-600 bg-lime-50/40 rounded-xl px-4 py-2.5 cursor-pointer transition">
-              <i data-lucide="upload-cloud" class="w-5 h-5 text-lime-700"></i>
-              <span class="text-xs font-medium text-stone-700">Selecionar arquivo <strong>.OFX</strong> ou <strong>.CSV</strong> (Nubank, Itaú, etc.)</span>
-              <input type="file" accept=".ofx,.csv,.txt" class="hidden" onchange="App.handleStatementFileUpload(this.files)" />
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <div id="import-staging-area" class="hidden oli-card rounded-2xl overflow-hidden">
-        <div class="px-5 py-4 bg-stone-50 border-b border-stone-200 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 class="font-extrabold text-stone-900 text-sm">Revisão antes de Importar</h3>
-            <p class="text-xs text-stone-500">Confira as categorias sugeridas e confirme</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <span id="import-selected-count" class="text-xs font-bold text-lime-800"></span>
-            <button
-              onclick="App.confirmStagedImports()"
-              class="bg-lime-700 hover:bg-lime-800 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm flex items-center gap-1.5 transition"
-            >
-              <i data-lucide="check-check" class="w-4 h-4"></i>
-              Confirmar Selecionados
-            </button>
-          </div>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse">
-            <thead>
-              <tr class="border-b border-stone-200 text-[11px] font-bold uppercase text-stone-500 bg-stone-50/50">
-                <th class="py-2.5 px-3 w-8"></th>
-                <th class="py-2.5 px-3">Data</th>
-                <th class="py-2.5 px-3">Descrição no Extrato</th>
-                <th class="py-2.5 px-3">Subcategoria</th>
-                <th class="py-2.5 px-3">Vincular à Meta</th>
-                <th class="py-2.5 px-3">Divisão</th>
-                <th class="py-2.5 px-3 text-right">Valor</th>
-              </tr>
-            </thead>
-            <tbody id="import-staging-tbody"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================================================================== -->
-    <!-- ABA 6: CATEGORIAS & REGRAS -->
+    <!-- ABA 4: CATEGORIAS & REGRAS -->
     <!-- ================================================================== -->
     <section id="tab-categories" class="tab-section hidden space-y-6">
       <div class="oli-card rounded-2xl p-5">
@@ -557,7 +582,7 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- ABA 7: NUVEM SUPABASE & BACKUP -->
+    <!-- ABA 5: NUVEM SUPABASE & BACKUP -->
     <!-- ================================================================== -->
     <section id="tab-cloud" class="tab-section hidden space-y-6">
       <div class="oli-card rounded-2xl p-6 max-w-2xl mx-auto space-y-4">
@@ -620,26 +645,22 @@
   </main>
 
   <!-- MOBILE BOTTOM NAVIGATION -->
-  <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-stone-200 grid grid-cols-5 shadow-lg">
+  <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-stone-200 grid grid-cols-4 shadow-lg">
     <button data-tab-target="dashboard" onclick="App.switchTab('dashboard')" class="mobile-nav-btn">
       <i data-lucide="home" class="w-4 h-4 mb-1"></i>
-      <span>Início</span>
+      <span>Início & Lançar</span>
     </button>
     <button data-tab-target="projections" onclick="App.switchTab('projections')" class="mobile-nav-btn">
       <i data-lucide="target" class="w-4 h-4 mb-1"></i>
       <span>Metas</span>
     </button>
-    <button data-tab-target="transactions" onclick="App.switchTab('transactions')" class="mobile-nav-btn">
-      <i data-lucide="list" class="w-4 h-4 mb-1"></i>
-      <span>Extrato</span>
-    </button>
     <button data-tab-target="diagnostics" onclick="App.switchTab('diagnostics')" class="mobile-nav-btn">
       <i data-lucide="pie-chart" class="w-4 h-4 mb-1"></i>
       <span>Casal</span>
     </button>
-    <button data-tab-target="import" onclick="App.switchTab('import')" class="mobile-nav-btn">
-      <i data-lucide="upload" class="w-4 h-4 mb-1"></i>
-      <span>Importar</span>
+    <button data-tab-target="categories" onclick="App.switchTab('categories')" class="mobile-nav-btn">
+      <i data-lucide="tags" class="w-4 h-4 mb-1"></i>
+      <span>Categorias</span>
     </button>
   </nav>
 
@@ -793,9 +814,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=6"></script>
-  <script src="./js/ofx-csv-parser.js?v=6"></script>
-  <script src="./js/supabase-sync.js?v=6"></script>
-  <script src="./js/app.js?v=6"></script>
+  <script src="./js/data-seed.js?v=7"></script>
+  <script src="./js/ofx-csv-parser.js?v=7"></script>
+  <script src="./js/supabase-sync.js?v=7"></script>
+  <script src="./js/app.js?v=7"></script>
 </body>
 </html>
