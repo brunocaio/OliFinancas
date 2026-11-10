@@ -267,7 +267,7 @@
                   <i data-lucide="upload-cloud" class="w-6 h-6 text-lime-700"></i>
                   <span class="text-xs font-bold text-stone-700">Clique para enviar arquivo .OFX ou .CSV</span>
                   <span class="text-[11px] text-stone-400">Abate estornos automaticamente e ignora pagto de fatura</span>
-                  <input type="file" accept=".ofx,.csv,.txt" class="hidden" onchange="App.handleStatementFileUpload(this.files)" />
+                  <input id="import-file-input" type="file" accept=".ofx,.csv,.txt" class="hidden" onchange="App.handleStatementFileUpload(this.files, this)" />
                 </label>
               </div>
             </div>
@@ -479,6 +479,7 @@
             </button>
           </div>
         </div>
+        <div id="import-staging-statement-meta" class="px-5 py-3 bg-[#f7faf2] border-b border-lime-200/70 flex flex-wrap items-center justify-between gap-3 text-xs"></div>
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead>
@@ -504,6 +505,9 @@
           </table>
         </div>
       </div>
+
+      <!-- PAINEL DE CONTROLE DE EXTRATOS & IMPORTAÇÕES (TODAS AS CONTAS CADASTRADAS) -->
+      <div id="statements-control-panel" class="oli-card rounded-3xl overflow-hidden shadow-xs"></div>
 
       <!-- SEÇÃO 3 DA HOME: HISTÓRICO DE LANÇAMENTOS DO MÊS (COM FILTROS E BUSCA + SELEÇÃO EM LOTE) -->
       <div class="oli-card rounded-3xl overflow-hidden shadow-xs">
@@ -1191,6 +1195,125 @@
     </div>
   </div>
 
+  <!-- MODAL: ALTERAR / CADASTRAR IMPORTAÇÃO DE EXTRATO -->
+  <div id="modal-statement-import" class="hidden fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-stone-100 pb-3">
+        <div>
+          <h3 id="stmt-modal-title" class="text-base font-extrabold text-stone-900">Alterar Importação de Extrato</h3>
+          <p class="text-[11px] text-stone-400">Edite competência, cobertura parcial/fechada ou identifique o extrato cadastrado.</p>
+        </div>
+        <button type="button" onclick="App.closeStatementImportModal()" class="text-stone-400 hover:text-stone-800 font-bold text-lg">&times;</button>
+      </div>
+
+      <form onsubmit="App.saveStatementImportModal(event)" class="space-y-3 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-stone-600 font-bold mb-1">Conta / Cartão</label>
+            <select id="stmt-modal-account" required class="w-full oli-input rounded-xl px-3 py-2 font-semibold"></select>
+          </div>
+          <div>
+            <label class="block text-stone-600 font-bold mb-1">Competência / Fatura</label>
+            <select id="stmt-modal-month" required class="w-full oli-input rounded-xl px-3 py-2 font-semibold"></select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-stone-600 font-bold mb-1">Situação do Extrato no Mês</label>
+          <select id="stmt-modal-status" class="w-full oli-input rounded-xl px-3 py-2 font-bold">
+            <option value="PARTIAL">🌗 Importação Parcial (antes do fim do mês / fechamento)</option>
+            <option value="COMPLETE">✅ Importação Completa / Fechada (mês/ciclo encerrado)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-stone-600 font-bold mb-1">Nome / Origem do Arquivo</label>
+          <input
+            id="stmt-modal-filename"
+            type="text"
+            placeholder="Ex: extrato_bb_nov2026.ofx ou Extrato sem movimentação"
+            required
+            class="w-full oli-input rounded-xl px-3 py-2 font-semibold"
+          />
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-stone-600 font-bold mb-1">Período Início</label>
+            <input id="stmt-modal-start" type="date" class="w-full oli-input rounded-xl px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-stone-600 font-bold mb-1">Cobertura até (Data de Corte)</label>
+            <input id="stmt-modal-cutoff" type="date" class="w-full oli-input rounded-xl px-3 py-2 font-semibold" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-stone-600 font-bold mb-1">Observações (opcional)</label>
+          <input
+            id="stmt-modal-notes"
+            type="text"
+            placeholder="Ex: Faltam dias 10/11 a 30/11 — atualizar ao virar o mês"
+            class="w-full oli-input rounded-xl px-3 py-2"
+          />
+        </div>
+
+        <div id="stmt-modal-cascade-wrap" class="hidden rounded-xl bg-amber-50/80 border border-amber-200 px-3 py-2.5 text-amber-950">
+          <label class="flex items-start gap-2 cursor-pointer font-semibold">
+            <input id="stmt-modal-cascade-txs" type="checkbox" checked class="w-4 h-4 mt-0.5 rounded border-amber-400 text-lime-700" />
+            <span id="stmt-modal-cascade-label">Se eu alterar a Conta ou Competência, atualizar também os lançamentos vinculados a esta importação.</span>
+          </label>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-stone-100">
+          <button type="button" onclick="App.closeStatementImportModal()" class="px-4 py-2 rounded-xl bg-stone-100 text-stone-600 hover:text-stone-900 font-semibold">Cancelar</button>
+          <button type="submit" class="px-5 py-2 rounded-xl bg-lime-700 hover:bg-lime-800 text-white font-bold">Salvar Importação</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: EXCLUIR IMPORTAÇÃO DE EXTRATO -->
+  <div id="modal-statement-delete" class="hidden fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-stone-100 pb-3">
+        <div>
+          <h3 class="text-base font-extrabold text-stone-900">Excluir Importação de Extrato</h3>
+          <p class="text-[11px] text-stone-400">Escolha se deseja apagar também os lançamentos desse lote.</p>
+        </div>
+        <button type="button" onclick="App.closeDeleteStatementModal()" class="text-stone-400 hover:text-stone-800 font-bold text-lg">&times;</button>
+      </div>
+
+      <div id="stmt-delete-summary" class="rounded-xl bg-stone-50 border border-stone-200 px-3.5 py-3 text-xs text-stone-700 space-y-1"></div>
+
+      <div class="space-y-2 text-xs">
+        <button
+          type="button"
+          id="stmt-delete-with-txs-btn"
+          onclick="App.confirmDeleteStatementModal('WITH_TXS')"
+          class="w-full px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold flex items-center justify-center gap-2 transition"
+        >
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+          <span id="stmt-delete-with-txs-label">Excluir importação e lançamentos vinculados</span>
+        </button>
+        <button
+          type="button"
+          onclick="App.confirmDeleteStatementModal('RECORD_ONLY')"
+          class="w-full px-4 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 font-bold transition"
+        >
+          Excluir apenas o registro de importação (manter lançamentos)
+        </button>
+        <button
+          type="button"
+          onclick="App.closeDeleteStatementModal()"
+          class="w-full px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 font-semibold transition"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- BARRA FLUTUANTE DE SELEÇÃO EM LOTE -->
   <div
     id="floating-bulk-bar"
@@ -1236,9 +1359,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=23"></script>
-  <script src="./js/ofx-csv-parser.js?v=23"></script>
-  <script src="./js/supabase-sync.js?v=23"></script>
-  <script src="./js/app.js?v=23"></script>
+  <script src="./js/data-seed.js?v=24"></script>
+  <script src="./js/ofx-csv-parser.js?v=24"></script>
+  <script src="./js/supabase-sync.js?v=24"></script>
+  <script src="./js/app.js?v=24"></script>
 </body>
 </html>

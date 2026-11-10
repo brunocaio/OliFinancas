@@ -32,8 +32,14 @@ window.App = {
     ownership: "ALL"
   },
   stagedImports: [],
+  stagedImportMeta: null,
   importTargetAccountId: "cc_bruno",
   importCompetenceMode: "SMART_INVOICE",
+  statementsPanelMonth: null,
+  statementsHistoryScope: "ACTIVE_MONTH",
+  statementsPanelCollapsed: false,
+  editingStatementBatchId: null,
+  deletingStatementBatchId: null,
   selectedTxIds: [],
   lastClickedTxId: null,
   lastClickedStagedIdx: null,
@@ -257,6 +263,72 @@ window.App = {
         }
       });
       stateObj.schemaPatch = 6;
+      changed = true;
+    }
+
+    // Patch incremental 7: cria o registro de importações de extratos (statementImports)
+    // a partir de transações já importadas e detecta se estão parciais ou completas
+    if (!Array.isArray(stateObj.statementImports)) {
+      stateObj.statementImports = [];
+      changed = true;
+    }
+    if ((stateObj.schemaPatch || 0) < 7) {
+      if (stateObj.statementImports.length === 0 && Array.isArray(stateObj.transactions)) {
+        const accMap = new Map((stateObj.accounts || []).map(a => [a.id, a]));
+        const groups = new Map();
+        stateObj.transactions.forEach(tx => {
+          if (!tx || !tx.importHash || !tx.accountId || !tx.competenceMonth) return;
+          const key = `${tx.accountId}__${tx.competenceMonth}`;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(tx);
+        });
+
+        groups.forEach((txs, key) => {
+          const [accountId, competenceMonth] = key.split("__");
+          const acc = accMap.get(accountId) || null;
+          const sortedDates = txs
+            .map(t => t.transactionDate)
+            .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+            .sort();
+          const periodStart = sortedDates[0] || `${competenceMonth}-01`;
+          const periodEnd = sortedDates[sortedDates.length - 1] || periodStart;
+          const cutoffDate = periodEnd;
+          const parser = window.StatementParser;
+          const expected = parser && parser.getAccountExpectedPeriod
+            ? parser.getAccountExpectedPeriod(acc, competenceMonth)
+            : { periodStart: `${competenceMonth}-01`, periodEnd: `${competenceMonth}-28`, closeDate: `${competenceMonth}-28` };
+          const status = parser && parser.inferStatementImportStatus
+            ? parser.inferStatementImportStatus(acc, competenceMonth, cutoffDate)
+            : "PARTIAL";
+          const batchId = `imp_backfill_${accountId}_${competenceMonth}`;
+          const txIds = [];
+          let totalAmount = 0;
+
+          txs.forEach(tx => {
+            tx.importBatchId = batchId;
+            txIds.push(tx.id);
+            totalAmount += Number(tx.amount) || 0;
+          });
+
+          stateObj.statementImports.push({
+            id: batchId,
+            accountId,
+            competenceMonth,
+            fileName: "Extrato importado anteriormente",
+            importedAt: new Date().toISOString(),
+            status,
+            periodStart,
+            periodEnd,
+            cutoffDate,
+            expectedCloseDate: expected.closeDate,
+            txCount: txIds.length,
+            totalAmount: Number(totalAmount.toFixed(2)),
+            txIds,
+            notes: status === "PARTIAL" ? "Importado antes do fechamento do mês/ciclo" : ""
+          });
+        });
+      }
+      stateObj.schemaPatch = 7;
       changed = true;
     }
 
@@ -847,6 +919,7 @@ window.App = {
     this.renderCardsTab(monthYear);
     this.renderTransactionsTab(monthYear);
     this.renderImportTab(monthYear);
+    this.renderStatementsPanel(monthYear);
     this.renderCategoriesTab();
     this.renderCloudTab();
     this.updateUndoAndBulkUI();
@@ -1262,6 +1335,23 @@ window.App = {
     // Pílulas discretas e minimalistas no topo da Home (sem poluir a página inicial)
     const kpiContainer = document.getElementById("dashboard-kpis");
     if (kpiContainer) {
+      const panelMonth = this.statementsPanelMonth || monthYear;
+      const regAccounts = this.getRegisteredAccountsForStatements();
+      let completeAccs = 0;
+      let partialAccs = 0;
+      let pendingAccs = 0;
+      regAccounts.forEach(acc => {
+        const st = this.getAccountStatementSummary(acc, panelMonth);
+        if (st.status === "COMPLETE") completeAccs++;
+        else if (st.status === "PARTIAL") partialAccs++;
+        else pendingAccs++;
+      });
+      const stmtPillColor = pendingAccs > 0
+        ? "bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-900"
+        : partialAccs > 0
+        ? "bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-900"
+        : "bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-900";
+
       kpiContainer.innerHTML = `
         <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-xs shadow-2xs">
           <span class="text-stone-400 font-semibold">Saídas (${userLabel}):</span>
@@ -1271,6 +1361,15 @@ window.App = {
           <span class="text-stone-400 font-semibold">Meta Geral:</span>
           <strong class="text-stone-700 font-bold">${this.formatBRL(summary.totalPlannedExpenses)}</strong>
         </div>
+        <button
+          type="button"
+          onclick="App.scrollToStatementsPanel()"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-2xs ${stmtPillColor}"
+          title="Ver painel de extratos pendentes, parciais e completos de todas as contas"
+        >
+          <span>📑</span>
+          <span>Extratos: ${completeAccs}/${regAccounts.length} fechados${partialAccs > 0 ? ` • ${partialAccs} parcial` : ""}${pendingAccs > 0 ? ` • ${pendingAccs} pend.` : ""}</span>
+        </button>
         <button
           type="button"
           onclick="App.switchTab('projections')"
@@ -3274,8 +3373,16 @@ window.App = {
     const validIds = this.selectedTxIds.filter(id => this.state.transactions.some(t => t.id === id));
     if (validIds.length === 0) return;
 
+    const delSet = new Set(validIds);
     const count = validIds.length;
-    this.state.transactions = this.state.transactions.filter(t => !validIds.includes(t.id));
+    this.state.transactions = this.state.transactions.filter(t => !delSet.has(t.id));
+    if (Array.isArray(this.state.statementImports)) {
+      this.state.statementImports.forEach(batch => {
+        if (Array.isArray(batch.txIds)) {
+          batch.txIds = batch.txIds.filter(id => !delSet.has(id));
+        }
+      });
+    }
     this.selectedTxIds = [];
     this.lastClickedTxId = null;
     this.saveState(true);
@@ -3303,6 +3410,13 @@ window.App = {
 
   deleteTransaction(txId) {
     this.state.transactions = this.state.transactions.filter(t => t.id !== txId);
+    if (Array.isArray(this.state.statementImports)) {
+      this.state.statementImports.forEach(batch => {
+        if (Array.isArray(batch.txIds)) {
+          batch.txIds = batch.txIds.filter(id => id !== txId);
+        }
+      });
+    }
     this.selectedTxIds = this.selectedTxIds.filter(id => id !== txId);
     this.saveState(true);
     this.renderAll();
@@ -3818,7 +3932,9 @@ window.App = {
         this.buildSubcategorySelectOptionsHTML("", false);
     }
 
-    const availableMonths = ["2026-09", "2026-10", "2026-11", "2026-12", "2027-01"];
+    this.renderStagedStatementMetaBar();
+
+    const availableMonths = this.getStatementMonthOptions();
 
     tbody.innerHTML = this.stagedImports
       .map((item, idx) => {
@@ -3904,7 +4020,86 @@ window.App = {
       .join("");
   },
 
-  handleStatementFileUpload(fileList) {
+  renderStagedStatementMetaBar() {
+    const bar = document.getElementById("import-staging-statement-meta");
+    if (!bar) return;
+    if (!this.stagedImportMeta) {
+      const targetAcc = this.getAccount(this.importTargetAccountId);
+      const dates = (this.stagedImports || []).map(i => i.transactionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+      const months = (this.stagedImports || []).map(i => i.competenceMonth).filter(Boolean);
+      const primaryMonth = months[0] || this.state.settings.activeMonth;
+      const maxDate = dates[dates.length - 1] || `${primaryMonth}-01`;
+      const parser = window.StatementParser;
+      this.stagedImportMeta = {
+        fileName: "Extrato selecionado",
+        accountId: this.importTargetAccountId,
+        primaryMonth,
+        periodStart: dates[0] || maxDate,
+        periodEnd: maxDate,
+        cutoffDate: maxDate,
+        status: parser && parser.inferStatementImportStatus ? parser.inferStatementImportStatus(targetAcc, primaryMonth, maxDate) : "PARTIAL",
+        consolidatePartial: true
+      };
+    }
+
+    const meta = this.stagedImportMeta;
+    const acc = this.getAccount(meta.accountId || this.importTargetAccountId);
+    const hasExistingPartial = (this.state.statementImports || []).some(
+      b => b.accountId === meta.accountId && b.status === "PARTIAL" &&
+        this.stagedImports.some(i => i.competenceMonth === b.competenceMonth)
+    );
+    const parser = window.StatementParser;
+    const cov = parser && parser.evaluateStatementCoverage
+      ? parser.evaluateStatementCoverage(acc, meta.primaryMonth || this.state.settings.activeMonth, meta.cutoffDate, meta.status)
+      : { pct: meta.status === "COMPLETE" ? 100 : 50 };
+
+    bar.innerHTML = `
+      <div class="flex flex-wrap items-center gap-2.5">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-lime-200 font-bold text-stone-800">
+          <span>📄</span>
+          <span class="truncate max-w-[200px]" title="${this.escapeHTML(meta.fileName)}">${this.escapeHTML(meta.fileName)}</span>
+        </span>
+        <div class="flex items-center gap-1.5">
+          <span class="font-bold text-stone-600">Situação:</span>
+          <select
+            onchange="App.updateStagedMeta('status', this.value)"
+            class="oli-input rounded-lg px-2.5 py-1 text-xs font-bold bg-white"
+          >
+            <option value="PARTIAL" ${meta.status === "PARTIAL" ? "selected" : ""}>🌗 Parcial (${cov.pct}% do período)</option>
+            <option value="COMPLETE" ${meta.status === "COMPLETE" ? "selected" : ""}>✅ Completo / Fechado (100%)</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="font-bold text-stone-600">Cobertura até:</span>
+          <input
+            type="date"
+            value="${meta.cutoffDate || ""}"
+            onchange="App.updateStagedMeta('cutoffDate', this.value)"
+            class="oli-input rounded-lg px-2 py-1 text-xs font-semibold bg-white"
+          />
+        </div>
+      </div>
+      ${hasExistingPartial ? `
+        <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 font-bold cursor-pointer">
+          <input
+            type="checkbox"
+            ${meta.consolidatePartial !== false ? "checked" : ""}
+            onchange="App.updateStagedMeta('consolidatePartial', this.checked)"
+            class="w-3.5 h-3.5 rounded border-sky-400 text-lime-700"
+          />
+          <span>Consolidar com parcial anterior (preserva categorias/notas já editadas)</span>
+        </label>
+      ` : ""}
+    `;
+  },
+
+  updateStagedMeta(field, value) {
+    if (!this.stagedImportMeta) return;
+    this.stagedImportMeta[field] = value;
+    this.renderStagedStatementMetaBar();
+  },
+
+  handleStatementFileUpload(fileList, inputEl = null) {
     if (!fileList || fileList.length === 0) return;
     const file = fileList[0];
     const accId = document.getElementById("import-account-select").value;
@@ -3923,20 +4118,45 @@ window.App = {
         ? window.StatementParser.parseOFX(content, account, monthYear, this.state, this.importCompetenceMode)
         : window.StatementParser.parseCSV(content, account, monthYear, this.state, this.importCompetenceMode);
 
+      if (inputEl) inputEl.value = "";
+
       if (parsed.length === 0) {
         this.showToast("Nenhuma transação encontrada neste arquivo.", "error");
         return;
       }
 
+      const txDates = parsed.map(p => p.transactionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+      const ofxRange = isOFX && window.StatementParser.extractOFXDateRange
+        ? window.StatementParser.extractOFXDateRange(content)
+        : { dtStart: null, dtEnd: null };
+      const periodStart = txDates[0] || ofxRange.dtStart || `${monthYear}-01`;
+      const periodEnd = txDates[txDates.length - 1] || ofxRange.dtEnd || periodStart;
+      const cutoffDate = ofxRange.dtEnd && ofxRange.dtEnd > periodEnd ? ofxRange.dtEnd : periodEnd;
+      const months = Array.from(new Set(parsed.map(i => i.competenceMonth).filter(Boolean)));
+      const primaryMonth = months[months.length - 1] || monthYear;
+      const inferredStatus = window.StatementParser.inferStatementImportStatus
+        ? window.StatementParser.inferStatementImportStatus(account, primaryMonth, cutoffDate)
+        : "PARTIAL";
+
       this.pushUndoSnapshot();
       this.stagedImports = parsed;
+      this.stagedImportMeta = {
+        fileName: file.name,
+        accountId: accId,
+        primaryMonth,
+        periodStart,
+        periodEnd,
+        cutoffDate,
+        status: inferredStatus,
+        consolidatePartial: true
+      };
       this.lastSavedSnapshot = JSON.stringify({
         state: this.state,
         stagedImports: this.stagedImports
       });
       this.renderImportTab(monthYear);
       this.updateUndoAndBulkUI();
-      const detectedMonths = Array.from(new Set(parsed.filter(i => i.selected).map(i => this.getMonthLabel(i.competenceMonth))));
+      const detectedMonths = Array.from(new Set(parsed.map(i => this.getMonthLabel(i.competenceMonth))));
       this.showToast(`🫒 ${parsed.length} lançamentos prontos para revisão (${detectedMonths.join(", ")})!`, "success");
     };
     reader.readAsText(file, "UTF-8");
@@ -3954,8 +4174,25 @@ window.App = {
     const compSelect = document.getElementById("import-competence-select");
     this.importCompetenceMode = (compSelect && compSelect.value) || "SMART_INVOICE";
 
+    const parsed = window.StatementParser.parseOFX(sampleOFX, account, monthYear, this.state, this.importCompetenceMode);
+    const txDates = parsed.map(p => p.transactionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    const maxDate = txDates[txDates.length - 1] || `${monthYear}-08`;
+    const primaryMonth = parsed[parsed.length - 1]?.competenceMonth || monthYear;
+
     this.pushUndoSnapshot();
-    this.stagedImports = window.StatementParser.parseOFX(sampleOFX, account, monthYear, this.state, this.importCompetenceMode);
+    this.stagedImports = parsed;
+    this.stagedImportMeta = {
+      fileName: "nubank_exemplo.ofx",
+      accountId: accId,
+      primaryMonth,
+      periodStart: txDates[0] || maxDate,
+      periodEnd: maxDate,
+      cutoffDate: maxDate,
+      status: window.StatementParser.inferStatementImportStatus
+        ? window.StatementParser.inferStatementImportStatus(account, primaryMonth, maxDate)
+        : "PARTIAL",
+      consolidatePartial: true
+    };
     this.lastSavedSnapshot = JSON.stringify({
       state: this.state,
       stagedImports: this.stagedImports
@@ -4050,6 +4287,7 @@ window.App = {
     if (this.stagedImports.length === 0) return;
     this.pushUndoSnapshot();
     this.stagedImports = [];
+    this.stagedImportMeta = null;
     this.lastSavedSnapshot = JSON.stringify({
       state: this.state,
       stagedImports: this.stagedImports
@@ -4080,14 +4318,43 @@ window.App = {
   },
 
   confirmStagedImports() {
+    if (!Array.isArray(this.stagedImports) || this.stagedImports.length === 0) {
+      this.showToast("Nenhum lançamento carregado para importar.", "error");
+      return;
+    }
+
     const selected = this.stagedImports.filter(i => i.selected);
-    if (selected.length === 0) {
+    const hasAlreadyImported = this.stagedImports.some(i => i.alreadyExists);
+    if (selected.length === 0 && !hasAlreadyImported) {
       this.showToast("Selecione pelo menos uma transação.", "error");
       return;
     }
 
+    if (!Array.isArray(this.state.statementImports)) {
+      this.state.statementImports = [];
+    }
+
+    const meta = this.stagedImportMeta || {};
+    const fileName = meta.fileName || "Extrato importado";
+    const metaStatus = meta.status || "PARTIAL";
+    const metaCutoff = meta.cutoffDate || meta.periodEnd || "";
+    const consolidatePartial = meta.consolidatePartial !== false;
+    const nowISO = new Date().toISOString();
     const fallbackIds = new Set(["sub_parceladas", "sub_outros"]);
+
+    // Agrupa os lançamentos selecionados por (accountId, competenceMonth)
+    const batchGroups = new Map();
     for (const item of selected) {
+      const groupKey = `${item.accountId}__${item.competenceMonth}`;
+      if (!batchGroups.has(groupKey)) {
+        batchGroups.set(groupKey, {
+          batchId: "imp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+          accountId: item.accountId,
+          competenceMonth: item.competenceMonth,
+          txs: []
+        });
+      }
+      const grp = batchGroups.get(groupKey);
       const newTx = {
         id: "tx_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
         transactionDate: item.transactionDate,
@@ -4107,9 +4374,11 @@ window.App = {
         projectionId: item.projectionId,
         installmentCurrent: item.installmentCurrent,
         installmentTotal: item.installmentTotal,
-        importHash: item.importHash
+        importHash: item.importHash,
+        importBatchId: grp.batchId
       };
       this.state.transactions.push(newTx);
+      grp.txs.push(newTx);
 
       // Se esta parcela importada foi classificada para uma categoria específica
       // ou recebeu descrição personalizada, propaga para parcelas correlatas anteriores/posteriores
@@ -4129,11 +4398,739 @@ window.App = {
       }
     }
 
-    const compMonths = Array.from(new Set(selected.map(i => i.competenceMonth))).map(m => this.getMonthLabel(m));
+    // Caso o usuário tenha reenviado um arquivo em que tudo já existia (ex: apenas atualizar data de corte ou fechar mês)
+    if (batchGroups.size === 0 && hasAlreadyImported) {
+      const targetAccId = meta.accountId || this.importTargetAccountId;
+      const targetMonths = Array.from(new Set(this.stagedImports.filter(i => i.alreadyExists).map(i => i.competenceMonth).filter(Boolean)));
+      targetMonths.forEach(m => {
+        const key = `${targetAccId}__${m}`;
+        batchGroups.set(key, {
+          batchId: "imp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+          accountId: targetAccId,
+          competenceMonth: m,
+          txs: []
+        });
+      });
+    }
+
+    // Registra ou consolida cada lote de importação no painel
+    batchGroups.forEach(grp => {
+      const acc = this.getAccount(grp.accountId);
+      const parser = window.StatementParser;
+      const expected = parser && parser.getAccountExpectedPeriod
+        ? parser.getAccountExpectedPeriod(acc, grp.competenceMonth)
+        : { periodStart: `${grp.competenceMonth}-01`, periodEnd: `${grp.competenceMonth}-28`, closeDate: `${grp.competenceMonth}-28` };
+
+      const existingPartials = consolidatePartial
+        ? this.state.statementImports.filter(b => b.accountId === grp.accountId && b.competenceMonth === grp.competenceMonth && b.status === "PARTIAL")
+        : [];
+
+      const inheritedTxIds = [];
+      let inheritedStart = "";
+      let inheritedEnd = "";
+      if (existingPartials.length > 0) {
+        const partialIds = new Set(existingPartials.map(b => b.id));
+        existingPartials.forEach(pb => {
+          if (pb.periodStart && (!inheritedStart || pb.periodStart < inheritedStart)) inheritedStart = pb.periodStart;
+          if (pb.periodEnd && (!inheritedEnd || pb.periodEnd > inheritedEnd)) inheritedEnd = pb.periodEnd;
+          this.getBatchedTransactions(pb).forEach(tx => {
+            tx.importBatchId = grp.batchId;
+            if (!inheritedTxIds.includes(tx.id)) inheritedTxIds.push(tx.id);
+          });
+        });
+        this.state.statementImports = this.state.statementImports.filter(b => !partialIds.has(b.id));
+      }
+
+      const newTxIds = grp.txs.map(t => t.id);
+      const mergedTxIds = Array.from(new Set([...inheritedTxIds, ...newTxIds]));
+      const allBatchTxs = this.state.transactions.filter(t => mergedTxIds.includes(t.id));
+      const allDates = allBatchTxs.map(t => t.transactionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+
+      const periodStart = [inheritedStart, allDates[0], meta.periodStart].filter(Boolean).sort()[0] || expected.periodStart;
+      const periodEnd = [inheritedEnd, allDates[allDates.length - 1], meta.periodEnd].filter(Boolean).sort().slice(-1)[0] || periodStart;
+      const cutoffDate = [metaCutoff, periodEnd].filter(Boolean).sort().slice(-1)[0] || periodEnd;
+      const totalAmount = allBatchTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+      // Se a competência de saída for diferente do mês principal analisado, reavalia status para aquela competência específica quando pertinente
+      const resolvedStatus = batchGroups.size > 1 && parser && parser.inferStatementImportStatus
+        ? (grp.competenceMonth === meta.primaryMonth ? metaStatus : parser.inferStatementImportStatus(acc, grp.competenceMonth, cutoffDate))
+        : metaStatus;
+
+      this.state.statementImports.push({
+        id: grp.batchId,
+        accountId: grp.accountId,
+        competenceMonth: grp.competenceMonth,
+        fileName,
+        importedAt: nowISO,
+        status: resolvedStatus,
+        periodStart,
+        periodEnd,
+        cutoffDate,
+        expectedCloseDate: expected.closeDate,
+        txCount: mergedTxIds.length,
+        totalAmount: Number(totalAmount.toFixed(2)),
+        txIds: mergedTxIds,
+        notes: resolvedStatus === "PARTIAL" ? "Parcial antes do encerramento do mês/ciclo" : ""
+      });
+    });
+
+    const compMonths = Array.from(batchGroups.values()).map(g => this.getMonthLabel(g.competenceMonth));
+    const uniqueCompLabels = Array.from(new Set(compMonths));
     this.stagedImports = [];
+    this.stagedImportMeta = null;
     this.saveState(true);
     this.renderAll();
-    this.showToast(`🫒 ${selected.length} lançamentos importados (${compMonths.join(" / ")})!`, "success");
+    if (selected.length > 0) {
+      this.showToast(`🫒 ${selected.length} lançamentos importados e extrato registrado (${uniqueCompLabels.join(" / ")})!`, "success");
+    } else {
+      this.showToast(`🫒 Cadastro do extrato atualizado em "${fileName}"!`, "success");
+    }
+  },
+
+  // ==========================================================================
+  // PAINEL DE CONTROLE DE EXTRATOS & IMPORTAÇÕES (PENDENTE / PARCIAL / FECHADO)
+  // ==========================================================================
+  getStatementMonthOptions() {
+    const base = ["2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02"];
+    const set = new Set(base);
+    if (this.state && this.state.settings && this.state.settings.activeMonth) {
+      set.add(this.state.settings.activeMonth);
+    }
+    (this.state.statementImports || []).forEach(b => {
+      if (b && b.competenceMonth) set.add(b.competenceMonth);
+    });
+    (this.state.transactions || []).forEach(t => {
+      if (t && t.competenceMonth) set.add(t.competenceMonth);
+    });
+    return Array.from(set).sort();
+  },
+
+  getRegisteredAccountsForStatements() {
+    return (this.state.accounts || []).filter(a => a && a.type !== "INVESTMENT");
+  },
+
+  getBatchedTransactions(batch) {
+    if (!batch) return [];
+    const idSet = new Set(Array.isArray(batch.txIds) ? batch.txIds : []);
+    return (this.state.transactions || []).filter(
+      t => t.importBatchId === batch.id || idSet.has(t.id)
+    );
+  },
+
+  getAccountStatementSummary(account, monthYear) {
+    const batches = (this.state.statementImports || []).filter(
+      b => b && b.accountId === account.id && b.competenceMonth === monthYear
+    );
+    const parser = window.StatementParser;
+    const expected = parser && parser.getAccountExpectedPeriod
+      ? parser.getAccountExpectedPeriod(account, monthYear)
+      : { periodStart: `${monthYear}-01`, periodEnd: `${monthYear}-30`, closeDate: `${monthYear}-30` };
+
+    if (batches.length === 0) {
+      return {
+        status: "PENDING",
+        batches: [],
+        liveTxCount: 0,
+        periodStart: expected.periodStart,
+        cutoffDate: "",
+        coverage: { expected, totalDays: 30, coveredDays: 0, missingDays: 30, pct: 0 }
+      };
+    }
+
+    const anyComplete = batches.some(b => b.status === "COMPLETE");
+    const effectiveStatus = anyComplete ? "COMPLETE" : "PARTIAL";
+    const sortedStarts = batches.map(b => b.periodStart).filter(Boolean).sort();
+    const sortedCutoffs = batches.map(b => b.cutoffDate || b.periodEnd).filter(Boolean).sort();
+    const periodStart = sortedStarts[0] || expected.periodStart;
+    const cutoffDate = sortedCutoffs[sortedCutoffs.length - 1] || expected.closeDate;
+
+    const uniqueTxIds = new Set();
+    batches.forEach(b => {
+      this.getBatchedTransactions(b).forEach(t => uniqueTxIds.add(t.id));
+    });
+
+    const coverage = parser && parser.evaluateStatementCoverage
+      ? parser.evaluateStatementCoverage(account, monthYear, cutoffDate, effectiveStatus)
+      : { expected, totalDays: 30, coveredDays: effectiveStatus === "COMPLETE" ? 30 : 15, missingDays: effectiveStatus === "COMPLETE" ? 0 : 15, pct: effectiveStatus === "COMPLETE" ? 100 : 50 };
+
+    return {
+      status: effectiveStatus,
+      batches,
+      primaryBatch: batches[batches.length - 1],
+      liveTxCount: uniqueTxIds.size,
+      periodStart,
+      cutoffDate,
+      coverage
+    };
+  },
+
+  setStatementsPanelMonth(monthYear) {
+    this.statementsPanelMonth = monthYear || null;
+    this.renderStatementsPanel(this.state.settings.activeMonth);
+    this.renderDashboard(this.calculateMonthSummary(this.state.settings.activeMonth, this.activeUserFilter), this.state.settings.activeMonth);
+    if (window.lucide) window.lucide.createIcons();
+  },
+
+  setStatementsHistoryScope(scope) {
+    this.statementsHistoryScope = scope === "ALL" ? "ALL" : "ACTIVE_MONTH";
+    this.renderStatementsPanel(this.state.settings.activeMonth);
+    if (window.lucide) window.lucide.createIcons();
+  },
+
+  toggleStatementsPanelCollapse() {
+    this.statementsPanelCollapsed = !this.statementsPanelCollapsed;
+    this.renderStatementsPanel(this.state.settings.activeMonth);
+    if (window.lucide) window.lucide.createIcons();
+  },
+
+  scrollToStatementsPanel() {
+    this.statementsPanelCollapsed = false;
+    this.renderStatementsPanel(this.state.settings.activeMonth);
+    const el = document.getElementById("statements-control-panel");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  },
+
+  triggerAccountStatementUpload(accountId, targetMonth = null) {
+    const acc = this.getAccount(accountId);
+    if (!acc) return;
+    if (this.currentTab !== "dashboard") {
+      this.switchTab("dashboard");
+    }
+    this.importTargetAccountId = accountId;
+
+    const accSelect = document.getElementById("import-account-select");
+    if (accSelect) {
+      const existsInSelect = Array.from(accSelect.options).some(opt => opt.value === accountId);
+      if (!existsInSelect) {
+        // Se a conta pertence ao outro usuário, altera filtro para "ALL" para não bloquear importação
+        this.activeUserFilter = "ALL";
+        this.renderAll();
+      }
+      const updatedSelect = document.getElementById("import-account-select");
+      if (updatedSelect) {
+        updatedSelect.value = accountId;
+      }
+    }
+
+    const compSelect = document.getElementById("import-competence-select");
+    if (compSelect) {
+      const m = targetMonth || this.statementsPanelMonth || this.state.settings.activeMonth;
+      this.importCompetenceMode = acc.type === "CREDIT_CARD" ? "SMART_INVOICE" : (m || "SMART_INVOICE");
+      if (Array.from(compSelect.options).some(opt => opt.value === this.importCompetenceMode)) {
+        compSelect.value = this.importCompetenceMode;
+      } else {
+        compSelect.value = "SMART_INVOICE";
+        this.importCompetenceMode = "SMART_INVOICE";
+      }
+    }
+    this.updateImportCycleRuleHint();
+
+    const fileInput = document.getElementById("import-file-input");
+    if (fileInput) {
+      fileInput.click();
+    } else {
+      const card = document.getElementById("import-account-select");
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  },
+
+  toggleStatementBatchStatus(batchId) {
+    const batch = (this.state.statementImports || []).find(b => b.id === batchId);
+    if (!batch) return;
+    batch.status = batch.status === "COMPLETE" ? "PARTIAL" : "COMPLETE";
+    if (batch.status === "COMPLETE") {
+      const acc = this.getAccount(batch.accountId);
+      const expected = window.StatementParser && window.StatementParser.getAccountExpectedPeriod
+        ? window.StatementParser.getAccountExpectedPeriod(acc, batch.competenceMonth)
+        : null;
+      if (expected && (!batch.cutoffDate || batch.cutoffDate < expected.closeDate)) {
+        batch.expectedCloseDate = expected.closeDate;
+      }
+    }
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(
+      batch.status === "COMPLETE"
+        ? `✅ Extrato marcado como Completo / Fechado!`
+        : `🌗 Extrato reaberto como Parcial.`,
+      "success"
+    );
+  },
+
+  openStatementImportModal(batchId = null, prefillAccountId = null, prefillMonth = null) {
+    const modal = document.getElementById("modal-statement-import");
+    if (!modal) return;
+
+    const accounts = this.getRegisteredAccountsForStatements();
+    const months = this.getStatementMonthOptions();
+    const activeMonth = prefillMonth || this.statementsPanelMonth || this.state.settings.activeMonth;
+    const batch = batchId ? (this.state.statementImports || []).find(b => b.id === batchId) : null;
+
+    this.editingStatementBatchId = batch ? batch.id : null;
+
+    const titleEl = document.getElementById("stmt-modal-title");
+    const accEl = document.getElementById("stmt-modal-account");
+    const monthEl = document.getElementById("stmt-modal-month");
+    const statusEl = document.getElementById("stmt-modal-status");
+    const fileEl = document.getElementById("stmt-modal-filename");
+    const startEl = document.getElementById("stmt-modal-start");
+    const cutoffEl = document.getElementById("stmt-modal-cutoff");
+    const notesEl = document.getElementById("stmt-modal-notes");
+    const cascadeWrap = document.getElementById("stmt-modal-cascade-wrap");
+    const cascadeLabel = document.getElementById("stmt-modal-cascade-label");
+    const cascadeChk = document.getElementById("stmt-modal-cascade-txs");
+
+    if (accEl) {
+      accEl.innerHTML = accounts
+        .map(a => `<option value="${a.id}">${a.name} (${this.getUser(a.ownerId).name})</option>`)
+        .join("");
+    }
+    if (monthEl) {
+      monthEl.innerHTML = months
+        .map(m => `<option value="${m}">${this.getMonthLabel(m)}</option>`)
+        .join("");
+    }
+
+    if (batch) {
+      if (titleEl) titleEl.textContent = "Alterar Importação de Extrato";
+      if (accEl) accEl.value = batch.accountId;
+      if (monthEl) monthEl.value = batch.competenceMonth;
+      if (statusEl) statusEl.value = batch.status || "PARTIAL";
+      if (fileEl) fileEl.value = batch.fileName || "";
+      if (startEl) startEl.value = batch.periodStart || "";
+      if (cutoffEl) cutoffEl.value = batch.cutoffDate || batch.periodEnd || "";
+      if (notesEl) notesEl.value = batch.notes || "";
+      const linkedCount = this.getBatchedTransactions(batch).length;
+      if (cascadeWrap) {
+        cascadeWrap.classList.toggle("hidden", linkedCount === 0);
+        if (cascadeLabel) {
+          cascadeLabel.textContent = `Se eu alterar Conta ou Competência, mover também os ${linkedCount} lançamento(s) vinculado(s) a este lote.`;
+        }
+        if (cascadeChk) cascadeChk.checked = true;
+      }
+    } else {
+      const targetAcc = accounts.find(a => a.id === prefillAccountId) || accounts[0];
+      const expected = window.StatementParser && window.StatementParser.getAccountExpectedPeriod
+        ? window.StatementParser.getAccountExpectedPeriod(targetAcc, activeMonth)
+        : { periodStart: `${activeMonth}-01`, closeDate: `${activeMonth}-28` };
+      const todayISO = window.StatementParser ? window.StatementParser.getTodayISO() : "";
+      const defStatus = window.StatementParser && window.StatementParser.inferStatementImportStatus
+        ? window.StatementParser.inferStatementImportStatus(targetAcc, activeMonth, todayISO)
+        : "COMPLETE";
+
+      if (titleEl) titleEl.textContent = "Registrar Extrato Manual / Sem Movimentação";
+      if (accEl && targetAcc) accEl.value = targetAcc.id;
+      if (monthEl) monthEl.value = activeMonth;
+      if (statusEl) statusEl.value = defStatus;
+      if (fileEl) fileEl.value = "Extrato verificado / Sem movimentação";
+      if (startEl) startEl.value = expected.periodStart;
+      if (cutoffEl) cutoffEl.value = defStatus === "COMPLETE" ? expected.closeDate : (todayISO || expected.closeDate);
+      if (notesEl) notesEl.value = "";
+      if (cascadeWrap) cascadeWrap.classList.add("hidden");
+    }
+
+    modal.classList.remove("hidden");
+  },
+
+  closeStatementImportModal() {
+    const modal = document.getElementById("modal-statement-import");
+    if (modal) modal.classList.add("hidden");
+    this.editingStatementBatchId = null;
+  },
+
+  saveStatementImportModal(event) {
+    event.preventDefault();
+    if (!Array.isArray(this.state.statementImports)) {
+      this.state.statementImports = [];
+    }
+
+    const accountId = document.getElementById("stmt-modal-account").value;
+    const competenceMonth = document.getElementById("stmt-modal-month").value;
+    const status = document.getElementById("stmt-modal-status").value || "PARTIAL";
+    const fileName = (document.getElementById("stmt-modal-filename").value || "").trim() || "Extrato cadastrado";
+    const periodStart = document.getElementById("stmt-modal-start").value || `${competenceMonth}-01`;
+    const cutoffDate = document.getElementById("stmt-modal-cutoff").value || periodStart;
+    const notes = (document.getElementById("stmt-modal-notes").value || "").trim();
+    const cascadeTxs = Boolean(document.getElementById("stmt-modal-cascade-txs")?.checked);
+
+    const acc = this.getAccount(accountId);
+    const expected = window.StatementParser && window.StatementParser.getAccountExpectedPeriod
+      ? window.StatementParser.getAccountExpectedPeriod(acc, competenceMonth)
+      : { closeDate: `${competenceMonth}-28` };
+
+    if (this.editingStatementBatchId) {
+      const batch = this.state.statementImports.find(b => b.id === this.editingStatementBatchId);
+      if (!batch) {
+        this.closeStatementImportModal();
+        return;
+      }
+
+      const accChanged = batch.accountId !== accountId;
+      const monthChanged = batch.competenceMonth !== competenceMonth;
+
+      if (cascadeTxs && (accChanged || monthChanged)) {
+        const linked = this.getBatchedTransactions(batch);
+        linked.forEach(tx => {
+          if (accChanged) {
+            tx.accountId = accountId;
+            if (acc && acc.ownerId) {
+              tx.paidByUserId = acc.ownerId;
+            }
+          }
+          if (monthChanged) {
+            tx.competenceMonth = competenceMonth;
+          }
+        });
+      }
+
+      batch.accountId = accountId;
+      batch.competenceMonth = competenceMonth;
+      batch.status = status;
+      batch.fileName = fileName;
+      batch.periodStart = periodStart;
+      batch.cutoffDate = cutoffDate;
+      batch.periodEnd = cutoffDate;
+      batch.expectedCloseDate = expected.closeDate;
+      batch.notes = notes;
+      batch.txCount = this.getBatchedTransactions(batch).length;
+    } else {
+      this.state.statementImports.push({
+        id: "imp_manual_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+        accountId,
+        competenceMonth,
+        fileName,
+        importedAt: new Date().toISOString(),
+        status,
+        periodStart,
+        periodEnd: cutoffDate,
+        cutoffDate,
+        expectedCloseDate: expected.closeDate,
+        txCount: 0,
+        totalAmount: 0,
+        txIds: [],
+        notes
+      });
+    }
+
+    this.closeStatementImportModal();
+    this.saveState(true);
+    this.renderAll();
+    this.showToast("🫒 Registro de importação de extrato salvo! (Ctrl+Z para desfazer)", "success");
+  },
+
+  openDeleteStatementModal(batchId) {
+    const batch = (this.state.statementImports || []).find(b => b.id === batchId);
+    if (!batch) return;
+    const modal = document.getElementById("modal-statement-delete");
+    const summaryEl = document.getElementById("stmt-delete-summary");
+    const withTxsBtn = document.getElementById("stmt-delete-with-txs-btn");
+    const withTxsLabel = document.getElementById("stmt-delete-with-txs-label");
+    if (!modal || !summaryEl) return;
+
+    this.deletingStatementBatchId = batchId;
+    const acc = this.getAccount(batch.accountId);
+    const linked = this.getBatchedTransactions(batch);
+    const linkedCount = linked.length;
+
+    summaryEl.innerHTML = `
+      <div><strong>Arquivo / Origem:</strong> ${this.escapeHTML(batch.fileName || "Extrato")}</div>
+      <div><strong>Conta:</strong> ${this.escapeHTML(acc ? acc.name : batch.accountId)} • <strong>Competência:</strong> ${this.getMonthLabel(batch.competenceMonth)}</div>
+      <div><strong>Lançamentos vinculados:</strong> ${linkedCount} lançamento(s)</div>
+    `;
+
+    if (withTxsBtn && withTxsLabel) {
+      withTxsBtn.classList.toggle("hidden", linkedCount === 0);
+      withTxsLabel.textContent = `Excluir importação e os ${linkedCount} lançamento(s) vinculado(s)`;
+    }
+
+    modal.classList.remove("hidden");
+  },
+
+  closeDeleteStatementModal() {
+    const modal = document.getElementById("modal-statement-delete");
+    if (modal) modal.classList.add("hidden");
+    this.deletingStatementBatchId = null;
+  },
+
+  confirmDeleteStatementModal(mode = "WITH_TXS") {
+    const batchId = this.deletingStatementBatchId;
+    if (!batchId) return;
+    const batch = (this.state.statementImports || []).find(b => b.id === batchId);
+    if (!batch) {
+      this.closeDeleteStatementModal();
+      return;
+    }
+
+    const linked = this.getBatchedTransactions(batch);
+    const linkedIds = new Set(linked.map(t => t.id));
+    let deletedTxCount = 0;
+
+    if (mode === "WITH_TXS" && linkedIds.size > 0) {
+      this.state.transactions = this.state.transactions.filter(t => !linkedIds.has(t.id));
+      this.selectedTxIds = this.selectedTxIds.filter(id => !linkedIds.has(id));
+      deletedTxCount = linkedIds.size;
+    } else if (linkedIds.size > 0) {
+      this.state.transactions.forEach(t => {
+        if (linkedIds.has(t.id) && t.importBatchId === batchId) {
+          delete t.importBatchId;
+        }
+      });
+    }
+
+    this.state.statementImports = (this.state.statementImports || []).filter(b => b.id !== batchId);
+    this.closeDeleteStatementModal();
+    this.saveState(true);
+    this.renderAll();
+
+    if (deletedTxCount > 0) {
+      this.showToast(`🗑️ Importação e ${deletedTxCount} lançamento(s) excluídos (Ctrl+Z para desfazer).`, "info");
+    } else {
+      this.showToast(`🧹 Registro da importação removido do painel (lançamentos mantidos).`, "info");
+    }
+  },
+
+  renderStatementsPanel(monthYear) {
+    const panel = document.getElementById("statements-control-panel");
+    if (!panel) return;
+
+    const targetMonth = this.statementsPanelMonth || monthYear || this.state.settings.activeMonth;
+    const monthOptions = this.getStatementMonthOptions();
+    const accounts = this.getRegisteredAccountsForStatements();
+    const totalAccounts = accounts.length;
+
+    const summaries = accounts.map(acc => ({
+      account: acc,
+      summary: this.getAccountStatementSummary(acc, targetMonth)
+    }));
+
+    const completeCount = summaries.filter(s => s.summary.status === "COMPLETE").length;
+    const partialCount = summaries.filter(s => s.summary.status === "PARTIAL").length;
+    const pendingCount = summaries.filter(s => s.summary.status === "PENDING").length;
+    const overallCoveragePct = totalAccounts > 0
+      ? Math.round(((completeCount + partialCount * 0.5) / totalAccounts) * 100)
+      : 100;
+
+    const monthSelectHTML = monthOptions
+      .map(m => `<option value="${m}" ${m === targetMonth ? "selected" : ""}>${this.getMonthLabel(m)}</option>`)
+      .join("");
+
+    const accountRowsHTML = summaries.length === 0
+      ? `<div class="p-6 text-center text-xs text-stone-400">Nenhuma conta cadastrada. Cadastre suas contas em Cartões & Contas.</div>`
+      : summaries
+          .map(({ account, summary }) => {
+            const owner = this.getUser(account.ownerId);
+            const isCard = account.type === "CREDIT_CARD";
+            const expected = summary.coverage.expected;
+            const pct = summary.coverage.pct;
+            const liveCount = summary.liveTxCount;
+
+            let badgeHTML = "";
+            let barHTML = "";
+            let metaLine = "";
+            let actionsHTML = "";
+
+            if (summary.status === "COMPLETE") {
+              badgeHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-200 text-[11px] font-extrabold">✅ Fechado (100%)</span>`;
+              barHTML = `
+                <div class="w-full h-2 rounded-full bg-emerald-100 overflow-hidden mt-1.5">
+                  <div class="h-full bg-emerald-600 rounded-full" style="width:100%"></div>
+                </div>
+              `;
+              metaLine = `${liveCount} lançamento(s) • Ciclo ${this.formatDateBR(expected.periodStart)} → ${this.formatDateBR(expected.closeDate)} • Arquivo: ${this.escapeHTML(summary.primaryBatch?.fileName || "Extrato")}`;
+              actionsHTML = `
+                <button type="button" onclick="App.triggerAccountStatementUpload('${account.id}', '${targetMonth}')" class="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-[11px] font-bold transition" title="Importar arquivo complementar ou atualizado">🔄 Nova import.</button>
+                <button type="button" onclick="App.toggleStatementBatchStatus('${summary.primaryBatch.id}')" class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[11px] font-bold transition" title="Reabrir como parcial">🌗 Parcial</button>
+                <button type="button" onclick="App.openStatementImportModal('${summary.primaryBatch.id}')" class="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-[11px] font-bold transition">✏️ Alterar</button>
+                <button type="button" onclick="App.openDeleteStatementModal('${summary.primaryBatch.id}')" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-[11px] font-bold transition" title="Excluir importação">🗑️</button>
+              `;
+            } else if (summary.status === "PARTIAL") {
+              badgeHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-900 border border-sky-300 text-[11px] font-extrabold">🌗 Parcial até ${this.formatDateBR(summary.cutoffDate)} (${pct}%)</span>`;
+              barHTML = `
+                <div class="w-full h-2.5 rounded-full bg-stone-100 border border-dashed border-sky-300 overflow-hidden mt-1.5 flex" title="${summary.coverage.coveredDays} de ${summary.coverage.totalDays} dias cobertos — faltam ${summary.coverage.missingDays} dia(s) até o fechamento">
+                  <div class="h-full bg-gradient-to-r from-sky-500 to-lime-500 rounded-l-full transition-all" style="width:${pct}%"></div>
+                </div>
+              `;
+              metaLine = `${liveCount} lançamento(s) • Coberto ${this.formatDateBR(summary.periodStart)} → <strong>${this.formatDateBR(summary.cutoffDate)}</strong> (fecha em ${this.formatDateBR(expected.closeDate)} • faltam ${summary.coverage.missingDays}d)`;
+              actionsHTML = `
+                <button type="button" onclick="App.triggerAccountStatementUpload('${account.id}', '${targetMonth}')" class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-extrabold transition" title="Enviar extrato mais recente para completar o mês">🔄 Atualizar</button>
+                <button type="button" onclick="App.toggleStatementBatchStatus('${summary.primaryBatch.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-[11px] font-bold transition" title="Marcar este extrato como fechado/completo">✓ Fechar</button>
+                <button type="button" onclick="App.openStatementImportModal('${summary.primaryBatch.id}')" class="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-[11px] font-bold transition">✏️ Alterar</button>
+                <button type="button" onclick="App.openDeleteStatementModal('${summary.primaryBatch.id}')" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-[11px] font-bold transition" title="Excluir importação">🗑️</button>
+              `;
+            } else {
+              badgeHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200 text-[11px] font-extrabold">⏳ Pendente</span>`;
+              barHTML = `
+                <div class="w-full h-2 rounded-full bg-rose-50 border border-dashed border-rose-200 mt-1.5"></div>
+              `;
+              metaLine = `Nenhum extrato cadastrado para ${this.getMonthLabel(targetMonth)} • Ciclo previsto: ${this.formatDateBR(expected.periodStart)} → ${this.formatDateBR(expected.closeDate)}`;
+              actionsHTML = `
+                <button type="button" onclick="App.triggerAccountStatementUpload('${account.id}', '${targetMonth}')" class="px-3 py-1.5 rounded-lg bg-lime-700 hover:bg-lime-800 text-white text-[11px] font-extrabold transition">📤 Importar Extrato</button>
+                <button type="button" onclick="App.openStatementImportModal(null, '${account.id}', '${targetMonth}')" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-600 text-[11px] font-bold transition" title="Cadastrar manualmente ou marcar sem movimentação no mês">+ Sem mov.</button>
+              `;
+            }
+
+            return `
+              <div class="rounded-2xl border ${summary.status === "PENDING" ? "border-rose-200/80 bg-rose-50/25" : summary.status === "PARTIAL" ? "border-sky-200/90 bg-sky-50/25" : "border-stone-200/80 bg-[#fcfdf9]"} p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${account.color || "#84cc16"}"></span>
+                    <span class="font-extrabold text-stone-900 text-xs sm:text-sm">${this.escapeHTML(account.name)}</span>
+                    <span class="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-[10px] font-bold">${owner.name}</span>
+                    <span class="text-[10px] font-semibold text-stone-400">${isCard ? `Cartão • Vira dia ${account.closingDay || 9}` : "Conta Corrente"}</span>
+                    ${badgeHTML}
+                  </div>
+                  ${barHTML}
+                  <div class="text-[11px] text-stone-500 mt-1.5">${metaLine}</div>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+                  ${actionsHTML}
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+
+    // Histórico de lotes salvos
+    const allBatches = (this.state.statementImports || []).slice().sort((a, b) => (b.importedAt || "").localeCompare(a.importedAt || ""));
+    const visibleBatches = this.statementsHistoryScope === "ALL"
+      ? allBatches
+      : allBatches.filter(b => b.competenceMonth === targetMonth);
+
+    const batchesHTML = visibleBatches.length === 0
+      ? `<tr><td colspan="6" class="py-5 px-4 text-center text-xs text-stone-400">Nenhuma importação de extrato registrada ${this.statementsHistoryScope === "ALL" ? "ainda" : `para ${this.getMonthLabel(targetMonth)}`}.</td></tr>`
+      : visibleBatches
+          .map(b => {
+            const acc = this.getAccount(b.accountId);
+            const liveTxs = this.getBatchedTransactions(b);
+            const parser = window.StatementParser;
+            const cov = parser && parser.evaluateStatementCoverage
+              ? parser.evaluateStatementCoverage(acc, b.competenceMonth, b.cutoffDate || b.periodEnd, b.status)
+              : { pct: b.status === "COMPLETE" ? 100 : 50 };
+            const statusPill = b.status === "COMPLETE"
+              ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 text-[10px] font-extrabold">✅ Completo</span>`
+              : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-100 text-sky-900 text-[10px] font-extrabold">🌗 Parcial (${cov.pct}%)</span>`;
+            const impDate = b.importedAt ? this.formatDateBR(b.importedAt.substring(0, 10)) : "-";
+
+            return `
+              <tr class="border-b border-stone-100 hover:bg-stone-50/70 text-xs">
+                <td class="py-2.5 px-4">
+                  <div class="font-bold text-stone-800">${this.escapeHTML(acc ? acc.name : b.accountId)}</div>
+                  <div class="text-[10px] text-stone-400">${this.getMonthLabel(b.competenceMonth)} • Importado em ${impDate}</div>
+                </td>
+                <td class="py-2.5 px-3">
+                  <div class="font-semibold text-stone-700 truncate max-w-[210px]" title="${this.escapeHTML(b.fileName)}">📄 ${this.escapeHTML(b.fileName)}</div>
+                  ${b.notes ? `<div class="text-[10px] text-stone-500 italic">${this.escapeHTML(b.notes)}</div>` : ""}
+                </td>
+                <td class="py-2.5 px-3 whitespace-nowrap">
+                  ${statusPill}
+                  <div class="text-[10px] text-stone-500 mt-0.5">${this.formatDateBR(b.periodStart)} → ${this.formatDateBR(b.cutoffDate || b.periodEnd)}</div>
+                </td>
+                <td class="py-2.5 px-3 text-center font-bold text-stone-700 whitespace-nowrap">
+                  ${liveTxs.length} lanç.
+                </td>
+                <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                  <div class="inline-flex items-center gap-1">
+                    <button type="button" onclick="App.openStatementImportModal('${b.id}')" class="px-2.5 py-1 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-[11px] transition">✏️ Alterar</button>
+                    <button type="button" onclick="App.openDeleteStatementModal('${b.id}')" class="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] transition">🗑️ Deletar</button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          })
+          .join("");
+
+    panel.innerHTML = `
+      <div class="px-5 py-4 bg-stone-50/80 border-b border-stone-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
+              <i data-lucide="folder-check" class="w-4 h-4 text-lime-700"></i>
+              Controle de Extratos & Importações
+            </h3>
+            <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 text-[11px] font-extrabold">✅ ${completeCount} fechados</span>
+            ${partialCount > 0 ? `<span class="px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-900 text-[11px] font-extrabold">🌗 ${partialCount} parciais</span>` : ""}
+            ${pendingCount > 0 ? `<span class="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-900 text-[11px] font-extrabold">⏳ ${pendingCount} pendentes</span>` : ""}
+          </div>
+          <p class="text-xs text-stone-500 mt-0.5">
+            Todas as <strong>${totalAccounts} contas cadastradas</strong> devem ter extrato no mês (cobertura atual: <strong>${overallCoveragePct}%</strong>). Extratos antes do fechamento aparecem como <strong>Parcial</strong>.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <select
+            onchange="App.setStatementsPanelMonth(this.value)"
+            class="oli-input rounded-xl px-3 py-1.5 text-xs font-bold bg-white"
+            title="Filtrar competência do checklist de extratos"
+          >
+            ${monthSelectHTML}
+          </select>
+          <button
+            type="button"
+            onclick="App.openStatementImportModal(null, null, '${targetMonth}')"
+            class="px-3 py-1.5 rounded-xl bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-xs font-bold transition"
+          >
+            + Registrar Manual
+          </button>
+          <button
+            type="button"
+            onclick="App.toggleStatementsPanelCollapse()"
+            class="px-2.5 py-1.5 rounded-xl bg-stone-200/70 hover:bg-stone-200 text-stone-700 text-xs font-bold transition"
+          >
+            ${this.statementsPanelCollapsed ? "Mostrar ▼" : "Recolher ▲"}
+          </button>
+        </div>
+      </div>
+
+      ${this.statementsPanelCollapsed ? "" : `
+        <div class="p-4 sm:p-5 space-y-5">
+          <div class="space-y-2.5">
+            ${accountRowsHTML}
+          </div>
+
+          <div class="rounded-2xl border border-stone-200/90 overflow-hidden">
+            <div class="px-4 py-2.5 bg-stone-50 border-b border-stone-200/80 flex flex-wrap items-center justify-between gap-2">
+              <span class="text-xs font-extrabold text-stone-800">
+                Arquivos & Lotes de Importação Salvos (${visibleBatches.length})
+              </span>
+              <div class="inline-flex bg-white border border-stone-200 p-0.5 rounded-lg text-[11px]">
+                <button
+                  type="button"
+                  onclick="App.setStatementsHistoryScope('ACTIVE_MONTH')"
+                  class="px-2.5 py-1 rounded-md font-bold transition ${this.statementsHistoryScope !== "ALL" ? "bg-lime-700 text-white" : "text-stone-500 hover:text-stone-900"}"
+                >
+                  ${this.getMonthLabel(targetMonth)}
+                </button>
+                <button
+                  type="button"
+                  onclick="App.setStatementsHistoryScope('ALL')"
+                  class="px-2.5 py-1 rounded-md font-bold transition ${this.statementsHistoryScope === "ALL" ? "bg-lime-700 text-white" : "text-stone-500 hover:text-stone-900"}"
+                >
+                  Todos os meses (${allBatches.length})
+                </button>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="border-b border-stone-100 text-[10px] font-bold uppercase text-stone-400 bg-white">
+                    <th class="py-2 px-4">Conta / Competência</th>
+                    <th class="py-2 px-3">Arquivo / Nota</th>
+                    <th class="py-2 px-3">Situação & Cobertura</th>
+                    <th class="py-2 px-3 text-center">Itens</th>
+                    <th class="py-2 px-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${batchesHTML}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `}
+    `;
   },
 
   // ==========================================================================

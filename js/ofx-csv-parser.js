@@ -346,6 +346,117 @@ window.StatementParser = {
     };
   },
 
+  getTodayISO() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  },
+
+  extractOFXDateRange(content) {
+    if (!content) return { dtStart: null, dtEnd: null };
+    const parseTag = (tag) => {
+      const m = content.match(new RegExp(`<${tag}>(\\d{8})`, "i"));
+      if (!m) return null;
+      const raw = m[1];
+      return `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
+    };
+    return {
+      dtStart: parseTag("DTSTART"),
+      dtEnd: parseTag("DTEND")
+    };
+  },
+
+  getAccountExpectedPeriod(account, targetCompetenceMonth = "2026-11") {
+    const [compY, compM] = (targetCompetenceMonth || "2026-11").split("-").map(Number);
+    const pad = (n) => String(n).padStart(2, "0");
+
+    if (!account || account.type !== "CREDIT_CARD") {
+      const lastDay = new Date(compY, compM, 0).getDate();
+      return {
+        periodStart: `${compY}-${pad(compM)}-01`,
+        periodEnd: `${compY}-${pad(compM)}-${pad(lastDay)}`,
+        closeDate: `${compY}-${pad(compM)}-${pad(lastDay)}`
+      };
+    }
+
+    const closingDay = Math.min(28, Math.max(1, Number(account.closingDay) || 9));
+    const offset = typeof account.competenceOffset === "number" ? account.competenceOffset : 0;
+    const closingYM = this.shiftYearMonth(compY, compM, -offset);
+    const [closeY, closeM] = closingYM.split("-").map(Number);
+    const openYM = this.shiftYearMonth(closeY, closeM, -1);
+
+    return {
+      periodStart: `${openYM}-${pad(closingDay)}`,
+      periodEnd: `${closingYM}-${pad(closingDay)}`,
+      closeDate: `${closingYM}-${pad(closingDay)}`
+    };
+  },
+
+  evaluateStatementCoverage(account, competenceMonth, cutoffDate, status = "PARTIAL") {
+    const expected = this.getAccountExpectedPeriod(account, competenceMonth);
+    const startMs = new Date(expected.periodStart + "T12:00:00").getTime();
+    const endMs = new Date(expected.periodEnd + "T12:00:00").getTime();
+    const totalDays = Math.max(1, Math.round((endMs - startMs) / 86400000) + 1);
+
+    if (status === "COMPLETE") {
+      return {
+        expected,
+        totalDays,
+        coveredDays: totalDays,
+        missingDays: 0,
+        pct: 100
+      };
+    }
+
+    if (!cutoffDate || !/^\d{4}-\d{2}-\d{2}$/.test(cutoffDate)) {
+      return {
+        expected,
+        totalDays,
+        coveredDays: 0,
+        missingDays: totalDays,
+        pct: 0
+      };
+    }
+
+    const cutMs = new Date(cutoffDate + "T12:00:00").getTime();
+    const rawCovered = Math.round((cutMs - startMs) / 86400000) + 1;
+    const coveredDays = Math.min(totalDays, Math.max(1, rawCovered));
+    const missingDays = Math.max(0, totalDays - coveredDays);
+    const pct = Math.min(99, Math.max(5, Math.round((coveredDays / totalDays) * 100)));
+
+    return {
+      expected,
+      totalDays,
+      coveredDays,
+      missingDays,
+      pct
+    };
+  },
+
+  inferStatementImportStatus(account, competenceMonth, cutoffDate = null, todayISO = null) {
+    const today = todayISO || this.getTodayISO();
+    const expected = this.getAccountExpectedPeriod(account, competenceMonth);
+
+    // Antes da data de fechamento (fim do mês para conta corrente ou virada do cartão), o extrato é parcial
+    if (today < expected.closeDate) {
+      return "PARTIAL";
+    }
+
+    // Para conta corrente em mês passado ou recém-encerrado, se a data de corte for bem anterior ao último dia do mês, marca como parcial
+    if ((!account || account.type !== "CREDIT_CARD") && cutoffDate && /^\d{4}-\d{2}-\d{2}$/.test(cutoffDate)) {
+      const cutMs = new Date(cutoffDate + "T12:00:00").getTime();
+      const closeMs = new Date(expected.closeDate + "T12:00:00").getTime();
+      const gapDays = Math.round((closeMs - cutMs) / 86400000);
+      if (gapDays >= 3) {
+        return "PARTIAL";
+      }
+    }
+
+    return "COMPLETE";
+  },
+
   // Quando o arquivo OFX/CSV representa uma única fatura fechada/mensal (intervalo de até 40 dias),
   // retorna a competência dessa fatura com base na data de fechamento (maior data do extrato).
   inferInvoiceMonthFromDates(isoDates, account, fallbackMonth = "2026-11") {
