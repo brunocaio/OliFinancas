@@ -112,6 +112,34 @@ window.StatementParser = {
     };
   },
 
+  // Quando o arquivo OFX/CSV representa uma única fatura fechada/mensal (intervalo de até 40 dias),
+  // retorna a competência dessa fatura com base na data de fechamento (maior data do extrato).
+  inferInvoiceMonthFromDates(isoDates, account, fallbackMonth = "2026-11") {
+    if (!account || account.type !== "CREDIT_CARD" || !Array.isArray(isoDates) || isoDates.length === 0) {
+      return null;
+    }
+    const valid = isoDates.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    if (valid.length === 0) return null;
+    const minD = new Date(valid[0] + "T12:00:00");
+    const maxD = new Date(valid[valid.length - 1] + "T12:00:00");
+    const spanDays = Math.round((maxD - minD) / (1000 * 60 * 60 * 24));
+    if (spanDays > 45) {
+      return null;
+    }
+    return this.computeCompetenceMonth(valid[valid.length - 1], account, fallbackMonth);
+  },
+
+  isLikelyRefundDescription(description) {
+    const norm = this.normalizeText(description);
+    return (
+      norm.startsWith("ESTORNO") ||
+      norm.includes("ESTORNO DE") ||
+      norm.includes("DESCONTO NUBANK") ||
+      norm.includes("REEMBOLSO") ||
+      norm.includes("CASHBACK")
+    );
+  },
+
   describeCardCycleRule(account, activeMonth = "2026-11") {
     if (!account || account.type !== "CREDIT_CARD") {
       return "Débito / Espécie: competência no próprio mês da data do gasto.";
@@ -185,10 +213,10 @@ window.StatementParser = {
     };
   },
 
-  parseOFX(content, account, competenceMonth, state) {
+  parseOFX(content, account, competenceMonth, state, competenceMode = "SMART_INVOICE") {
     const blocks = content.split(/<STMTTRN>/i).slice(1);
     const isCreditCard = account.type === "CREDIT_CARD" || /<CREDITCARDMSGSRSV1>/i.test(content);
-    const results = [];
+    const rawItems = [];
 
     const extractTag = (block, tag) => {
       const regex = new RegExp(`<${tag}>([^<\\r\\n]+)`, "i");
@@ -198,6 +226,7 @@ window.StatementParser = {
 
     for (const rawBlock of blocks) {
       const block = rawBlock.split(/<\/STMTTRN>/i)[0];
+      const trnType = extractTag(block, "TRNTYPE").toUpperCase();
       const dtPosted = extractTag(block, "DTPOSTED");
       const trnAmtRaw = extractTag(block, "TRNAMT");
       const fitId = extractTag(block, "FITID");
@@ -221,9 +250,28 @@ window.StatementParser = {
       const signedVal = parseFloat(cleanAmt);
       if (isNaN(signedVal) || signedVal === 0) continue;
 
+      rawItems.push({ trnType, txDate, signedVal, fitId, description });
+    }
+
+    // Determina a competência da fatura se modo for SMART_INVOICE ou mês explícito (YYYY-MM)
+    let forcedInvoiceMonth = null;
+    if (/^\d{4}-\d{2}$/.test(competenceMode)) {
+      forcedInvoiceMonth = competenceMode;
+    } else if (competenceMode === "SMART_INVOICE" && isCreditCard) {
+      forcedInvoiceMonth = this.inferInvoiceMonthFromDates(
+        rawItems.map(r => r.txDate),
+        account,
+        competenceMonth
+      );
+    }
+
+    const results = [];
+    for (const raw of rawItems) {
+      const { trnType, txDate, signedVal, fitId, description } = raw;
       const absAmount = Math.abs(signedVal);
       const inst = this.detectInstallments(description);
-      const resolvedCompetence = this.computeCompetenceMonth(txDate, account, competenceMonth);
+      const itemCycleMonth = this.computeCompetenceMonth(txDate, account, competenceMonth);
+      const resolvedCompetence = forcedInvoiceMonth || itemCycleMonth;
       const classification = this.autoClassify(
         description,
         signedVal,
@@ -235,11 +283,27 @@ window.StatementParser = {
       );
 
       let finalType = classification.type;
+      let isInvoiceCredit = false;
+      let finalAmount = absAmount;
+
       if (finalType !== "TRANSFER") {
-        if (!isCreditCard && signedVal > 0) {
-          finalType = "INCOME";
-        } else if (!isCreditCard && signedVal < 0) {
-          finalType = "EXPENSE";
+        if (isCreditCard) {
+          // No OFX de cartão de crédito: débitos/compras têm TRNAMT negativo (< 0),
+          // enquanto estornos/descontos/créditos na fatura têm TRNAMT positivo (> 0) ou TRNTYPE=CREDIT.
+          if (signedVal > 0 || trnType === "CREDIT" || this.isLikelyRefundDescription(description)) {
+            isInvoiceCredit = true;
+            finalType = "EXPENSE";
+            finalAmount = -absAmount;
+          } else {
+            finalType = "EXPENSE";
+            finalAmount = absAmount;
+          }
+        } else {
+          if (signedVal > 0) {
+            finalType = "INCOME";
+          } else {
+            finalType = "EXPENSE";
+          }
         }
       }
 
@@ -255,8 +319,10 @@ window.StatementParser = {
         alreadyExists,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
+        cycleCompetenceMonth: itemCycleMonth,
         description,
-        amount: absAmount,
+        amount: finalAmount,
+        isInvoiceCredit,
         type: finalType,
         accountId: account.id,
         paidByUserId: account.ownerId || "bruno",
@@ -311,7 +377,7 @@ window.StatementParser = {
     return `${fallbackMonth}-01`;
   },
 
-  parseCSV(content, account, competenceMonth, state) {
+  parseCSV(content, account, competenceMonth, state, competenceMode = "SMART_INVOICE") {
     const lines = content
       .split(/\r?\n/)
       .map(l => l.trim())
@@ -350,23 +416,45 @@ window.StatementParser = {
     if (amtIdx === -1) amtIdx = headers.length - 1;
     if (descIdx === -1) descIdx = headers.length >= 3 ? headers.length - 2 : 1;
 
-    const results = [];
-
+    const parsedRows = [];
     for (let i = 1; i < lines.length; i++) {
       const cols = splitCSVLine(lines[i]);
       if (cols.length < 2) continue;
 
       const rawDate = cols[dateIdx] || cols[0];
-      const rawDesc = cols[descIdx] || cols[1] || "Item CSV";
+      const rawDesc = (cols[descIdx] || cols[1] || "Item CSV").replace(/^"|"$/g, "");
       const rawAmt = cols[amtIdx] !== undefined ? cols[amtIdx] : cols[cols.length - 1];
 
       const signedVal = this.parseMoneyValue(rawAmt);
       if (isNaN(signedVal) || signedVal === 0) continue;
 
       const txDate = this.parseDateString(rawDate, competenceMonth);
+      parsedRows.push({ txDate, rawDesc, signedVal });
+    }
+
+    // Detecta convenção de sinal no CSV do cartão: Nubank CSV usa positivos para compras e negativos para estornos
+    const posCount = parsedRows.filter(r => r.signedVal > 0).length;
+    const negCount = parsedRows.filter(r => r.signedVal < 0).length;
+    const purchasesArePositive = posCount >= negCount;
+
+    let forcedInvoiceMonth = null;
+    if (/^\d{4}-\d{2}$/.test(competenceMode)) {
+      forcedInvoiceMonth = competenceMode;
+    } else if (competenceMode === "SMART_INVOICE" && isCreditCard) {
+      forcedInvoiceMonth = this.inferInvoiceMonthFromDates(
+        parsedRows.map(r => r.txDate),
+        account,
+        competenceMonth
+      );
+    }
+
+    const results = [];
+    for (const row of parsedRows) {
+      const { txDate, rawDesc, signedVal } = row;
       const absAmount = Math.abs(signedVal);
       const inst = this.detectInstallments(rawDesc);
-      const resolvedCompetence = this.computeCompetenceMonth(txDate, account, competenceMonth);
+      const itemCycleMonth = this.computeCompetenceMonth(txDate, account, competenceMonth);
+      const resolvedCompetence = forcedInvoiceMonth || itemCycleMonth;
       const classification = this.autoClassify(
         rawDesc,
         signedVal,
@@ -378,11 +466,26 @@ window.StatementParser = {
       );
 
       let finalType = classification.type;
+      let isInvoiceCredit = false;
+      let finalAmount = absAmount;
+
       if (finalType !== "TRANSFER") {
-        if (!isCreditCard && signedVal > 0) {
-          finalType = "INCOME";
-        } else if (!isCreditCard && signedVal < 0) {
-          finalType = "EXPENSE";
+        if (isCreditCard) {
+          const isOppositeSign = purchasesArePositive ? signedVal < 0 : signedVal > 0;
+          if (isOppositeSign || this.isLikelyRefundDescription(rawDesc)) {
+            isInvoiceCredit = true;
+            finalType = "EXPENSE";
+            finalAmount = -absAmount;
+          } else {
+            finalType = "EXPENSE";
+            finalAmount = absAmount;
+          }
+        } else {
+          if (signedVal > 0) {
+            finalType = "INCOME";
+          } else {
+            finalType = "EXPENSE";
+          }
         }
       }
 
@@ -395,8 +498,10 @@ window.StatementParser = {
         alreadyExists,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
-        description: rawDesc.replace(/^"|"$/g, ""),
-        amount: absAmount,
+        cycleCompetenceMonth: itemCycleMonth,
+        description: rawDesc,
+        amount: finalAmount,
+        isInvoiceCredit,
         type: finalType,
         accountId: account.id,
         paidByUserId: account.ownerId || "bruno",

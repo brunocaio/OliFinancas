@@ -242,11 +242,28 @@
               </div>
 
               <div>
-                <label class="block text-[11px] font-bold text-stone-500 mb-1">2. Selecionar Extrato (.OFX ou .CSV)</label>
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">2. Competência / Fatura deste Arquivo</label>
+                <select
+                  id="import-competence-select"
+                  onchange="App.onImportCompetenceModeChange(this.value)"
+                  class="w-full oli-input rounded-xl px-3 py-2 text-xs font-semibold"
+                >
+                  <option value="SMART_INVOICE">📌 Fatura única (detectar mês da fatura automaticamente)</option>
+                  <option value="AUTO_CYCLE">📅 Calcular item a item pela virada do cartão</option>
+                  <option value="2026-09">📌 Tudo para Fatura de Setembro 2026</option>
+                  <option value="2026-10">📌 Tudo para Fatura de Outubro 2026</option>
+                  <option value="2026-11">📌 Tudo para Fatura de Novembro 2026</option>
+                  <option value="2026-12">📌 Tudo para Fatura de Dezembro 2026</option>
+                  <option value="2027-01">📌 Tudo para Fatura de Janeiro 2027</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">3. Selecionar Extrato (.OFX ou .CSV)</label>
                 <label class="flex flex-col items-center justify-center gap-1.5 w-full border-2 border-dashed border-lime-600/35 hover:border-lime-600 bg-[#f9fbf6] hover:bg-lime-50/50 rounded-2xl px-4 py-5 cursor-pointer transition text-center">
                   <i data-lucide="upload-cloud" class="w-6 h-6 text-lime-700"></i>
                   <span class="text-xs font-bold text-stone-700">Clique para enviar arquivo .OFX ou .CSV</span>
-                  <span class="text-[11px] text-stone-400">Classifica categorias e ignora pagamento de fatura</span>
+                  <span class="text-[11px] text-stone-400">Abate estornos automaticamente e ignora pagto de fatura</span>
                   <input type="file" accept=".ofx,.csv,.txt" class="hidden" onchange="App.handleStatementFileUpload(this.files)" />
                 </label>
               </div>
@@ -909,9 +926,22 @@
   <!-- BARRA FLUTUANTE DE SELEÇÃO EM LOTE -->
   <div
     id="floating-bulk-bar"
-    class="hidden fixed bottom-16 lg:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-stone-900 text-white rounded-2xl px-4 py-2.5 shadow-2xl items-center gap-3 text-xs border border-stone-700"
+    class="hidden fixed bottom-16 lg:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-stone-900 text-white rounded-2xl px-4 py-2.5 shadow-2xl items-center gap-2.5 text-xs border border-stone-700 flex-wrap max-w-[95vw]"
   >
     <span id="floating-bulk-count" class="font-extrabold text-lime-400">0 selecionados</span>
+    <select
+      id="floating-bulk-move-month"
+      onchange="if(this.value){ App.moveSelectedTransactionsToMonth(this.value); this.value=''; }"
+      class="bg-stone-800 hover:bg-stone-700 text-stone-100 border border-stone-600 font-bold px-2.5 py-1.5 rounded-xl text-xs cursor-pointer"
+      title="Mover itens selecionados para a fatura/competência de outro mês"
+    >
+      <option value="">📅 Mover p/ Mês...</option>
+      <option value="2026-09">Setembro 2026</option>
+      <option value="2026-10">Outubro 2026</option>
+      <option value="2026-11">Novembro 2026</option>
+      <option value="2026-12">Dezembro 2026</option>
+      <option value="2027-01">Janeiro 2027</option>
+    </select>
     <button
       type="button"
       onclick="App.deleteSelectedTransactions()"
@@ -930,9 +960,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=11"></script>
-  <script src="./js/ofx-csv-parser.js?v=11"></script>
-  <script src="./js/supabase-sync.js?v=11"></script>
-  <script src="./js/app.js?v=11"></script>
+  <script src="./js/data-seed.js?v=12"></script>
+  <script src="./js/ofx-csv-parser.js?v=12"></script>
+  <script src="./js/supabase-sync.js?v=12"></script>
+  <script src="./js/app.js?v=12"></script>
 </body>
 </html>

@@ -30,6 +30,7 @@ window.App = {
   },
   stagedImports: [],
   importTargetAccountId: "cc_bruno",
+  importCompetenceMode: "SMART_INVOICE",
   selectedTxIds: [],
   lastClickedTxId: null,
   lastClickedStagedIdx: null,
@@ -62,11 +63,35 @@ window.App = {
   },
 
   upgradeStateToLatest(stateObj) {
-    if (!stateObj || stateObj.version === "2.0.0-clean") return false;
-    const cleanSeed = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
-    Object.keys(stateObj).forEach(k => delete stateObj[k]);
-    Object.assign(stateObj, cleanSeed);
-    return true;
+    if (!stateObj) return false;
+    let changed = false;
+    if (stateObj.version !== "2.0.0-clean") {
+      const cleanSeed = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
+      Object.keys(stateObj).forEach(k => delete stateObj[k]);
+      Object.assign(stateObj, cleanSeed);
+      changed = true;
+    }
+
+    // Patch incremental 2: corrige estornos/descontos de cartão importados antes da atualização
+    // (para que abatam o valor da fatura em vez de somar)
+    if ((stateObj.schemaPatch || 0) < 2 && Array.isArray(stateObj.transactions)) {
+      const cardIds = new Set(
+        (stateObj.accounts || []).filter(a => a.type === "CREDIT_CARD").map(a => a.id)
+      );
+      stateObj.transactions.forEach(tx => {
+        if (!tx || !cardIds.has(tx.accountId)) return;
+        const amt = Number(tx.amount);
+        if (amt > 0 && window.StatementParser && window.StatementParser.isLikelyRefundDescription(tx.description)) {
+          tx.amount = -Math.abs(amt);
+          tx.isInvoiceCredit = true;
+          changed = true;
+        }
+      });
+      stateObj.schemaPatch = 2;
+      changed = true;
+    }
+
+    return changed;
   },
 
   loadState() {
@@ -1212,6 +1237,10 @@ window.App = {
                             const instTag = tx.installmentTotal > 1
                               ? `<span class="px-1.5 py-0.5 rounded bg-stone-200/80 text-stone-700 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
                               : "";
+                            const isCredit = Number(tx.amount) < 0 || tx.isInvoiceCredit;
+                            const creditTag = isCredit
+                              ? `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Estorno / Abate</span>`
+                              : "";
                             const isChecked = this.selectedTxIds.includes(tx.id);
                             return `
                               <div class="flex items-center justify-between gap-2 py-1 text-xs ${isChecked ? "bg-lime-100/70" : "hover:bg-white/80"} rounded-lg px-2 transition">
@@ -1227,10 +1256,13 @@ window.App = {
                                   <span class="text-[11px] text-stone-400 font-semibold w-11 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
                                   <span class="font-semibold text-stone-800 truncate">${tx.description}</span>
                                   ${instTag}
+                                  ${creditTag}
                                   ${this.getOwnershipBadge(tx.ownership)}
                                 </div>
                                 <div class="flex items-center gap-2 shrink-0">
-                                  <span class="font-extrabold text-stone-900">${this.formatBRL(tx.amount)}</span>
+                                  <span class="font-extrabold ${isCredit ? "text-emerald-700" : "text-stone-900"}">
+                                    ${isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
+                                  </span>
                                   <button
                                     type="button"
                                     onclick="App.deleteTransaction('${tx.id}')"
@@ -1417,10 +1449,14 @@ window.App = {
     const cardSummaryRows = creditCards.map(card => {
       const cardTxs = monthTxs.filter(t => t.accountId === card.id);
       const actual = cardTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const grossPurchases = cardTxs.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
+      const invoiceCredits = cardTxs.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
       const metaInfo = this.getCardMetaInfo(monthYear, card.id);
       return {
         card,
         actual,
+        grossPurchases,
+        invoiceCredits,
         meta: metaInfo.effectiveMeta,
         categoriesSum: metaInfo.categoriesSum,
         isArbitrated: metaInfo.isArbitrated
@@ -1514,6 +1550,11 @@ window.App = {
               <div class="inline-block w-full px-2.5 py-1.5 rounded-lg font-extrabold text-xs sm:text-sm text-right ${colors.actualClass}">
                 ${this.formatBRL(row.actual)}
               </div>
+              ${
+                row.invoiceCredits > 0
+                  ? `<div class="text-[10px] text-emerald-700 font-semibold mt-0.5" title="Compras: ${this.formatBRL(row.grossPurchases)} | Estornos/Descontos: -${this.formatBRL(row.invoiceCredits)}">Compras ${this.formatBRL(row.grossPurchases)} − Desc. ${this.formatBRL(row.invoiceCredits)}</div>`
+                  : ""
+              }
             </td>
             <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
               <button
@@ -1553,7 +1594,7 @@ window.App = {
           const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
           const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
 
-          if (actual > 0 || meta > 0) {
+          if (subTxs.length > 0 || meta > 0) {
             const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id, card.ownerId);
             activeCardItems.push({
               sub,
@@ -1876,9 +1917,13 @@ window.App = {
         const user = this.getUser(tx.paidByUserId);
         const linkedProj = monthProjs.find(p => p.id === tx.projectionId);
         const isChecked = this.selectedTxIds.includes(tx.id);
+        const isCredit = Number(tx.amount) < 0 || tx.isInvoiceCredit;
 
         const instBadge = tx.installmentTotal > 1
           ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
+          : "";
+        const creditBadge = isCredit
+          ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Estorno / Abate</span>`
           : "";
 
         const txMonthPrefix = tx.transactionDate ? tx.transactionDate.substring(0, 7) : tx.competenceMonth;
@@ -1902,7 +1947,7 @@ window.App = {
               ${shiftedBadge}
             </td>
             <td class="py-3 px-4">
-              <div class="font-bold text-stone-800">${tx.description} ${instBadge}</div>
+              <div class="font-bold text-stone-800">${tx.description} ${instBadge} ${creditBadge}</div>
               ${linkedProj ? `<div class="text-[11px] text-lime-700 font-medium mt-0.5">Meta: ${linkedProj.title}</div>` : ""}
             </td>
             <td class="py-3 px-4">
@@ -1917,9 +1962,9 @@ window.App = {
             </td>
             <td class="py-3 px-4">${this.getOwnershipBadge(tx.ownership)}</td>
             <td class="py-3 px-4 text-right font-extrabold whitespace-nowrap ${
-              tx.type === "INCOME" ? "text-lime-700" : "text-stone-900"
+              tx.type === "INCOME" ? "text-lime-700" : isCredit ? "text-emerald-700" : "text-stone-900"
             }">
-              ${tx.type === "INCOME" ? "+" : "-"}${this.formatBRL(tx.amount)}
+              ${tx.type === "INCOME" ? `+${this.formatBRL(tx.amount)}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : `-${this.formatBRL(tx.amount)}`}
             </td>
             <td class="py-3 px-4 text-right whitespace-nowrap">
               <button onclick="App.deleteTransaction('${tx.id}')" class="p-1.5 rounded-lg text-stone-300 hover:text-rose-600 transition" title="Excluir (Ctrl+Z para desfazer)">
@@ -1991,6 +2036,24 @@ window.App = {
     this.saveState(true);
     this.renderAll();
     this.showToast(`🗑️ ${count} ${count === 1 ? "lançamento excluído" : "lançamentos excluídos"}! (Pressione Ctrl+Z para desfazer)`, "info");
+  },
+
+  moveSelectedTransactionsToMonth(targetMonth) {
+    if (!targetMonth) return;
+    const validSet = new Set(this.selectedTxIds);
+    let moved = 0;
+    this.state.transactions.forEach(tx => {
+      if (validSet.has(tx.id)) {
+        tx.competenceMonth = targetMonth;
+        moved++;
+      }
+    });
+    if (moved === 0) return;
+    this.selectedTxIds = [];
+    this.lastClickedTxId = null;
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`📅 ${moved} item(ns) movido(s) para ${this.getMonthLabel(targetMonth)}! (Ctrl+Z para desfazer)`, "success");
   },
 
   deleteTransaction(txId) {
@@ -2232,21 +2295,51 @@ window.App = {
   // ==========================================================================
   // ABA 5: IMPORTAR EXTRATO (OFX / CSV)
   // ==========================================================================
+  recalculateStagedCompetence() {
+    if (!this.stagedImports || this.stagedImports.length === 0 || !window.StatementParser) return;
+    const account = this.getAccount(this.importTargetAccountId);
+    const mode = this.importCompetenceMode || "SMART_INVOICE";
+    const activeMonth = this.state.settings.activeMonth;
+
+    let forcedMonth = null;
+    if (/^\d{4}-\d{2}$/.test(mode)) {
+      forcedMonth = mode;
+    } else if (mode === "SMART_INVOICE" && account.type === "CREDIT_CARD") {
+      forcedMonth = window.StatementParser.inferInvoiceMonthFromDates(
+        this.stagedImports.map(i => i.transactionDate),
+        account,
+        activeMonth
+      );
+    }
+
+    this.stagedImports.forEach(item => {
+      item.accountId = account.id;
+      item.paidByUserId = account.ownerId || "bruno";
+      const cycleMonth = window.StatementParser.computeCompetenceMonth(
+        item.transactionDate,
+        account,
+        activeMonth
+      );
+      item.cycleCompetenceMonth = cycleMonth;
+      item.competenceMonth = forcedMonth || cycleMonth;
+    });
+  },
+
   onImportAccountChange(accId) {
     this.importTargetAccountId = accId;
     this.updateImportCycleRuleHint();
     if (this.stagedImports && this.stagedImports.length > 0 && window.StatementParser) {
-      const account = this.getAccount(accId);
-      this.stagedImports.forEach(item => {
-        item.accountId = accId;
-        item.paidByUserId = account.ownerId || "bruno";
-        item.competenceMonth = window.StatementParser.computeCompetenceMonth(
-          item.transactionDate,
-          account,
-          this.state.settings.activeMonth
-        );
-      });
+      this.recalculateStagedCompetence();
       this.renderImportTab(this.state.settings.activeMonth);
+    }
+  },
+
+  onImportCompetenceModeChange(mode) {
+    this.importCompetenceMode = mode || "SMART_INVOICE";
+    if (this.stagedImports && this.stagedImports.length > 0) {
+      this.recalculateStagedCompetence();
+      this.renderImportTab(this.state.settings.activeMonth);
+      this.showToast("Competência dos lançamentos da prévia atualizada.", "info");
     }
   },
 
@@ -2294,10 +2387,25 @@ window.App = {
     }
 
     stagingArea.classList.remove("hidden");
+    const compSelect = document.getElementById("import-competence-select");
+    if (compSelect) {
+      compSelect.value = this.importCompetenceMode || "SMART_INVOICE";
+    }
+
     const selectedItems = this.stagedImports.filter(i => i.selected);
     if (countSpan) {
-      const totalSelectedVal = selectedItems.reduce((s, i) => s + Number(i.amount), 0);
-      countSpan.textContent = `${selectedItems.length} selecionado(s) (${this.formatBRL(totalSelectedVal)})`;
+      const grossPurchases = selectedItems
+        .filter(i => Number(i.amount) > 0)
+        .reduce((s, i) => s + Number(i.amount), 0);
+      const creditsTotal = selectedItems
+        .filter(i => Number(i.amount) < 0)
+        .reduce((s, i) => s + Math.abs(Number(i.amount)), 0);
+      const netInvoice = grossPurchases - creditsTotal;
+      if (creditsTotal > 0) {
+        countSpan.innerHTML = `${selectedItems.length} selecionado(s) • Compras ${this.formatBRL(grossPurchases)} − Estornos <span class="text-emerald-700">${this.formatBRL(creditsTotal)}</span> = <strong class="underline">Líquido Fatura: ${this.formatBRL(netInvoice)}</strong>`;
+      } else {
+        countSpan.textContent = `${selectedItems.length} selecionado(s) (${this.formatBRL(netInvoice)})`;
+      }
     }
 
     const importSelectAll = document.getElementById("import-select-all-checkbox");
@@ -2320,11 +2428,14 @@ window.App = {
 
         const txMonthPrefix = item.transactionDate ? item.transactionDate.substring(0, 7) : item.competenceMonth;
         const shiftedToNext = item.competenceMonth > txMonthPrefix;
+        const isCredit = Number(item.amount) < 0 || item.isInvoiceCredit;
 
         const rowClass = item.alreadyExists
           ? "opacity-45 bg-stone-50"
           : item.type === "TRANSFER"
           ? "bg-stone-50 text-stone-400"
+          : isCredit
+          ? "bg-emerald-50/50 hover:bg-emerald-50/80"
           : "hover:bg-stone-50/80";
 
         return `
@@ -2350,11 +2461,12 @@ window.App = {
                 ${compOptions}
               </select>
               <div class="text-[10px] mt-0.5 ${shiftedToNext ? "text-amber-700 font-semibold" : "text-lime-700 font-medium"}">
-                ${shiftedToNext ? "↳ Mês seguinte (Vira dia 9)" : "• Próprio mês"}
+                ${this.importCompetenceMode !== "AUTO_CYCLE" ? "📌 Na fatura do mês" : shiftedToNext ? "↳ Mês seguinte" : "• Próprio mês"}
               </div>
             </td>
             <td class="py-2.5 px-3">
               <div class="font-bold text-stone-800">${item.description}</div>
+              ${isCredit ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
               ${item.type === "TRANSFER" ? `<span class="text-[10px] text-lime-700 font-semibold">Pagamento de fatura ignorado p/ não duplicar</span>` : ""}
             </td>
@@ -2376,8 +2488,8 @@ window.App = {
                 <option value="INDIVIDUAL_NUBIA" ${item.ownership === "INDIVIDUAL_NUBIA" ? "selected" : ""}>Só Núbia</option>
               </select>
             </td>
-            <td class="py-2.5 px-3 text-right font-extrabold text-stone-900 whitespace-nowrap">
-              ${this.formatBRL(item.amount)}
+            <td class="py-2.5 px-3 text-right font-extrabold whitespace-nowrap ${isCredit ? "text-emerald-700" : "text-stone-900"}">
+              ${isCredit ? `-${this.formatBRL(Math.abs(item.amount))}` : this.formatBRL(item.amount)}
             </td>
           </tr>
         `;
@@ -2392,6 +2504,8 @@ window.App = {
     this.importTargetAccountId = accId;
     const account = this.getAccount(accId);
     const monthYear = this.state.settings.activeMonth;
+    const compSelect = document.getElementById("import-competence-select");
+    this.importCompetenceMode = (compSelect && compSelect.value) || "SMART_INVOICE";
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -2399,8 +2513,8 @@ window.App = {
       const isOFX = file.name.toLowerCase().endsWith(".ofx") || content.includes("<OFX>") || content.includes("<STMTTRN>");
 
       const parsed = isOFX
-        ? window.StatementParser.parseOFX(content, account, monthYear, this.state)
-        : window.StatementParser.parseCSV(content, account, monthYear, this.state);
+        ? window.StatementParser.parseOFX(content, account, monthYear, this.state, this.importCompetenceMode)
+        : window.StatementParser.parseCSV(content, account, monthYear, this.state, this.importCompetenceMode);
 
       if (parsed.length === 0) {
         this.showToast("Nenhuma transação encontrada neste arquivo.", "error");
@@ -2415,7 +2529,8 @@ window.App = {
       });
       this.renderImportTab(monthYear);
       this.updateUndoAndBulkUI();
-      this.showToast(`🫒 ${parsed.length} transações classificadas! Revise abaixo.`, "success");
+      const detectedMonths = Array.from(new Set(parsed.filter(i => i.selected).map(i => this.getMonthLabel(i.competenceMonth))));
+      this.showToast(`🫒 ${parsed.length} lançamentos prontos para revisão (${detectedMonths.join(", ")})!`, "success");
     };
     reader.readAsText(file, "UTF-8");
   },
@@ -2429,9 +2544,11 @@ window.App = {
     const account = this.getAccount(accId);
     const monthYear = this.state.settings.activeMonth;
     const sampleOFX = window.StatementParser.getSampleNubankOFX();
+    const compSelect = document.getElementById("import-competence-select");
+    this.importCompetenceMode = (compSelect && compSelect.value) || "SMART_INVOICE";
 
     this.pushUndoSnapshot();
-    this.stagedImports = window.StatementParser.parseOFX(sampleOFX, account, monthYear, this.state);
+    this.stagedImports = window.StatementParser.parseOFX(sampleOFX, account, monthYear, this.state, this.importCompetenceMode);
     this.lastSavedSnapshot = JSON.stringify({
       state: this.state,
       stagedImports: this.stagedImports
@@ -2529,6 +2646,7 @@ window.App = {
         competenceMonth: item.competenceMonth,
         description: item.description,
         amount: item.amount,
+        isInvoiceCredit: Boolean(item.isInvoiceCredit),
         type: item.type,
         accountId: item.accountId,
         paidByUserId: item.paidByUserId,
