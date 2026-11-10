@@ -57,25 +57,42 @@ window.App = {
   },
 
   upgradeStateToLatest(stateObj) {
-    if (!stateObj || stateObj.version === "1.4.0-oli") return false;
-    stateObj.version = "1.4.0-oli";
+    if (!stateObj || stateObj.version === "1.5.0-oli") return false;
+    stateObj.version = "1.5.0-oli";
 
     if (!stateObj.settings) stateObj.settings = {};
     if (!stateObj.settings.cardCustomMeta) stateObj.settings.cardCustomMeta = {};
 
-    // Atualiza regras de virada dos cartões (Nubank vira dia 9 -> mês seguinte; Itaú vira dia 21 -> próprio mês)
     if (Array.isArray(stateObj.accounts)) {
       stateObj.accounts.forEach(acc => {
         if (acc.id === "card_nubank_bruno") {
-          acc.name = "Nubank Bruno (Vira dia 9)";
-          acc.closingDay = 9;
-          acc.dueDay = 16;
-          acc.competenceOffset = 1;
+          acc.name = "Cartão Nubank Bruno";
+          acc.closingDay = acc.closingDay || 9;
+          acc.dueDay = acc.dueDay || 16;
+          if (typeof acc.competenceOffset !== "number") acc.competenceOffset = 0;
+          if (!Array.isArray(acc.virtualCards)) {
+            acc.virtualCards = ["Cartão Físico", "Virtual Compras Online", "Virtual Assinaturas / Recorrente"];
+          }
         } else if (acc.id === "card_itau_bruno") {
-          acc.name = "Itaucard Bruno (Vira dia 21)";
-          acc.closingDay = 21;
-          acc.dueDay = 28;
-          acc.competenceOffset = 0;
+          acc.name = "Cartão Itaú Bruno";
+          acc.closingDay = acc.closingDay || 21;
+          acc.dueDay = acc.dueDay || 28;
+          if (typeof acc.competenceOffset !== "number") acc.competenceOffset = 0;
+          if (!Array.isArray(acc.virtualCards)) {
+            acc.virtualCards = ["Cartão Físico", "Virtual Carteira Digital"];
+          }
+        } else if (acc.id === "card_nubia") {
+          acc.name = "Cartão Nubank Núbia";
+          acc.closingDay = acc.closingDay || 5;
+          acc.dueDay = acc.dueDay || 12;
+          if (typeof acc.competenceOffset !== "number") acc.competenceOffset = 0;
+          if (!Array.isArray(acc.virtualCards)) {
+            acc.virtualCards = ["Cartão Físico", "Virtual Compras Online"];
+          }
+        } else if (acc.type === "CREDIT_CARD") {
+          acc.closingDay = acc.closingDay || 10;
+          if (typeof acc.competenceOffset !== "number") acc.competenceOffset = 0;
+          if (!Array.isArray(acc.virtualCards)) acc.virtualCards = ["Cartão Físico"];
         }
       });
     }
@@ -510,6 +527,7 @@ window.App = {
     this.renderDashboard(summary, monthYear);
     this.renderDiagnosticsTab(monthYear);
     this.renderProjectionsTab(summary, monthYear);
+    this.renderCardsTab(monthYear);
     this.renderTransactionsTab(monthYear);
     this.renderImportTab(monthYear);
     this.renderCategoriesTab();
@@ -1549,12 +1567,16 @@ window.App = {
               txs: subTxs,
               ownership
             });
-          } else if (sub.defaultAccountId === card.id) {
+          } else if (sub.defaultAccountId === card.id || !checkingIds.includes(sub.defaultAccountId)) {
             archivedCardSubs.push(sub);
           }
         });
 
         const cardDiff = metaInfo.effectiveMeta - cardActual;
+        const modeLabel = window.StatementParser
+          ? window.StatementParser.getCompetenceModeLabel(card.competenceOffset)
+          : "Mês da virada";
+        const vCardsCount = Array.isArray(card.virtualCards) ? card.virtualCards.length : 0;
 
         return `
           <div id="card-block-${card.id}" class="oli-card rounded-3xl overflow-hidden shadow-xs">
@@ -1565,10 +1587,13 @@ window.App = {
                 <div>
                   <div class="flex items-center gap-2 flex-wrap">
                     <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">${card.name}</h3>
-                    ${card.dueDay ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-stone-200/75 text-stone-700 font-bold">Vence dia ${card.dueDay}</span>` : ""}
+                    <span class="text-[11px] px-2 py-0.5 rounded-full bg-stone-200/75 text-stone-700 font-bold">
+                      Vira dia ${card.closingDay || 9} • ${modeLabel}
+                    </span>
+                    ${vCardsCount > 0 ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-lime-100 text-lime-800 font-semibold" title="${(card.virtualCards || []).join(", ")}">${vCardsCount} cartões na conta</span>` : ""}
                   </div>
                   <p class="text-xs text-stone-500 mt-0.5">
-                    Clique em <strong>[+]</strong> para abrir os lançamentos de cada categoria ou edite a <strong>Meta</strong> diretamente.
+                    Clique em <strong>[+]</strong> para abrir os lançamentos de cada categoria ou <button type="button" onclick="App.switchTab('cards')" class="text-lime-700 hover:underline font-bold">ajustar virada e cartões virtuais</button>.
                   </p>
                 </div>
               </div>
@@ -2149,7 +2174,8 @@ window.App = {
     const hintEl = document.getElementById("import-cycle-rule-hint");
     if (!hintEl || !window.StatementParser) return;
     const acc = this.getAccount(this.importTargetAccountId);
-    hintEl.innerHTML = `<strong>Regra de Virada (${acc.name}):</strong> ${window.StatementParser.describeCardCycleRule(acc)}`;
+    const activeMonth = (this.state && this.state.settings && this.state.settings.activeMonth) || "2026-11";
+    hintEl.innerHTML = `<strong>Regra (${acc.name}):</strong> ${window.StatementParser.describeCardCycleRule(acc, activeMonth)}`;
   },
 
   renderImportTab(monthYear) {
@@ -2158,9 +2184,21 @@ window.App = {
       const currentVal = accSelect.value || this.importTargetAccountId;
       accSelect.innerHTML = this.state.accounts
         .filter(a => a.type !== "INVESTMENT")
-        .map(a => `<option value="${a.id}">${a.name}</option>`)
+        .map(a => {
+          if (a.type === "CREDIT_CARD") {
+            const modeLabel = window.StatementParser
+              ? window.StatementParser.getCompetenceModeLabel(a.competenceOffset)
+              : "Mês da virada";
+            const vCount = Array.isArray(a.virtualCards) ? a.virtualCards.length : 0;
+            const vInfo = vCount > 0 ? ` • ${vCount} cartões na conta` : "";
+            return `<option value="${a.id}">${a.name} (Vira dia ${a.closingDay || 9} • ${modeLabel}${vInfo})</option>`;
+          }
+          return `<option value="${a.id}">${a.name}</option>`;
+        })
         .join("");
-      accSelect.value = currentVal;
+      if (this.state.accounts.some(a => a.id === currentVal)) {
+        accSelect.value = currentVal;
+      }
       this.importTargetAccountId = accSelect.value;
     }
     this.updateImportCycleRuleHint();
@@ -2353,6 +2391,475 @@ window.App = {
     this.saveState(true);
     this.renderAll();
     this.showToast(`🫒 ${selected.length} lançamentos importados (${compMonths.join(" / ")})!`, "success");
+  },
+
+  // ==========================================================================
+  // ABA CARTÕES & CONTAS POR USUÁRIO (DATA DE VIRADA + VIRTUAIS NA MESMA CONTA)
+  // ==========================================================================
+  renderCardsTab(monthYear) {
+    const container = document.getElementById("user-cards-sections-container");
+    if (!container) return;
+
+    const users = ["bruno", "nubia"].map(uid => this.getUser(uid));
+    const dayOptions = (selectedDay) => {
+      let html = "";
+      for (let d = 1; d <= 31; d++) {
+        html += `<option value="${d}" ${Number(selectedDay) === d ? "selected" : ""}>Dia ${d}</option>`;
+      }
+      return html;
+    };
+
+    container.innerHTML = users
+      .map(user => {
+        const userCards = this.state.accounts.filter(
+          a => a.type === "CREDIT_CARD" && a.ownerId === user.id
+        );
+        const userChecking = this.state.accounts.filter(
+          a => a.type === "CHECKING" && a.ownerId === user.id
+        );
+
+        const cardsHTML = userCards.length === 0
+          ? `
+            <div class="rounded-2xl border border-dashed border-stone-300 bg-stone-50/70 p-6 text-center text-xs text-stone-400">
+              Nenhuma conta de cartão cadastrada para ${user.name} ainda. Utilize o formulário abaixo para cadastrar.
+            </div>
+          `
+          : userCards
+              .map(card => {
+                const closingDay = Number(card.closingDay) || 9;
+                const offset = typeof card.competenceOffset === "number" ? card.competenceOffset : 0;
+                const vCards = Array.isArray(card.virtualCards) ? card.virtualCards : ["Cartão Físico"];
+                const preview = window.StatementParser
+                  ? window.StatementParser.getCyclePreviewForMonth(card, monthYear)
+                  : { rangeStr: "-", closeDateStr: "-", modeLabel: "Mês da virada", fullText: "" };
+
+                const vCardTagsHTML = vCards
+                  .map(
+                    (vcName, idx) => `
+                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-stone-200 text-[11px] font-bold text-stone-700 shadow-2xs">
+                        <i data-lucide="credit-card" class="w-3 h-3 text-lime-700"></i>
+                        <span>${vcName}</span>
+                        <button
+                          type="button"
+                          onclick="App.removeVirtualCard('${card.id}', ${idx})"
+                          class="text-stone-400 hover:text-rose-600 ml-0.5 font-extrabold"
+                          title="Remover este cartão virtual da conta"
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    `
+                  )
+                  .join("");
+
+                return `
+                  <div class="rounded-2xl border border-stone-200/90 bg-[#fcfdf9] p-4 sm:p-5 space-y-4 shadow-2xs">
+                    <!-- Topo da Conta do Cartão -->
+                    <div class="flex items-start justify-between gap-3 pb-3 border-b border-stone-200/70">
+                      <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                        <input
+                          type="color"
+                          value="${card.color || "#a855f7"}"
+                          onchange="App.updateCardSettings('${card.id}', 'color', this.value)"
+                          class="w-6 h-6 rounded-lg border-0 cursor-pointer shrink-0 bg-transparent"
+                          title="Cor de identificação do cartão"
+                        />
+                        <div class="flex-1 min-w-0">
+                          <input
+                            type="text"
+                            value="${card.name}"
+                            onchange="App.updateCardSettings('${card.id}', 'name', this.value)"
+                            class="w-full font-extrabold text-sm text-stone-900 bg-transparent border-b border-transparent hover:border-stone-300 focus:border-lime-600 focus:outline-none py-0.5"
+                            title="Clique para editar o nome da conta do cartão"
+                          />
+                          <div class="text-[11px] text-stone-400 font-medium">
+                            Titular: <strong>${user.name}</strong> • Fatura única para físicos e virtuais
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onclick="App.deleteCardAccount('${card.id}')"
+                        class="p-1.5 rounded-lg text-stone-300 hover:text-rose-600 hover:bg-rose-50 transition"
+                        title="Excluir esta conta de cartão"
+                      >
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                      </button>
+                    </div>
+
+                    <!-- Configuração de Data de Virada e Regra de Competência -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label class="block text-[11px] font-bold text-stone-600 mb-1">Data de Virada (Fechamento)</label>
+                        <select
+                          onchange="App.updateCardSettings('${card.id}', 'closingDay', this.value)"
+                          class="w-full oli-input rounded-xl px-3 py-2 text-xs font-extrabold text-stone-800"
+                        >
+                          ${dayOptions(closingDay)}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label class="block text-[11px] font-bold text-stone-600 mb-1">Competência da Fatura</label>
+                        <select
+                          onchange="App.updateCardSettings('${card.id}', 'competenceOffset', this.value)"
+                          class="w-full oli-input rounded-xl px-3 py-2 text-xs font-extrabold text-lime-900"
+                        >
+                          <option value="0" ${offset === 0 ? "selected" : ""}>Mês da virada</option>
+                          <option value="-1" ${offset === -1 ? "selected" : ""}>Mês anterior à virada</option>
+                          <option value="1" ${offset === 1 ? "selected" : ""}>Mês seguinte à virada</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <!-- Resumo Dinâmico da Equação do Ciclo -->
+                    <div class="rounded-xl bg-lime-50/90 border border-lime-200/80 px-3.5 py-2.5 text-xs text-lime-950 flex items-start justify-between gap-2">
+                      <div>
+                        <div class="font-extrabold text-[11px] uppercase tracking-wider text-lime-800">
+                          Equação ativa para ${this.getMonthLabel(monthYear)}
+                        </div>
+                        <div class="mt-0.5 leading-snug">
+                          Compras de <strong>${preview.rangeStr}</strong> (fatura que vira em <strong>${preview.closeDateStr}</strong>) entram na competência de <strong>${this.getMonthLabel(monthYear)}</strong> (<em>${preview.modeLabel}</em>).
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onclick="App.recalculateCardTransactionsCompetence('${card.id}')"
+                        class="shrink-0 px-2.5 py-1 rounded-lg bg-white hover:bg-lime-100 text-lime-800 border border-lime-300 text-[11px] font-bold transition"
+                        title="Recalcular a competência dos lançamentos já existentes deste cartão com esta regra"
+                      >
+                        ↻ Recalcular
+                      </button>
+                    </div>
+
+                    <!-- Cartões Virtuais e Físicos pertencentes a esta mesma conta -->
+                    <div class="pt-1">
+                      <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-[11px] font-bold text-stone-600">
+                          Cartões Físicos & Virtuais pertencentes a esta conta (${vCards.length})
+                        </span>
+                        <span class="text-[10px] text-stone-400">Mesma fatura e mesma virada</span>
+                      </div>
+
+                      <div class="flex flex-wrap items-center gap-1.5 mb-2.5">
+                        ${vCardTagsHTML}
+                      </div>
+
+                      <div class="flex gap-2">
+                        <input
+                          id="new-vcard-input-${card.id}"
+                          type="text"
+                          placeholder="Adicionar cartão virtual na conta (Ex: Virtual iFood, Final 4812...)"
+                          onkeydown="if(event.key==='Enter'){event.preventDefault();App.addVirtualCard('${card.id}');}"
+                          class="flex-1 oli-input rounded-xl px-3 py-1.5 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onclick="App.addVirtualCard('${card.id}')"
+                          class="px-3 py-1.5 rounded-xl bg-stone-200/80 hover:bg-stone-300 text-stone-800 text-xs font-bold whitespace-nowrap transition"
+                        >
+                          + Virtual
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                `;
+              })
+              .join("");
+
+        const checkingBadgesHTML = userChecking
+          .map(
+            cc => `
+              <div class="flex items-center justify-between px-3.5 py-2 rounded-xl bg-stone-50 border border-stone-200/70 text-xs">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full" style="background:${cc.color || "#84cc16"}"></span>
+                  <span class="font-bold text-stone-800">${cc.name}</span>
+                </div>
+                <span class="text-[11px] text-stone-500 font-medium">Conta Corrente / Pix (Próprio mês)</span>
+              </div>
+            `
+          )
+          .join("");
+
+        return `
+          <div class="oli-card rounded-3xl p-5 sm:p-6 space-y-5">
+            <!-- Cabeçalho da Seção do Usuário -->
+            <div class="flex items-center justify-between pb-3 border-b border-stone-200/80">
+              <div class="flex items-center gap-3">
+                <div
+                  class="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-extrabold text-sm shadow-xs"
+                  style="background:${user.avatarColor || "#4d7c0f"}"
+                >
+                  ${user.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h3 class="text-base font-extrabold text-stone-900">
+                    Contas & Cartões de ${user.name}
+                  </h3>
+                  <p class="text-xs text-stone-500">
+                    ${userCards.length} ${userCards.length === 1 ? "conta de cartão ativa" : "contas de cartão ativas"}
+                  </p>
+                </div>
+              </div>
+              <span class="text-[11px] font-bold px-2.5 py-1 rounded-full bg-stone-100 text-stone-600">
+                Seção ${user.name}
+              </span>
+            </div>
+
+            <!-- Contas Correntes do Usuário -->
+            <div class="space-y-1.5">
+              <div class="text-[11px] font-extrabold uppercase tracking-wider text-stone-400">
+                Conta Corrente / Débito
+              </div>
+              ${checkingBadgesHTML}
+            </div>
+
+            <!-- Lista de Contas de Cartão Cadastradas -->
+            <div class="space-y-3">
+              <div class="text-[11px] font-extrabold uppercase tracking-wider text-stone-400">
+                Contas de Cartão de Crédito (Físico + Virtuais Unificados)
+              </div>
+              ${cardsHTML}
+            </div>
+
+            <!-- Formulário para Cadastrar Nova Conta de Cartão para este Usuário -->
+            <form
+              onsubmit="App.handleNewCardAccount(event, '${user.id}')"
+              class="rounded-2xl bg-[#f5f8f0] border border-lime-700/20 p-4 space-y-3"
+            >
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-extrabold text-lime-950 flex items-center gap-1.5">
+                  <i data-lucide="plus-circle" class="w-4 h-4 text-lime-700"></i>
+                  Cadastrar Nova Conta de Cartão para ${user.name}
+                </span>
+                <input
+                  id="new-card-color-${user.id}"
+                  type="color"
+                  value="${user.id === "bruno" ? "#6366f1" : "#ec4899"}"
+                  class="w-5 h-5 rounded cursor-pointer border-0 bg-transparent"
+                  title="Escolher cor do cartão"
+                />
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 text-xs">
+                <div class="sm:col-span-5">
+                  <label class="block text-[11px] font-bold text-stone-600 mb-1">Nome da Conta / Banco</label>
+                  <input
+                    id="new-card-name-${user.id}"
+                    type="text"
+                    required
+                    placeholder="Ex: Cartão Nubank, Itaú, C6..."
+                    class="w-full oli-input rounded-xl px-3 py-2 text-xs font-semibold"
+                  />
+                </div>
+
+                <div class="sm:col-span-3">
+                  <label class="block text-[11px] font-bold text-stone-600 mb-1">Dia da Virada</label>
+                  <select
+                    id="new-card-closing-${user.id}"
+                    class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-bold"
+                  >
+                    ${dayOptions(9)}
+                  </select>
+                </div>
+
+                <div class="sm:col-span-4">
+                  <label class="block text-[11px] font-bold text-stone-600 mb-1">Competência</label>
+                  <select
+                    id="new-card-offset-${user.id}"
+                    class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-bold"
+                  >
+                    <option value="0">Mês da virada</option>
+                    <option value="-1">Mês anterior à virada</option>
+                    <option value="1">Mês seguinte à virada</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-stone-600 mb-1">
+                  Cartões Virtuais / Físicos vinculados à mesma conta (separados por vírgula)
+                </label>
+                <input
+                  id="new-card-virtuals-${user.id}"
+                  type="text"
+                  placeholder="Ex: Cartão Físico, Virtual Compras Online, Virtual Recorrente"
+                  value="Cartão Físico, Virtual Compras Online"
+                  class="w-full oli-input rounded-xl px-3 py-2 text-xs"
+                />
+              </div>
+
+              <button
+                type="submit"
+                class="w-full bg-lime-700 hover:bg-lime-800 text-white font-bold py-2.5 px-4 rounded-xl text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <i data-lucide="check" class="w-4 h-4"></i>
+                Salvar Conta de Cartão (${user.name})
+              </button>
+            </form>
+          </div>
+        `;
+      })
+      .join("");
+  },
+
+  handleNewCardAccount(e, ownerId) {
+    e.preventDefault();
+    const nameEl = document.getElementById(`new-card-name-${ownerId}`);
+    const closingEl = document.getElementById(`new-card-closing-${ownerId}`);
+    const offsetEl = document.getElementById(`new-card-offset-${ownerId}`);
+    const virtualsEl = document.getElementById(`new-card-virtuals-${ownerId}`);
+    const colorEl = document.getElementById(`new-card-color-${ownerId}`);
+
+    const name = nameEl ? nameEl.value.trim() : "";
+    if (!name) {
+      this.showToast("Informe o nome da conta do cartão.", "error");
+      return;
+    }
+
+    const closingDay = Math.min(31, Math.max(1, parseInt(closingEl.value, 10) || 9));
+    const competenceOffset = parseInt(offsetEl.value, 10) || 0;
+    const dueDay = ((closingDay + 7 - 1) % 28) + 1;
+    const virtualCards = (virtualsEl ? virtualsEl.value : "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (virtualCards.length === 0) virtualCards.push("Cartão Físico");
+
+    const newCard = {
+      id: `card_${ownerId}_${Date.now()}`,
+      name,
+      type: "CREDIT_CARD",
+      ownerId,
+      closingDay,
+      dueDay,
+      competenceOffset,
+      virtualCards,
+      monthlyTarget: 0,
+      color: colorEl ? colorEl.value : "#6366f1"
+    };
+
+    this.state.accounts.push(newCard);
+    if (nameEl) nameEl.value = "";
+    this.saveState(true);
+    this.renderAll();
+
+    const modeLabel = window.StatementParser
+      ? window.StatementParser.getCompetenceModeLabel(competenceOffset)
+      : "Mês da virada";
+    this.showToast(`🫒 "${name}" cadastrado (Vira dia ${closingDay} • ${modeLabel})!`, "success");
+  },
+
+  updateCardSettings(cardId, field, rawValue) {
+    const card = this.state.accounts.find(a => a.id === cardId);
+    if (!card) return;
+
+    if (field === "closingDay") {
+      card.closingDay = Math.min(31, Math.max(1, parseInt(rawValue, 10) || 9));
+      card.dueDay = ((card.closingDay + 7 - 1) % 28) + 1;
+    } else if (field === "competenceOffset") {
+      card.competenceOffset = parseInt(rawValue, 10) || 0;
+    } else if (field === "name") {
+      const trimmed = String(rawValue || "").trim();
+      if (trimmed) card.name = trimmed;
+    } else if (field === "color") {
+      card.color = rawValue;
+    }
+
+    if (Array.isArray(this.stagedImports) && window.StatementParser) {
+      this.stagedImports.forEach(item => {
+        if (item.accountId === cardId) {
+          item.competenceMonth = window.StatementParser.computeCompetenceMonth(
+            item.transactionDate,
+            card,
+            this.state.settings.activeMonth
+          );
+        }
+      });
+    }
+
+    this.saveState(true);
+    this.renderAll();
+
+    const modeLabel = window.StatementParser
+      ? window.StatementParser.getCompetenceModeLabel(card.competenceOffset)
+      : "";
+    this.showToast(`🫒 ${card.name}: Virada dia ${card.closingDay} (${modeLabel}) salvo!`, "success");
+  },
+
+  addVirtualCard(cardId) {
+    const card = this.state.accounts.find(a => a.id === cardId);
+    const inputEl = document.getElementById(`new-vcard-input-${cardId}`);
+    if (!card || !inputEl) return;
+
+    const val = inputEl.value.trim();
+    if (!val) {
+      this.showToast("Digite o nome ou final do cartão virtual.", "error");
+      return;
+    }
+
+    if (!Array.isArray(card.virtualCards)) card.virtualCards = ["Cartão Físico"];
+    if (!card.virtualCards.includes(val)) {
+      card.virtualCards.push(val);
+    }
+    inputEl.value = "";
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🫒 Cartão virtual "${val}" vinculado à conta ${card.name}!`, "success");
+  },
+
+  removeVirtualCard(cardId, idx) {
+    const card = this.state.accounts.find(a => a.id === cardId);
+    if (!card || !Array.isArray(card.virtualCards)) return;
+    const removed = card.virtualCards.splice(idx, 1);
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`Cartão "${removed[0] || ""}" removido da conta ${card.name}.`, "info");
+  },
+
+  recalculateCardTransactionsCompetence(cardId) {
+    const card = this.state.accounts.find(a => a.id === cardId);
+    if (!card || !window.StatementParser) return;
+
+    let updatedCount = 0;
+    this.state.transactions.forEach(tx => {
+      if (tx.accountId === cardId && (tx.installmentTotal || 1) <= 1) {
+        const newComp = window.StatementParser.computeCompetenceMonth(
+          tx.transactionDate,
+          card,
+          tx.competenceMonth
+        );
+        if (newComp !== tx.competenceMonth) {
+          tx.competenceMonth = newComp;
+          updatedCount++;
+        }
+      }
+    });
+
+    this.saveState(true);
+    this.renderAll();
+    const modeLabel = window.StatementParser.getCompetenceModeLabel(card.competenceOffset);
+    this.showToast(
+      updatedCount > 0
+        ? `🫒 ${updatedCount} lançamento(s) de "${card.name}" recalculado(s) para ${modeLabel}!`
+        : `🫒 Todos os lançamentos de "${card.name}" já estão alinhados com a regra (${modeLabel}).`,
+      "success"
+    );
+  },
+
+  deleteCardAccount(cardId) {
+    const card = this.state.accounts.find(a => a.id === cardId);
+    if (!card) return;
+    const txCount = this.state.transactions.filter(t => t.accountId === cardId).length;
+    const warnMsg = txCount > 0
+      ? `A conta "${card.name}" possui ${txCount} lançamento(s). Deseja realmente excluir esta conta de cartão?`
+      : `Deseja excluir a conta de cartão "${card.name}"?`;
+    if (!confirm(warnMsg)) return;
+
+    this.state.accounts = this.state.accounts.filter(a => a.id !== cardId);
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`Conta "${card.name}" removida.`, "info");
   },
 
   // ==========================================================================

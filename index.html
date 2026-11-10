@@ -143,6 +143,9 @@
         <button data-tab-target="projections" onclick="App.switchTab('projections')">
           <i data-lucide="target" class="w-4 h-4"></i> Metas & Orçamento
         </button>
+        <button data-tab-target="cards" onclick="App.switchTab('cards')">
+          <i data-lucide="credit-card" class="w-4 h-4"></i> Cartões & Contas
+        </button>
         <button data-tab-target="diagnostics" onclick="App.switchTab('diagnostics')">
           <i data-lucide="pie-chart" class="w-4 h-4"></i> Diagnóstico & Casal
         </button>
@@ -209,7 +212,16 @@
 
             <div class="space-y-3 mt-4">
               <div>
-                <label class="block text-[11px] font-bold text-stone-500 mb-1">1. Conta ou Cartão do Arquivo</label>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-[11px] font-bold text-stone-500">1. Conta ou Cartão do Arquivo</label>
+                  <button
+                    type="button"
+                    onclick="App.switchTab('cards')"
+                    class="text-[11px] font-bold text-lime-700 hover:text-lime-900 underline cursor-pointer"
+                  >
+                    + Cadastrar / Configurar Virada
+                  </button>
+                </div>
                 <select
                   id="import-account-select"
                   onchange="App.onImportAccountChange(this.value)"
@@ -521,6 +533,26 @@
     </section>
 
     <!-- ================================================================== -->
+    <!-- ABA 2.5: CARTÕES & CONTAS POR USUÁRIO (DATA DE VIRADA + VIRTUAIS) -->
+    <!-- ================================================================== -->
+    <section id="tab-cards" class="tab-section hidden space-y-6">
+      <div class="oli-card rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-extrabold text-stone-900 flex items-center gap-2">
+            <i data-lucide="credit-card" class="w-5 h-5 text-lime-700"></i>
+            Cadastro de Contas de Cartão por Usuário (Físicos & Virtuais na Mesma Conta)
+          </h2>
+          <p class="text-xs text-stone-500 mt-0.5">
+            Cadastre cada conta de cartão informando o <strong>Dia da Virada</strong> e se a competência da fatura vai para o <strong>Mês da virada</strong> ou <strong>Mês anterior</strong>. Cartões virtuais pertencem à mesma conta e somam na mesma fatura.
+          </p>
+        </div>
+      </div>
+
+      <!-- Duas seções lado a lado (Bruno e Núbia) -->
+      <div id="user-cards-sections-container" class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start"></div>
+    </section>
+
+    <!-- ================================================================== -->
     <!-- ABA 3: DIAGNÓSTICO DETALHADO & DIVISÃO DO CASAL (PÁGINA SEPARADA) -->
     <!-- ================================================================== -->
     <section id="tab-diagnostics" class="tab-section hidden space-y-6">
@@ -646,14 +678,18 @@
   </main>
 
   <!-- MOBILE BOTTOM NAVIGATION -->
-  <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-stone-200 grid grid-cols-4 shadow-lg">
+  <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-stone-200 grid grid-cols-5 shadow-lg">
     <button data-tab-target="dashboard" onclick="App.switchTab('dashboard')" class="mobile-nav-btn">
       <i data-lucide="home" class="w-4 h-4 mb-1"></i>
-      <span>Início & Lançar</span>
+      <span>Início</span>
     </button>
     <button data-tab-target="projections" onclick="App.switchTab('projections')" class="mobile-nav-btn">
       <i data-lucide="target" class="w-4 h-4 mb-1"></i>
       <span>Metas</span>
+    </button>
+    <button data-tab-target="cards" onclick="App.switchTab('cards')" class="mobile-nav-btn">
+      <i data-lucide="credit-card" class="w-4 h-4 mb-1"></i>
+      <span>Cartões</span>
     </button>
     <button data-tab-target="diagnostics" onclick="App.switchTab('diagnostics')" class="mobile-nav-btn">
       <i data-lucide="pie-chart" class="w-4 h-4 mb-1"></i>
@@ -815,9 +851,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=8"></script>
-  <script src="./js/ofx-csv-parser.js?v=8"></script>
-  <script src="./js/supabase-sync.js?v=8"></script>
-  <script src="./js/app.js?v=8"></script>
+  <script src="./js/data-seed.js?v=9"></script>
+  <script src="./js/ofx-csv-parser.js?v=9"></script>
+  <script src="./js/supabase-sync.js?v=9"></script>
+  <script src="./js/app.js?v=9"></script>
 </body>
 </html>

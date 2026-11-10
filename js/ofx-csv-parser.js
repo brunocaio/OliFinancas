@@ -47,11 +47,13 @@ window.StatementParser = {
   },
 
   // Equaciona a regra de virada do cartão:
-  // • Cartão Nubank (vira dia 9, competenceOffset = 1):
-  //   Lançamentos deste mês antes do dia 9 (01/M a 08/M, junto com 09/M-1 a 31/M-1) fecham no dia 9/M e saem da conta no mês seguinte (M+1).
-  // • Cartão Itaú (vira dia 21, competenceOffset = 0):
-  //   Lançamentos deste mês antes do dia 21 (01/M a 20/M, junto com 21/M-1 a 31/M-1) fecham no dia 21/M e são considerados gastos do próprio mês (M).
-  // • Conta Corrente (débito / espécie): sempre próprio mês da data do lançamento.
+  // Cada compra em (y, m, day) pertence à fatura que fecha/vira no dia `closingDay`:
+  // - Se day < closingDay: a fatura vira no próprio mês `m` (invoiceClosingDelta = 0)
+  // - Se day >= closingDay: a fatura vira no mês seguinte `m + 1` (invoiceClosingDelta = 1)
+  // Em seguida, aplica-se a escolha de competência da conta do cartão sobre o Mês da Virada:
+  // - competenceOffset = 0  ("CLOSING_MONTH")  -> Competência no Mês da Virada
+  // - competenceOffset = -1 ("PREVIOUS_MONTH") -> Competência no Mês Anterior à Virada
+  // - competenceOffset = 1  ("NEXT_MONTH")     -> Competência no Mês Seguinte à Virada
   computeCompetenceMonth(txDate, account, fallbackMonth = "2026-11") {
     if (!txDate || !/^\d{4}-\d{2}-\d{2}/.test(txDate)) {
       return fallbackMonth;
@@ -65,27 +67,60 @@ window.StatementParser = {
     }
 
     const closingDay = Number(account.closingDay) || 9;
-    const offset = typeof account.competenceOffset === "number"
-      ? account.competenceOffset
-      : (closingDay <= 10 ? 1 : 0);
+    const offset = typeof account.competenceOffset === "number" ? account.competenceOffset : 0;
 
     const invoiceClosingDelta = day < closingDay ? 0 : 1;
     return this.shiftYearMonth(y, m, invoiceClosingDelta + offset);
   },
 
-  describeCardCycleRule(account) {
+  getCompetenceModeLabel(offset) {
+    const num = Number(offset) || 0;
+    if (num === -1) return "Mês anterior à virada";
+    if (num === 1) return "Mês seguinte à virada";
+    return "Mês da virada";
+  },
+
+  // Retorna o intervalo exato de compras que compõe a fatura de uma determinada competência (ex: "2026-11")
+  getCyclePreviewForMonth(account, targetCompetenceMonth = "2026-11") {
+    if (!account || account.type !== "CREDIT_CARD") {
+      return "Compras no débito/espécie dentro do próprio mês.";
+    }
+    const closingDay = Math.min(28, Math.max(1, Number(account.closingDay) || 9));
+    const offset = typeof account.competenceOffset === "number" ? account.competenceOffset : 0;
+    const [compY, compM] = targetCompetenceMonth.split("-").map(Number);
+
+    // Mês em que a fatura vira: M_virada = Competência - offset
+    const closingYM = this.shiftYearMonth(compY, compM, -offset);
+    const [closeY, closeM] = closingYM.split("-").map(Number);
+    // Mês em que a fatura abriu: M_virada - 1
+    const openYM = this.shiftYearMonth(closeY, closeM, -1);
+    const [, openM] = openYM.split("-").map(Number);
+
+    const monthShort = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const pad = (n) => String(n).padStart(2, "0");
+    const endDay = closingDay - 1;
+    const rangeStr = endDay >= 1
+      ? `${pad(closingDay)}/${monthShort[openM - 1]} a ${pad(endDay)}/${monthShort[closeM - 1]}`
+      : `01/${monthShort[openM - 1]} a 30/${monthShort[openM - 1]}`;
+    const closeDateStr = `${pad(closingDay)}/${monthShort[closeM - 1]}`;
+
+    return {
+      rangeStr,
+      closeDateStr,
+      modeLabel: this.getCompetenceModeLabel(offset),
+      fullText: `Fatura que vira em ${closeDateStr} (compras de ${rangeStr}) → Competência ${monthShort[compM - 1]}/${compY} (${this.getCompetenceModeLabel(offset)})`
+    };
+  },
+
+  describeCardCycleRule(account, activeMonth = "2026-11") {
     if (!account || account.type !== "CREDIT_CARD") {
       return "Débito / Espécie: competência no próprio mês da data do gasto.";
     }
-    const closingDay = Number(account.closingDay) || 9;
-    const offset = typeof account.competenceOffset === "number"
-      ? account.competenceOffset
-      : (closingDay <= 10 ? 1 : 0);
-
-    if (offset >= 1) {
-      return `Vira dia ${closingDay}: compras antes do dia ${closingDay} entram como gasto do mês seguinte (quando o dinheiro sai da conta).`;
-    }
-    return `Vira dia ${closingDay}: compras antes do dia ${closingDay} entram como gasto do próprio mês.`;
+    const preview = this.getCyclePreviewForMonth(account, activeMonth);
+    const vCards = Array.isArray(account.virtualCards) && account.virtualCards.length > 0
+      ? ` • Cartões na mesma conta: ${account.virtualCards.join(", ")}`
+      : "";
+    return `${preview.fullText}${vCards}`;
   },
 
   autoClassify(description, amount, isCreditCard, subcategories, projections, competenceMonth, ownerId = "bruno") {

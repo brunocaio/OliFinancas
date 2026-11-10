@@ -3,7 +3,7 @@
 // ============================================================================
 
 window.INITIAL_SEED_DATA = {
-  version: "1.4.0-oli",
+  version: "1.5.0-oli",
   settings: {
     householdName: "OliFinanças • Bruno & Núbia",
     activeMonth: "2026-11",
@@ -42,23 +42,25 @@ window.INITIAL_SEED_DATA = {
     },
     {
       id: "card_nubank_bruno",
-      name: "Nubank Bruno (Vira dia 9)",
+      name: "Cartão Nubank Bruno",
       type: "CREDIT_CARD",
       ownerId: "bruno",
       closingDay: 9,
       dueDay: 16,
-      competenceOffset: 1, // Lançamentos antes do dia 9 fecham no dia 9 e saem da conta no mês seguinte (+1)
+      competenceOffset: 0, // 0 = Mês da virada | -1 = Mês anterior à virada
+      virtualCards: ["Cartão Físico", "Virtual Compras Online", "Virtual Assinaturas / Recorrente"],
       monthlyTarget: 10000.00,
       color: "#a855f7"
     },
     {
       id: "card_itau_bruno",
-      name: "Itaucard Bruno (Vira dia 21)",
+      name: "Cartão Itaú Bruno",
       type: "CREDIT_CARD",
       ownerId: "bruno",
       closingDay: 21,
       dueDay: 28,
-      competenceOffset: 0, // Lançamentos antes do dia 21 fecham no dia 21 e são gastos do próprio mês (0)
+      competenceOffset: 0, // 0 = Mês da virada | -1 = Mês anterior à virada
+      virtualCards: ["Cartão Físico", "Virtual Carteira Digital"],
       monthlyTarget: 524.00,
       color: "#f97316"
     },
@@ -74,11 +76,13 @@ window.INITIAL_SEED_DATA = {
     },
     {
       id: "card_nubia",
-      name: "Cartão de Crédito Núbia",
+      name: "Cartão Nubank Núbia",
       type: "CREDIT_CARD",
       ownerId: "nubia",
       closingDay: 5,
       dueDay: 12,
+      competenceOffset: 0,
+      virtualCards: ["Cartão Físico", "Virtual Compras Online"],
       monthlyTarget: 7000.00,
       color: "#ec4899"
     },
@@ -242,39 +246,39 @@ window.INITIAL_SEED_DATA = {
     { id: "tx_cc_7", transactionDate: "2026-11-20", competenceMonth: "2026-11", description: "Plano de Saúde", amount: 2500.00, type: "EXPENSE", accountId: "cc_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_plano_saude", projectionId: "proj_plano_saude", installmentCurrent: 1, installmentTotal: 1 },
     { id: "tx_cc_8", transactionDate: "2026-11-22", competenceMonth: "2026-11", description: "Flanelinhas no mês", amount: 100.00, type: "EXPENSE", accountId: "cc_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_flanelinhas", projectionId: "proj_flanelinhas", installmentCurrent: 1, installmentTotal: 1 },
 
-    // DESPESAS CARTÃO NUBANK BRUNO (VIRA DIA 9 -> Compras até 08/Out saem da conta em Novembro 2026-11)
-    { id: "tx_nu_1a", transactionDate: "2026-10-02", competenceMonth: "2026-11", description: "iFood - Jantar Fim de Semana", amount: 184.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_delivery", projectionId: "proj_delivery", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_1b", transactionDate: "2026-10-05", competenceMonth: "2026-11", description: "iFood - Almoço & Lanches", amount: 245.12, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_delivery", projectionId: "proj_delivery", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_1c", transactionDate: "2026-10-07", competenceMonth: "2026-11", description: "Delivery Pedidos Diversos", amount: 385.00, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_delivery", projectionId: "proj_delivery", installmentCurrent: 1, installmentTotal: 1 },
+    // DESPESAS CARTÃO NUBANK BRUNO (VIRA DIA 9 -> Ciclo 09/Out a 08/Nov vira em 09/Nov -> Competência 2026-11)
+    { id: "tx_nu_1a", transactionDate: "2026-10-12", competenceMonth: "2026-11", description: "iFood - Jantar Fim de Semana", amount: 184.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_delivery", projectionId: "proj_delivery", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_1b", transactionDate: "2026-10-25", competenceMonth: "2026-11", description: "iFood - Almoço & Lanches", amount: 245.12, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_delivery", projectionId: "proj_delivery", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_1c", transactionDate: "2026-11-03", competenceMonth: "2026-11", description: "Delivery Pedidos Diversos", amount: 385.00, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_delivery", projectionId: "proj_delivery", installmentCurrent: 1, installmentTotal: 1 },
 
-    { id: "tx_nu_2a", transactionDate: "2026-10-02", competenceMonth: "2026-11", description: "Uber - Deslocamentos Semana 1", amount: 192.40, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_transporte_app", projectionId: "proj_transporte", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_2b", transactionDate: "2026-10-06", competenceMonth: "2026-11", description: "Uber / 99 - Corridas Semana 2", amount: 330.49, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_transporte_app", projectionId: "proj_transporte", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_2a", transactionDate: "2026-10-18", competenceMonth: "2026-11", description: "Uber - Deslocamentos Semana 1", amount: 192.40, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_transporte_app", projectionId: "proj_transporte", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_2b", transactionDate: "2026-11-04", competenceMonth: "2026-11", description: "Uber / 99 - Corridas Semana 2", amount: 330.49, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_transporte_app", projectionId: "proj_transporte", installmentCurrent: 1, installmentTotal: 1 },
 
-    { id: "tx_nu_3", transactionDate: "2026-10-04", competenceMonth: "2026-11", description: "Amazon Prime", amount: 119.50, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_amazon_prime", projectionId: "proj_amazon", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_4", transactionDate: "2026-10-04", competenceMonth: "2026-11", description: "Netflix", amount: 72.80, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_netflix", projectionId: "proj_netflix", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_5", transactionDate: "2026-10-04", competenceMonth: "2026-11", description: "HBO Max", amount: 14.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_hbomax", projectionId: "proj_hbomax", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_6", transactionDate: "2026-10-04", competenceMonth: "2026-11", description: "YouTube Premium", amount: 26.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_youtube", projectionId: "proj_youtube", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_7", transactionDate: "2026-10-05", competenceMonth: "2026-11", description: "Google One", amount: 194.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_google_one", projectionId: "proj_google_one", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_8", transactionDate: "2026-10-05", competenceMonth: "2026-11", description: "ChatGPT Plus", amount: 41.50, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_chatgpt", projectionId: "proj_chatgpt", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_9", transactionDate: "2026-10-05", competenceMonth: "2026-11", description: "NuTag Pedágio", amount: 52.26, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_nutag", projectionId: "proj_nutag", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_3", transactionDate: "2026-10-15", competenceMonth: "2026-11", description: "Amazon Prime (Cartão Virtual)", amount: 119.50, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_amazon_prime", projectionId: "proj_amazon", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_4", transactionDate: "2026-10-15", competenceMonth: "2026-11", description: "Netflix (Cartão Virtual)", amount: 72.80, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_netflix", projectionId: "proj_netflix", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_5", transactionDate: "2026-10-16", competenceMonth: "2026-11", description: "HBO Max (Cartão Virtual)", amount: 14.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_hbomax", projectionId: "proj_hbomax", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_6", transactionDate: "2026-10-16", competenceMonth: "2026-11", description: "YouTube Premium (Cartão Virtual)", amount: 26.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_youtube", projectionId: "proj_youtube", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_7", transactionDate: "2026-10-20", competenceMonth: "2026-11", description: "Google One (Cartão Virtual)", amount: 194.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_google_one", projectionId: "proj_google_one", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_8", transactionDate: "2026-10-20", competenceMonth: "2026-11", description: "ChatGPT Plus (Cartão Virtual)", amount: 41.50, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_chatgpt", projectionId: "proj_chatgpt", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_9", transactionDate: "2026-11-02", competenceMonth: "2026-11", description: "NuTag Pedágio", amount: 52.26, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_nutag", projectionId: "proj_nutag", installmentCurrent: 1, installmentTotal: 1 },
 
-    { id: "tx_nu_10a", transactionDate: "2026-10-05", competenceMonth: "2026-11", description: "Barzinho & Encontro Amigos", amount: 287.68, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_lazer_geral", projectionId: "proj_lazer", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_10b", transactionDate: "2026-10-06", competenceMonth: "2026-11", description: "Passeio & Lazer Fim de Semana", amount: 520.00, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_lazer_geral", projectionId: "proj_lazer", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_10a", transactionDate: "2026-10-24", competenceMonth: "2026-11", description: "Barzinho & Encontro Amigos", amount: 287.68, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_lazer_geral", projectionId: "proj_lazer", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_10b", transactionDate: "2026-11-05", competenceMonth: "2026-11", description: "Passeio & Lazer Fim de Semana", amount: 520.00, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_lazer_geral", projectionId: "proj_lazer", installmentCurrent: 1, installmentTotal: 1 },
 
-    { id: "tx_nu_11", transactionDate: "2026-10-06", competenceMonth: "2026-11", description: "Restaurantes", amount: 168.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_restaurantes", projectionId: "proj_restaurantes", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_12", transactionDate: "2026-10-06", competenceMonth: "2026-11", description: "Estacionamento Shopping", amount: 12.00, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_estacionamento", projectionId: "proj_estacionamento", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_11", transactionDate: "2026-11-02", competenceMonth: "2026-11", description: "Restaurantes", amount: 168.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_restaurantes", projectionId: "proj_restaurantes", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_12", transactionDate: "2026-11-02", competenceMonth: "2026-11", description: "Estacionamento Shopping", amount: 12.00, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_estacionamento", projectionId: "proj_estacionamento", installmentCurrent: 1, installmentTotal: 1 },
 
-    { id: "tx_nu_13a", transactionDate: "2026-10-03", competenceMonth: "2026-11", description: "Hortifruti & Feira da Semana", amount: 64.50, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_feira_sup", projectionId: "proj_feira", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_13b", transactionDate: "2026-10-07", competenceMonth: "2026-11", description: "Supermercado Suprimentos", amount: 94.86, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_feira_sup", projectionId: "proj_feira", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_13a", transactionDate: "2026-10-22", competenceMonth: "2026-11", description: "Hortifruti & Feira da Semana", amount: 64.50, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_feira_sup", projectionId: "proj_feira", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_13b", transactionDate: "2026-11-06", competenceMonth: "2026-11", description: "Supermercado Suprimentos", amount: 94.86, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_feira_sup", projectionId: "proj_feira", installmentCurrent: 1, installmentTotal: 1 },
 
-    { id: "tx_nu_14", transactionDate: "2026-10-07", competenceMonth: "2026-11", description: "Compras Parceladas Nubank", amount: 548.96, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_parceladas", projectionId: "proj_parceladas", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_15", transactionDate: "2026-10-07", competenceMonth: "2026-11", description: "Chicó (Ração & Petshop)", amount: 395.36, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_chico", projectionId: "proj_chico", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_16", transactionDate: "2026-10-07", competenceMonth: "2026-11", description: "Jogos / Games", amount: 69.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_jogos", projectionId: "proj_jogos", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_17", transactionDate: "2026-10-08", competenceMonth: "2026-11", description: "Posto Gasolina", amount: 284.04, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_gasolina", projectionId: "proj_gasolina", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_18", transactionDate: "2026-10-08", competenceMonth: "2026-11", description: "Manutenção Carro (Oficina)", amount: 1364.40, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_manut_carro", projectionId: "proj_manut_carro", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_19", transactionDate: "2026-10-08", competenceMonth: "2026-11", description: "Seguro Carro", amount: 384.26, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_seguro_carro", projectionId: "proj_seguro_carro", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_20", transactionDate: "2026-10-08", competenceMonth: "2026-11", description: "Farmácia & Auto Cuidado", amount: 171.78, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_autocuidado", projectionId: "proj_autocuidado", installmentCurrent: 1, installmentTotal: 1 },
-    { id: "tx_nu_21", transactionDate: "2026-10-08", competenceMonth: "2026-11", description: "Outros Gastos Nubank", amount: 331.69, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_outros", projectionId: null, installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_14", transactionDate: "2026-10-14", competenceMonth: "2026-11", description: "Compras Parceladas Nubank", amount: 548.96, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_parceladas", projectionId: "proj_parceladas", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_15", transactionDate: "2026-10-28", competenceMonth: "2026-11", description: "Chicó (Ração & Petshop)", amount: 395.36, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_chico", projectionId: "proj_chico", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_16", transactionDate: "2026-10-29", competenceMonth: "2026-11", description: "Jogos / Games (Cartão Virtual)", amount: 69.90, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_jogos", projectionId: "proj_jogos", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_17", transactionDate: "2026-11-05", competenceMonth: "2026-11", description: "Posto Gasolina", amount: 284.04, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_gasolina", projectionId: "proj_gasolina", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_18", transactionDate: "2026-10-30", competenceMonth: "2026-11", description: "Manutenção Carro (Oficina)", amount: 1364.40, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_manut_carro", projectionId: "proj_manut_carro", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_19", transactionDate: "2026-11-01", competenceMonth: "2026-11", description: "Seguro Carro", amount: 384.26, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_seguro_carro", projectionId: "proj_seguro_carro", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_20", transactionDate: "2026-11-07", competenceMonth: "2026-11", description: "Farmácia & Auto Cuidado", amount: 171.78, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_autocuidado", projectionId: "proj_autocuidado", installmentCurrent: 1, installmentTotal: 1 },
+    { id: "tx_nu_21", transactionDate: "2026-11-08", competenceMonth: "2026-11", description: "Outros Gastos Nubank", amount: 331.69, type: "EXPENSE", accountId: "card_nubank_bruno", paidByUserId: "bruno", ownership: "INDIVIDUAL_BRUNO", subcategoryId: "sub_outros", projectionId: null, installmentCurrent: 1, installmentTotal: 1 },
 
     // DESPESAS ITAUCARD BRUNO (DIA 19)
     { id: "tx_it_1", transactionDate: "2026-11-10", competenceMonth: "2026-11", description: "Spotify", amount: 40.90, type: "EXPENSE", accountId: "card_itau_bruno", paidByUserId: "bruno", ownership: "COLLECTIVE", subcategoryId: "sub_spotify", projectionId: "proj_spotify", installmentCurrent: 1, installmentTotal: 1 },
