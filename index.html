@@ -154,6 +154,9 @@
         <button data-tab-target="projections" onclick="App.switchTab('projections')">
           <i data-lucide="target" class="w-4 h-4"></i> Metas & Orçamento
         </button>
+        <button data-tab-target="installments" onclick="App.switchTab('installments')">
+          <i data-lucide="layers" class="w-4 h-4"></i> Parceladas
+        </button>
         <button data-tab-target="cards" onclick="App.switchTab('cards')">
           <i data-lucide="credit-card" class="w-4 h-4"></i> Cartões & Contas
         </button>
@@ -598,6 +601,67 @@
     </section>
 
     <!-- ================================================================== -->
+    <!-- ABA 2.2: PARCELADAS (BARRAS DE PROGRESSO + AGRUPAMENTO POR CATEGORIA) -->
+    <!-- ================================================================== -->
+    <section id="tab-installments" class="tab-section hidden space-y-6">
+      <div class="oli-card rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-extrabold text-stone-900 flex items-center gap-2">
+            <i data-lucide="layers" class="w-5 h-5 text-lime-700"></i>
+            Controle de Contas Parceladas
+          </h2>
+          <p class="text-xs text-stone-500 mt-0.5">
+            Acompanhe quantas parcelas já foram pagas, quantas faltam vencer e recategorize itens facilmente.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="inline-flex bg-stone-100 p-1 rounded-xl text-xs">
+            <button
+              type="button"
+              data-inst-group="CATEGORY"
+              onclick="App.setInstallmentGroupMode('CATEGORY')"
+              class="px-3 py-1.5 rounded-lg font-bold transition"
+            >
+              Por Categoria
+            </button>
+            <button
+              type="button"
+              data-inst-group="ACCOUNT"
+              onclick="App.setInstallmentGroupMode('ACCOUNT')"
+              class="px-3 py-1.5 rounded-lg font-bold transition"
+            >
+              Por Cartão
+            </button>
+            <button
+              type="button"
+              data-inst-group="REMAINING"
+              onclick="App.setInstallmentGroupMode('REMAINING')"
+              class="px-3 py-1.5 rounded-lg font-bold transition"
+            >
+              Mais Próximas do Fim
+            </button>
+          </div>
+          <select
+            id="installments-scope-filter"
+            onchange="App.installmentScopeFilter = this.value; App.renderInstallmentsTab(App.state.settings.activeMonth);"
+            class="oli-input rounded-xl px-3 py-1.5 text-xs font-bold"
+          >
+            <option value="ACTIVE_MONTH">Com parcela neste mês</option>
+            <option value="ALL">Todas importadas</option>
+            <option value="FINISHING">Terminando (0 ou 1 restante)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- KPIs das Parceladas -->
+      <div id="installments-kpis-container" class="grid grid-cols-1 sm:grid-cols-3 gap-4"></div>
+
+      <!-- Lista / Grupos de Parceladas -->
+      <div id="installments-groups-container" class="space-y-5"></div>
+    </section>
+
+    <!-- ================================================================== -->
     <!-- ABA 2.5: CARTÕES & CONTAS POR USUÁRIO (DATA DE VIRADA + VIRTUAIS) -->
     <!-- ================================================================== -->
     <section id="tab-cards" class="tab-section hidden space-y-6">
@@ -751,7 +815,7 @@
   </main>
 
   <!-- MOBILE BOTTOM NAVIGATION -->
-  <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-stone-200 grid grid-cols-5 shadow-lg">
+  <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-stone-200 grid grid-cols-6 shadow-lg">
     <button data-tab-target="dashboard" onclick="App.switchTab('dashboard')" class="mobile-nav-btn">
       <i data-lucide="home" class="w-4 h-4 mb-1"></i>
       <span>Início</span>
@@ -759,6 +823,10 @@
     <button data-tab-target="projections" onclick="App.switchTab('projections')" class="mobile-nav-btn">
       <i data-lucide="target" class="w-4 h-4 mb-1"></i>
       <span>Metas</span>
+    </button>
+    <button data-tab-target="installments" onclick="App.switchTab('installments')" class="mobile-nav-btn">
+      <i data-lucide="layers" class="w-4 h-4 mb-1"></i>
+      <span>Parcelas</span>
     </button>
     <button data-tab-target="cards" onclick="App.switchTab('cards')" class="mobile-nav-btn">
       <i data-lucide="credit-card" class="w-4 h-4 mb-1"></i>
@@ -770,7 +838,7 @@
     </button>
     <button data-tab-target="categories" onclick="App.switchTab('categories')" class="mobile-nav-btn">
       <i data-lucide="tags" class="w-4 h-4 mb-1"></i>
-      <span>Categorias</span>
+      <span>Categ.</span>
     </button>
   </nav>
 
@@ -930,6 +998,14 @@
   >
     <span id="floating-bulk-count" class="font-extrabold text-lime-400">0 selecionados</span>
     <select
+      id="floating-bulk-recategorize"
+      onchange="if(this.value){ App.recategorizeSelectedTransactions(this.value); this.value=''; }"
+      class="bg-stone-800 hover:bg-stone-700 text-stone-100 border border-stone-600 font-bold px-2.5 py-1.5 rounded-xl text-xs cursor-pointer max-w-[200px]"
+      title="Recategorizar todos os itens selecionados de uma vez"
+    >
+      <option value="">🏷️ Recategorizar p/...</option>
+    </select>
+    <select
       id="floating-bulk-move-month"
       onchange="if(this.value){ App.moveSelectedTransactionsToMonth(this.value); this.value=''; }"
       class="bg-stone-800 hover:bg-stone-700 text-stone-100 border border-stone-600 font-bold px-2.5 py-1.5 rounded-xl text-xs cursor-pointer"
@@ -960,9 +1036,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=13"></script>
-  <script src="./js/ofx-csv-parser.js?v=13"></script>
-  <script src="./js/supabase-sync.js?v=13"></script>
-  <script src="./js/app.js?v=13"></script>
+  <script src="./js/data-seed.js?v=14"></script>
+  <script src="./js/ofx-csv-parser.js?v=14"></script>
+  <script src="./js/supabase-sync.js?v=14"></script>
+  <script src="./js/app.js?v=14"></script>
 </body>
 </html>

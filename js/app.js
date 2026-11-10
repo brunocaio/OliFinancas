@@ -19,6 +19,8 @@ window.App = {
   loggedUser: "bruno",
   quickTxType: "EXPENSE",
   projectionGroupMode: "ACCOUNT",
+  installmentGroupMode: "CATEGORY",
+  installmentScopeFilter: "ACTIVE_MONTH",
   expandedTreeKeys: {},
   expandedArchiveKeys: {},
   quoteIndex: 0,
@@ -208,13 +210,36 @@ window.App = {
 
     const floatBar = document.getElementById("floating-bulk-bar");
     const floatCount = document.getElementById("floating-bulk-count");
+    const floatRecat = document.getElementById("floating-bulk-recategorize");
     if (floatBar) {
       floatBar.classList.toggle("hidden", selCount === 0);
       floatBar.classList.toggle("flex", selCount > 0);
       if (floatCount) {
         floatCount.textContent = `${selCount} ${selCount === 1 ? "item selecionado" : "itens selecionados"}`;
       }
+      if (floatRecat && selCount > 0) {
+        floatRecat.innerHTML = `<option value="">🏷️ Recategorizar p/...</option>` + this.buildSubcategorySelectOptionsHTML("", false);
+      }
     }
+  },
+
+  buildSubcategorySelectOptionsHTML(selectedSubId = "", includeOwnershipSuffix = true) {
+    return (this.state.categories || [])
+      .map(cat => {
+        const subs = (this.state.subcategories || []).filter(s => s.categoryId === cat.id);
+        if (subs.length === 0) return "";
+        return (
+          `<optgroup label="${cat.name}">` +
+          subs
+            .map(s => {
+              const label = includeOwnershipSuffix ? this.formatSubOptionLabel(s) : s.name;
+              return `<option value="${s.id}" ${s.id === selectedSubId ? "selected" : ""}>${label}</option>`;
+            })
+            .join("") +
+          `</optgroup>`
+        );
+      })
+      .join("");
   },
 
   resetToSpreadsheetSeed() {
@@ -554,6 +579,7 @@ window.App = {
     this.renderDashboard(summary, monthYear);
     this.renderDiagnosticsTab(monthYear);
     this.renderProjectionsTab(summary, monthYear);
+    this.renderInstallmentsTab(monthYear);
     this.renderCardsTab(monthYear);
     this.renderTransactionsTab(monthYear);
     this.renderImportTab(monthYear);
@@ -1233,21 +1259,37 @@ window.App = {
             <tr class="bg-[#f8faf5] border-b border-stone-200/70">
               <td colspan="4" class="px-4 sm:px-6 py-3">
                 <div class="pl-3 sm:pl-5 border-l-2 border-lime-600/40 space-y-1.5">
-                  <div class="flex items-center justify-between text-[11px] font-bold text-stone-500 pb-1 border-b border-stone-200/60">
+                  <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-stone-500 pb-1.5 border-b border-stone-200/60">
                     <span>Árvore de Lançamentos • ${item.sub.name} (${txCount})</span>
-                    <button
-                      type="button"
-                      onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
-                      class="text-lime-800 hover:text-lime-950 bg-lime-100 hover:bg-lime-200/80 px-2.5 py-0.5 rounded-lg font-bold transition"
-                    >
-                      + Novo lançamento aqui
-                    </button>
+                    <div class="flex items-center gap-1.5">
+                      ${
+                        txCount > 0
+                          ? `<button
+                              type="button"
+                              onclick="App.selectAllInTree('${accountId}', '${item.sub.id}')"
+                              class="text-stone-700 hover:text-stone-900 bg-white border border-stone-200 hover:border-lime-600 px-2 py-0.5 rounded-lg font-bold transition"
+                              title="Marcar todos desta categoria para recategorizar ou excluir em lote"
+                            >
+                              ☑ Selecionar todos (${txCount})
+                            </button>`
+                          : ""
+                      }
+                      <button
+                        type="button"
+                        onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
+                        class="text-lime-800 hover:text-lime-950 bg-lime-100 hover:bg-lime-200/80 px-2.5 py-0.5 rounded-lg font-bold transition"
+                      >
+                        + Novo lançamento aqui
+                      </button>
+                    </div>
                   </div>
                   ${
                     txCount === 0
                       ? `<div class="py-2 text-xs text-stone-400 italic">└─ Nenhum lançamento registrado ainda nesta categoria no mês (Meta: ${this.formatBRL(item.meta)}).</div>`
                       : item.txs
                           .map((tx, idx) => {
+                            if (!this.visibleTreeTxIds) this.visibleTreeTxIds = [];
+                            this.visibleTreeTxIds.push(tx.id);
                             const branchChar = idx === txCount - 1 ? "└─" : "├─";
                             const instTag = tx.installmentTotal > 1
                               ? `<span class="px-1.5 py-0.5 rounded bg-stone-200/80 text-stone-700 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
@@ -1258,14 +1300,14 @@ window.App = {
                               : "";
                             const isChecked = this.selectedTxIds.includes(tx.id);
                             return `
-                              <div class="flex items-center justify-between gap-2 py-1 text-xs ${isChecked ? "bg-lime-100/70" : "hover:bg-white/80"} rounded-lg px-2 transition">
-                                <div class="flex items-center gap-2 min-w-0">
+                              <div class="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 py-1.5 text-xs ${isChecked ? "bg-lime-100/70" : "hover:bg-white/80"} rounded-lg px-2 transition">
+                                <div class="flex items-center gap-2 min-w-0 flex-1">
                                   <input
                                     type="checkbox"
                                     ${isChecked ? "checked" : ""}
-                                    onclick="App.handleTxCheckboxClick(event, '${tx.id}')"
+                                    onclick="App.handleTxCheckboxClick(event, '${tx.id}', 'tree')"
                                     class="w-3.5 h-3.5 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
-                                    title="Selecionar para exclusão em lote"
+                                    title="Selecionar para recategorizar ou excluir em lote (Shift + Clique para intervalo)"
                                   />
                                   <span class="font-mono text-lime-700 font-bold select-none">${branchChar}</span>
                                   <span class="text-[11px] text-stone-400 font-semibold w-11 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
@@ -1274,8 +1316,23 @@ window.App = {
                                   ${creditTag}
                                   ${this.getOwnershipBadge(tx.ownership)}
                                 </div>
-                                <div class="flex items-center gap-2 shrink-0">
-                                  <span class="font-extrabold ${isCredit ? "text-emerald-700" : "text-stone-900"}">
+                                <div class="flex items-center gap-1.5 shrink-0 ml-auto">
+                                  <select
+                                    onchange="App.recategorizeTransaction('${tx.id}', this.value)"
+                                    title="Recategorizar este lançamento para outra categoria"
+                                    class="oli-input rounded-lg px-2 py-0.5 text-[11px] font-semibold text-stone-700 bg-white max-w-[165px] cursor-pointer"
+                                  >
+                                    ${this.buildSubcategorySelectOptionsHTML(tx.subcategoryId, false)}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onclick="App.learnKeywordFromTransaction('${tx.id}')"
+                                    class="px-1.5 py-0.5 rounded-md bg-stone-100 hover:bg-lime-100 text-stone-500 hover:text-lime-800 text-[10px] font-bold transition"
+                                    title="Salvar regra automática com o nome deste estabelecimento para os próximos extratos"
+                                  >
+                                    +Regra
+                                  </button>
+                                  <span class="font-extrabold w-20 text-right ${isCredit ? "text-emerald-700" : "text-stone-900"}">
                                     ${isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
                                   </span>
                                   <button
@@ -1434,6 +1491,7 @@ window.App = {
   },
 
   buildStructuredBudgetHTML(monthYear) {
+    this.visibleTreeTxIds = [];
     const userFilter = this.activeUserFilter;
     const userLabel = userFilter === "bruno" ? "BRUNO" : userFilter === "nubia" ? "NÚBIA" : "CASAL (BRUNO & NÚBIA)";
 
@@ -1817,6 +1875,357 @@ window.App = {
     container.innerHTML = this.buildStructuredBudgetHTML(monthYear);
   },
 
+  // ==========================================================================
+  // ABA 2.2: TELA DE CONTAS PARCELADAS (BARRAS DE PROGRESSO + CATEGORIAS)
+  // ==========================================================================
+  setInstallmentGroupMode(mode) {
+    this.installmentGroupMode = mode || "CATEGORY";
+    this.renderInstallmentsTab(this.state.settings.activeMonth);
+  },
+
+  getInstallmentBaseName(desc) {
+    return (desc || "")
+      .replace(/\s*-?\s*(?:PARC(?:ELA)?\s*)?\d{1,2}\s*\/\s*\d{1,2}\s*$/i, "")
+      .trim();
+  },
+
+  buildInstallmentSeries(monthYear) {
+    const userFilter = this.activeUserFilter;
+    const allInstTxs = (this.state.transactions || []).filter(tx => {
+      if (!tx || tx.type !== "EXPENSE" || (Number(tx.installmentTotal) || 1) <= 1) return false;
+      if (userFilter === "bruno") return tx.paidByUserId === "bruno" || tx.ownership === "INDIVIDUAL_BRUNO";
+      if (userFilter === "nubia") return tx.paidByUserId === "nubia" || tx.ownership === "INDIVIDUAL_NUBIA";
+      return true;
+    });
+
+    const monthToInt = (ym) => {
+      if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return 2026 * 12 + 11;
+      const [y, m] = ym.split("-").map(Number);
+      return y * 12 + m;
+    };
+
+    const seriesMap = new Map();
+    for (const tx of allInstTxs) {
+      const total = Number(tx.installmentTotal) || 1;
+      const current = Number(tx.installmentCurrent) || 1;
+      const baseName = this.getInstallmentBaseName(tx.description);
+      const normBase = window.StatementParser
+        ? window.StatementParser.normalizeText(baseName)
+        : baseName.toUpperCase();
+      const startMonthIdx = monthToInt(tx.competenceMonth) - current;
+      const amountCents = Math.round(Math.abs(Number(tx.amount)) * 100);
+      const key = `${tx.accountId}__${normBase}__${total}__${amountCents}__${startMonthIdx}`;
+
+      if (!seriesMap.has(key)) {
+        seriesMap.set(key, {
+          key,
+          baseName: baseName || tx.description,
+          accountId: tx.accountId,
+          total,
+          parcelValue: Math.abs(Number(tx.amount)),
+          txs: []
+        });
+      }
+      seriesMap.get(key).txs.push(tx);
+    }
+
+    const shortMonths = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const formatShortMY = (ym) => {
+      const [y, m] = ym.split("-").map(Number);
+      return `${shortMonths[(m || 1) - 1]}/${y}`;
+    };
+
+    const result = [];
+    for (const s of seriesMap.values()) {
+      s.txs.sort((a, b) => {
+        const cmp = (a.competenceMonth || "").localeCompare(b.competenceMonth || "");
+        return cmp !== 0 ? cmp : (Number(a.installmentCurrent) || 1) - (Number(b.installmentCurrent) || 1);
+      });
+
+      const activeTx = s.txs.find(t => t.competenceMonth === monthYear) || null;
+      const displayTx = activeTx || s.txs[s.txs.length - 1];
+      const currentParcel = Math.min(s.total, Math.max(1, Number(displayTx.installmentCurrent) || 1));
+      const remainingCount = Math.max(0, s.total - currentParcel);
+      const remainingValue = remainingCount * s.parcelValue;
+      const totalValue = s.total * s.parcelValue;
+
+      const refYM = displayTx.competenceMonth || monthYear;
+      const [ry, rm] = refYM.split("-").map(Number);
+      const endYM = window.StatementParser
+        ? window.StatementParser.shiftYearMonth(ry, rm, remainingCount)
+        : refYM;
+
+      const sub = this.getSubcategory(displayTx.subcategoryId);
+      const cat = this.getCategory(sub.categoryId);
+      const acc = this.getAccount(displayTx.accountId);
+
+      result.push({
+        key: s.key,
+        baseName: s.baseName,
+        displayTx,
+        txIds: s.txs.map(t => t.id),
+        hasInActiveMonth: Boolean(activeTx),
+        paidCount: currentParcel,
+        total: s.total,
+        remainingCount,
+        parcelValue: s.parcelValue,
+        remainingValue,
+        totalValue,
+        endMonthLabel: formatShortMY(endYM),
+        sub,
+        cat,
+        acc
+      });
+    }
+
+    return result;
+  },
+
+  recategorizeInstallmentSeries(txIdsCSV, newSubId) {
+    if (!txIdsCSV || !newSubId) return;
+    const ids = txIdsCSV.split(",").filter(Boolean);
+    const idSet = new Set(ids);
+    const newSub = this.getSubcategory(newSubId);
+    let updated = 0;
+
+    this.state.transactions.forEach(tx => {
+      if (!idSet.has(tx.id)) return;
+      const acc = this.getAccount(tx.accountId);
+      tx.subcategoryId = newSubId;
+      tx.ownership = this.resolveDefaultOwnership(newSubId, acc.ownerId || tx.paidByUserId);
+      const monthProjs = this.state.projections.filter(p => p.monthYear === tx.competenceMonth);
+      const matchProj = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
+        || monthProjs.find(p => p.subcategoryId === newSubId);
+      tx.projectionId = matchProj ? matchProj.id : null;
+      updated++;
+    });
+
+    if (updated === 0) return;
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🏷️ Parcelamento movido para "${newSub.name}" (${updated} parcela(s) atualizada(s))!`, "success");
+  },
+
+  buildInstallmentCardHTML(s) {
+    const pct = Math.min(100, Math.round((s.paidCount / s.total) * 100));
+    const txIdsCSV = s.txIds.join(",");
+
+    let barHTML = "";
+    if (s.total <= 12) {
+      const segments = [];
+      for (let i = 1; i <= s.total; i++) {
+        const isPaid = i <= s.paidCount;
+        segments.push(
+          `<div class="h-2.5 flex-1 rounded-sm transition ${
+            isPaid
+              ? "bg-lime-600"
+              : "bg-amber-100 border border-amber-300/80"
+          }" title="Parcela ${i}/${s.total} (${isPaid ? "Paga / Atual" : "Falta pagar"})"></div>`
+        );
+      }
+      barHTML = `<div class="flex items-center gap-1 w-full">${segments.join("")}</div>`;
+    } else {
+      barHTML = `
+        <div class="w-full h-2.5 rounded-full bg-amber-100 border border-amber-300/70 overflow-hidden">
+          <div class="h-full bg-lime-600 rounded-full transition-all" style="width:${pct}%"></div>
+        </div>
+      `;
+    }
+
+    const statusBadge = s.remainingCount === 0
+      ? `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">Última parcela neste mês! 🎉</span>`
+      : s.remainingCount === 1
+      ? `<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-extrabold">Falta apenas 1 parcela</span>`
+      : `<span class="px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 text-[10px] font-extrabold">Faltam ${s.remainingCount} parcelas</span>`;
+
+    return `
+      <div class="p-4 border-b border-stone-100 last:border-b-0 hover:bg-stone-50/70 transition space-y-2.5">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-extrabold text-stone-900 text-sm truncate">${s.baseName}</span>
+              <span class="px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 text-[11px] font-bold">
+                ${s.paidCount}/${s.total}
+              </span>
+              ${statusBadge}
+              ${this.getOwnershipBadge(s.displayTx.ownership)}
+            </div>
+            <div class="flex items-center gap-2 flex-wrap text-[11px] text-stone-400 mt-1">
+              <span class="inline-flex items-center gap-1 font-semibold text-stone-600">
+                <span class="w-2 h-2 rounded-full" style="background:${s.acc.color || "#4d7c0f"}"></span>
+                ${s.acc.name}
+              </span>
+              <span>•</span>
+              <span>Compra: ${this.formatDateBR(s.displayTx.transactionDate)}</span>
+              <span>•</span>
+              <span>Quita em <strong class="text-stone-600">${s.endMonthLabel}</strong></span>
+              ${!s.hasInActiveMonth ? `<span class="text-amber-700 font-semibold">(Última ref.: ${this.getMonthLabel(s.displayTx.competenceMonth)})</span>` : ""}
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+            <div class="text-right">
+              <div class="text-sm font-extrabold text-stone-900">${this.formatBRL(s.parcelValue)}<span class="text-[11px] font-medium text-stone-400">/mês</span></div>
+              <div class="text-[11px] font-bold ${s.remainingValue > 0 ? "text-amber-700" : "text-emerald-700"}">
+                ${s.remainingValue > 0 ? `Falta pagar: ${this.formatBRL(s.remainingValue)}` : "Quitada neste mês"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Barra Visual de Parcelas + Recategorização Rápida -->
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div class="flex-1 space-y-1">
+            ${barHTML}
+            <div class="flex items-center justify-between text-[10px] text-stone-400 font-semibold">
+              <span>${pct}% concluído (${s.paidCount} de ${s.total})</span>
+              <span>Total compra: ${this.formatBRL(s.totalValue)}</span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="w-2 h-2 rounded-full shrink-0" style="background:${s.cat.color}"></span>
+            <select
+              onchange="App.recategorizeInstallmentSeries('${txIdsCSV}', this.value)"
+              title="Recategorizar todas as parcelas desta compra"
+              class="oli-input rounded-lg px-2 py-1 text-[11px] font-semibold text-stone-700 bg-white max-w-[180px] cursor-pointer"
+            >
+              ${this.buildSubcategorySelectOptionsHTML(s.displayTx.subcategoryId, false)}
+            </select>
+            <button
+              type="button"
+              onclick="App.learnKeywordFromTransaction('${s.displayTx.id}')"
+              class="px-2 py-1 rounded-lg bg-stone-100 hover:bg-lime-100 text-stone-600 hover:text-lime-800 text-[10px] font-bold transition"
+              title="Salvar regra automática para futuros extratos"
+            >
+              +Regra
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  renderInstallmentsTab(monthYear) {
+    const kpisEl = document.getElementById("installments-kpis-container");
+    const groupsEl = document.getElementById("installments-groups-container");
+    if (!kpisEl || !groupsEl) return;
+
+    // Atualiza estado visual dos botões de agrupamento
+    document.querySelectorAll("[data-inst-group]").forEach(btn => {
+      const mode = btn.getAttribute("data-inst-group");
+      const active = mode === this.installmentGroupMode;
+      btn.className = `px-3 py-1.5 rounded-lg font-bold transition ${
+        active ? "bg-white text-stone-900 shadow-2xs" : "text-stone-500 hover:text-stone-900"
+      }`;
+    });
+
+    const scopeEl = document.getElementById("installments-scope-filter");
+    if (scopeEl) scopeEl.value = this.installmentScopeFilter || "ACTIVE_MONTH";
+
+    const allSeries = this.buildInstallmentSeries(monthYear);
+    let filtered = allSeries;
+    if (this.installmentScopeFilter === "ACTIVE_MONTH") {
+      filtered = allSeries.filter(s => s.hasInActiveMonth);
+    } else if (this.installmentScopeFilter === "FINISHING") {
+      filtered = allSeries.filter(s => s.remainingCount <= 1);
+    }
+
+    const monthlyParcelSum = filtered.reduce((sum, s) => sum + (s.hasInActiveMonth ? s.parcelValue : 0), 0);
+    const totalRemainingSum = filtered.reduce((sum, s) => sum + s.remainingValue, 0);
+    const finishingSoonCount = filtered.filter(s => s.remainingCount <= 1).length;
+
+    kpisEl.innerHTML = `
+      <div class="oli-card rounded-2xl p-4">
+        <div class="text-xs font-bold text-stone-500">Parcelas em ${this.getMonthLabel(monthYear)}</div>
+        <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(monthlyParcelSum)}</div>
+        <div class="text-[11px] text-stone-400 mt-1">${filtered.length} compra(s) parcelada(s) exibida(s)</div>
+      </div>
+      <div class="oli-card rounded-2xl p-4">
+        <div class="text-xs font-bold text-stone-500">Falta Pagar (Próximas Faturas)</div>
+        <div class="text-xl font-extrabold text-amber-700 mt-1">${this.formatBRL(totalRemainingSum)}</div>
+        <div class="text-[11px] text-stone-400 mt-1">Comprometimento futuro somado</div>
+      </div>
+      <div class="oli-card rounded-2xl p-4">
+        <div class="text-xs font-bold text-stone-500">Encerrando em Breve</div>
+        <div class="text-xl font-extrabold text-lime-800 mt-1">${finishingSoonCount} ${finishingSoonCount === 1 ? "compra" : "compras"}</div>
+        <div class="text-[11px] text-stone-400 mt-1">Última parcela agora ou no próximo mês</div>
+      </div>
+    `;
+
+    if (filtered.length === 0) {
+      groupsEl.innerHTML = `
+        <div class="oli-card rounded-3xl p-10 text-center text-stone-400 text-xs">
+          Nenhuma compra parcelada encontrada para este filtro em ${this.getMonthLabel(monthYear)}.
+        </div>
+      `;
+      return;
+    }
+
+    if (this.installmentGroupMode === "REMAINING") {
+      const sorted = [...filtered].sort((a, b) => a.remainingCount - b.remainingCount || b.parcelValue - a.parcelValue);
+      groupsEl.innerHTML = `
+        <div class="oli-card rounded-3xl overflow-hidden shadow-xs">
+          <div class="px-5 py-3.5 bg-stone-50 border-b border-stone-200/80 flex items-center justify-between">
+            <span class="font-extrabold text-stone-800 text-xs uppercase tracking-wider">Ordenado pela Quantidade de Parcelas Restantes</span>
+            <span class="text-xs font-bold text-stone-500">${sorted.length} compra(s)</span>
+          </div>
+          <div>${sorted.map(s => this.buildInstallmentCardHTML(s)).join("")}</div>
+        </div>
+      `;
+      return;
+    }
+
+    // Agrupamento por Categoria (Subcategoria ou Categoria Pai) ou por Cartão/Conta
+    const groupMap = new Map();
+    for (const s of filtered) {
+      const gKey = this.installmentGroupMode === "ACCOUNT" ? s.acc.id : s.sub.id;
+      const gTitle = this.installmentGroupMode === "ACCOUNT" ? s.acc.name : `${s.cat.name} • ${s.sub.name}`;
+      const gColor = this.installmentGroupMode === "ACCOUNT" ? (s.acc.color || "#4d7c0f") : (s.cat.color || "#4d7c0f");
+
+      if (!groupMap.has(gKey)) {
+        groupMap.set(gKey, {
+          key: gKey,
+          title: gTitle,
+          color: gColor,
+          items: [],
+          monthlyTotal: 0,
+          remainingTotal: 0
+        });
+      }
+      const g = groupMap.get(gKey);
+      g.items.push(s);
+      g.monthlyTotal += s.hasInActiveMonth ? s.parcelValue : 0;
+      g.remainingTotal += s.remainingValue;
+    }
+
+    const groups = Array.from(groupMap.values()).sort((a, b) => b.monthlyTotal - a.monthlyTotal);
+
+    groupsEl.innerHTML = groups
+      .map(g => {
+        g.items.sort((a, b) => b.remainingCount - a.remainingCount || b.parcelValue - a.parcelValue);
+        return `
+          <div class="oli-card rounded-3xl overflow-hidden shadow-xs">
+            <div class="px-5 py-3.5 bg-stone-50/90 border-b border-stone-200/80 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2.5">
+                <span class="w-3 h-3 rounded-full shrink-0" style="background:${g.color}"></span>
+                <h3 class="font-extrabold text-stone-900 text-xs sm:text-sm uppercase tracking-tight">${g.title}</h3>
+                <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-stone-200/70 text-stone-600">${g.items.length} ${g.items.length === 1 ? "item" : "itens"}</span>
+              </div>
+              <div class="flex items-center gap-3 text-xs">
+                <span class="text-stone-500">No mês: <strong class="text-stone-900">${this.formatBRL(g.monthlyTotal)}</strong></span>
+                <span class="text-amber-700 font-bold">Restam: ${this.formatBRL(g.remainingTotal)}</span>
+              </div>
+            </div>
+            <div>
+              ${g.items.map(s => this.buildInstallmentCardHTML(s)).join("")}
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+  },
+
   updateProjectionAmount(projId, newVal) {
     const proj = this.state.projections.find(p => p.id === projId);
     if (!proj) return;
@@ -1966,10 +2375,16 @@ window.App = {
               ${linkedProj ? `<div class="text-[11px] text-lime-700 font-medium mt-0.5">Meta: ${linkedProj.title}</div>` : ""}
             </td>
             <td class="py-3 px-4">
-              <span class="inline-flex items-center gap-1.5 text-xs text-stone-600 font-medium">
-                <span class="w-2 h-2 rounded-full" style="background:${cat.color}"></span>
-                ${sub.name}
-              </span>
+              <div class="inline-flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full shrink-0" style="background:${cat.color}"></span>
+                <select
+                  onchange="App.recategorizeTransaction('${tx.id}', this.value)"
+                  title="Clique para recategorizar este lançamento"
+                  class="oli-input rounded-lg px-2 py-1 text-xs font-semibold text-stone-700 bg-white max-w-[170px] cursor-pointer"
+                >
+                  ${this.buildSubcategorySelectOptionsHTML(tx.subcategoryId, false)}
+                </select>
+              </div>
             </td>
             <td class="py-3 px-4">
               <span class="text-xs font-semibold text-stone-700">${acc.name}</span>
@@ -1992,9 +2407,11 @@ window.App = {
       .join("");
   },
 
-  handleTxCheckboxClick(event, txId) {
+  handleTxCheckboxClick(event, txId, scope = "history") {
     const checked = event.target.checked;
-    const visibleIds = this.visibleHistoryTxIds || [];
+    const visibleIds = scope === "tree"
+      ? (this.visibleTreeTxIds || [])
+      : (this.visibleHistoryTxIds || []);
 
     if (event.shiftKey && this.lastClickedTxId && visibleIds.includes(this.lastClickedTxId) && visibleIds.includes(txId)) {
       const startIdx = visibleIds.indexOf(this.lastClickedTxId);
@@ -2018,6 +2435,118 @@ window.App = {
 
     this.lastClickedTxId = txId;
     this.renderAll();
+  },
+
+  selectAllInTree(accountId, subcategoryId) {
+    const monthYear = this.state.settings.activeMonth;
+    const txs = this.state.transactions.filter(
+      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === accountId && t.subcategoryId === subcategoryId
+    );
+    if (txs.length === 0) return;
+    const ids = txs.map(t => t.id);
+    const allSelected = ids.every(id => this.selectedTxIds.includes(id));
+    if (allSelected) {
+      this.selectedTxIds = this.selectedTxIds.filter(id => !ids.includes(id));
+    } else {
+      ids.forEach(id => {
+        if (!this.selectedTxIds.includes(id)) this.selectedTxIds.push(id);
+      });
+    }
+    this.renderAll();
+  },
+
+  recategorizeTransaction(txId, newSubId) {
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx || !newSubId || tx.subcategoryId === newSubId) return;
+    const newSub = this.getSubcategory(newSubId);
+    const acc = this.getAccount(tx.accountId);
+
+    tx.subcategoryId = newSubId;
+    tx.ownership = this.resolveDefaultOwnership(newSubId, acc.ownerId || tx.paidByUserId);
+
+    const monthProjs = this.state.projections.filter(p => p.monthYear === tx.competenceMonth);
+    const matchProj = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
+      || monthProjs.find(p => p.subcategoryId === newSubId);
+    tx.projectionId = matchProj ? matchProj.id : null;
+
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🏷️ "${tx.description}" movido para "${newSub.name}" (Ctrl+Z p/ desfazer).`, "success");
+  },
+
+  recategorizeSelectedTransactions(newSubId) {
+    if (!newSubId) return;
+    const validSet = new Set(this.selectedTxIds);
+    const newSub = this.getSubcategory(newSubId);
+    let count = 0;
+
+    this.state.transactions.forEach(tx => {
+      if (!validSet.has(tx.id)) return;
+      const acc = this.getAccount(tx.accountId);
+      tx.subcategoryId = newSubId;
+      tx.ownership = this.resolveDefaultOwnership(newSubId, acc.ownerId || tx.paidByUserId);
+      const monthProjs = this.state.projections.filter(p => p.monthYear === tx.competenceMonth);
+      const matchProj = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
+        || monthProjs.find(p => p.subcategoryId === newSubId);
+      tx.projectionId = matchProj ? matchProj.id : null;
+      count++;
+    });
+
+    if (count === 0) return;
+    this.selectedTxIds = [];
+    this.lastClickedTxId = null;
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🏷️ ${count} item(ns) recategorizado(s) para "${newSub.name}"! (Ctrl+Z p/ desfazer)`, "success");
+  },
+
+  learnKeywordFromTransaction(txId) {
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx) return;
+    const sub = this.getSubcategory(tx.subcategoryId);
+
+    const cleanSuggested = (tx.description || "")
+      .replace(/\s*-\s*Parcela\s*\d+\s*\/\s*\d+/i, "")
+      .replace(/\s*-\s*NuPay/i, "")
+      .trim()
+      .toUpperCase();
+
+    const kw = prompt(
+      `Regra automática para "${sub.name}":\nQual texto do estabelecimento deve classificar futuros extratos automaticamente nessa categoria?`,
+      cleanSuggested
+    );
+    if (!kw || !kw.trim()) return;
+    const normKw = kw.trim().toUpperCase();
+
+    if (!sub.keywords) sub.keywords = [];
+    if (!sub.keywords.includes(normKw)) {
+      sub.keywords.push(normKw);
+    }
+
+    // Verifica se existem outros lançamentos do mês em "Outros" ou "Parceladas" com a mesma palavra-chave
+    const fallbackIds = new Set(["sub_outros", "sub_parceladas"]);
+    const similarTxs = this.state.transactions.filter(t =>
+      t.id !== tx.id &&
+      t.competenceMonth === tx.competenceMonth &&
+      fallbackIds.has(t.subcategoryId) &&
+      window.StatementParser &&
+      window.StatementParser.normalizeText(t.description).includes(window.StatementParser.normalizeText(normKw))
+    );
+
+    let extraMoved = 0;
+    if (similarTxs.length > 0 && confirm(`Encontramos mais ${similarTxs.length} lançamento(s) neste mês contendo "${normKw}" em Outros/Parceladas.\nDeseja recategorizá-los para "${sub.name}" agora?`)) {
+      similarTxs.forEach(st => {
+        const acc = this.getAccount(st.accountId);
+        st.subcategoryId = sub.id;
+        st.ownership = this.resolveDefaultOwnership(sub.id, acc.ownerId || st.paidByUserId);
+        extraMoved++;
+      });
+    }
+
+    this.saveState(true);
+    this.renderAll();
+    const extraMsg = extraMoved > 0 ? ` e ${extraMoved} outro(s) item(ns) recategorizado(s)` : "";
+    this.showToast(`🧠 Regra "${normKw}" salva em "${sub.name}"${extraMsg}!`, "success");
   },
 
   toggleSelectAllTransactions(checked) {
