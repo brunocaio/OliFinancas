@@ -200,11 +200,19 @@ window.App = {
 
     const histBulkBtn = document.getElementById("history-bulk-delete-btn");
     const histBulkLabel = document.getElementById("history-bulk-delete-label");
+    const histBulkRecat = document.getElementById("history-bulk-recategorize");
     if (histBulkBtn) {
       histBulkBtn.classList.toggle("hidden", selCount === 0);
       histBulkBtn.classList.toggle("inline-flex", selCount > 0);
       if (histBulkLabel) {
         histBulkLabel.textContent = `Excluir (${selCount})`;
+      }
+    }
+    if (histBulkRecat) {
+      histBulkRecat.classList.toggle("hidden", selCount === 0);
+      histBulkRecat.classList.toggle("inline-block", selCount > 0);
+      if (selCount > 0) {
+        histBulkRecat.innerHTML = `<option value="">🏷️ Recategorizar (${selCount}) p/...</option>` + this.buildSubcategorySelectOptionsHTML("", false);
       }
     }
 
@@ -2006,9 +2014,60 @@ window.App = {
     this.showToast(`🏷️ Parcelamento movido para "${newSub.name}" (${updated} parcela(s) atualizada(s))!`, "success");
   },
 
+  handleInstallmentSeriesCheck(event, txIdsCSV) {
+    if (!txIdsCSV) return;
+    const ids = txIdsCSV.split(",").filter(Boolean);
+    const checked = event.target.checked;
+    const seriesOrder = this.visibleInstallmentSeries || [];
+    const curIdx = seriesOrder.findIndex(entry => entry.txIdsCSV === txIdsCSV);
+
+    if (event.shiftKey && this.lastClickedInstKey && curIdx !== -1) {
+      const prevIdx = seriesOrder.findIndex(entry => entry.key === this.lastClickedInstKey);
+      if (prevIdx !== -1) {
+        const [from, to] = prevIdx < curIdx ? [prevIdx, curIdx] : [curIdx, prevIdx];
+        for (let i = from; i <= to; i++) {
+          seriesOrder[i].txIds.forEach(id => {
+            if (checked && !this.selectedTxIds.includes(id)) {
+              this.selectedTxIds.push(id);
+            } else if (!checked) {
+              this.selectedTxIds = this.selectedTxIds.filter(x => x !== id);
+            }
+          });
+        }
+      }
+    } else {
+      ids.forEach(id => {
+        if (checked && !this.selectedTxIds.includes(id)) {
+          this.selectedTxIds.push(id);
+        } else if (!checked) {
+          this.selectedTxIds = this.selectedTxIds.filter(x => x !== id);
+        }
+      });
+    }
+
+    const found = seriesOrder[curIdx];
+    this.lastClickedInstKey = found ? found.key : null;
+    this.renderAll();
+  },
+
+  selectAllInstallmentsInList(txIdsCSV) {
+    if (!txIdsCSV) return;
+    const ids = txIdsCSV.split(",").filter(Boolean);
+    const allSelected = ids.every(id => this.selectedTxIds.includes(id));
+    if (allSelected) {
+      this.selectedTxIds = this.selectedTxIds.filter(id => !ids.includes(id));
+    } else {
+      ids.forEach(id => {
+        if (!this.selectedTxIds.includes(id)) this.selectedTxIds.push(id);
+      });
+    }
+    this.renderAll();
+  },
+
   buildInstallmentCardHTML(s) {
     const pct = Math.min(100, Math.round((s.paidCount / s.total) * 100));
     const txIdsCSV = s.txIds.join(",");
+    const isChecked = s.txIds.length > 0 && s.txIds.every(id => this.selectedTxIds.includes(id));
 
     let barHTML = "";
     if (s.total <= 12) {
@@ -2039,9 +2098,17 @@ window.App = {
       : `<span class="px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 text-[10px] font-extrabold">Faltam ${s.remainingCount} parcelas</span>`;
 
     return `
-      <div class="p-4 border-b border-stone-100 last:border-b-0 hover:bg-stone-50/70 transition space-y-2.5">
+      <div class="p-4 border-b border-stone-100 last:border-b-0 ${isChecked ? "bg-lime-50/70" : "hover:bg-stone-50/70"} transition space-y-2.5">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div class="min-w-0">
+          <div class="flex items-start gap-2.5 min-w-0">
+            <input
+              type="checkbox"
+              ${isChecked ? "checked" : ""}
+              onclick="App.handleInstallmentSeriesCheck(event, '${txIdsCSV}')"
+              class="mt-1 w-4 h-4 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
+              title="Selecionar para recategorizar ou excluir várias parceladas (Shift + Clique para intervalo)"
+            />
+            <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-extrabold text-stone-900 text-sm truncate">${s.baseName}</span>
               <span class="px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 text-[11px] font-bold">
@@ -2060,6 +2127,7 @@ window.App = {
               <span>•</span>
               <span>Quita em <strong class="text-stone-600">${s.endMonthLabel}</strong></span>
               ${!s.hasInActiveMonth ? `<span class="text-amber-700 font-semibold">(Última ref.: ${this.getMonthLabel(s.displayTx.competenceMonth)})</span>` : ""}
+            </div>
             </div>
           </div>
 
@@ -2164,11 +2232,22 @@ window.App = {
 
     if (this.installmentGroupMode === "REMAINING") {
       const sorted = [...filtered].sort((a, b) => a.remainingCount - b.remainingCount || b.parcelValue - a.parcelValue);
+      this.visibleInstallmentSeries = sorted.map(s => ({ key: s.key, txIds: s.txIds, txIdsCSV: s.txIds.join(",") }));
+      const allSortedIdsCSV = sorted.flatMap(s => s.txIds).join(",");
       groupsEl.innerHTML = `
         <div class="oli-card rounded-3xl overflow-hidden shadow-xs">
-          <div class="px-5 py-3.5 bg-stone-50 border-b border-stone-200/80 flex items-center justify-between">
+          <div class="px-5 py-3.5 bg-stone-50 border-b border-stone-200/80 flex flex-wrap items-center justify-between gap-2">
             <span class="font-extrabold text-stone-800 text-xs uppercase tracking-wider">Ordenado pela Quantidade de Parcelas Restantes</span>
-            <span class="text-xs font-bold text-stone-500">${sorted.length} compra(s)</span>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                onclick="App.selectAllInstallmentsInList('${allSortedIdsCSV}')"
+                class="px-2.5 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-700 text-[11px] font-bold transition"
+              >
+                ☑ Selecionar todas (${sorted.length})
+              </button>
+              <span class="text-xs font-bold text-stone-500">${sorted.length} compra(s)</span>
+            </div>
           </div>
           <div>${sorted.map(s => this.buildInstallmentCardHTML(s)).join("")}</div>
         </div>
@@ -2200,17 +2279,30 @@ window.App = {
     }
 
     const groups = Array.from(groupMap.values()).sort((a, b) => b.monthlyTotal - a.monthlyTotal);
+    this.visibleInstallmentSeries = [];
 
     groupsEl.innerHTML = groups
       .map(g => {
         g.items.sort((a, b) => b.remainingCount - a.remainingCount || b.parcelValue - a.parcelValue);
+        g.items.forEach(s => {
+          this.visibleInstallmentSeries.push({ key: s.key, txIds: s.txIds, txIdsCSV: s.txIds.join(",") });
+        });
+        const groupTxIdsCSV = g.items.flatMap(s => s.txIds).join(",");
         return `
           <div class="oli-card rounded-3xl overflow-hidden shadow-xs">
             <div class="px-5 py-3.5 bg-stone-50/90 border-b border-stone-200/80 flex flex-wrap items-center justify-between gap-2">
-              <div class="flex items-center gap-2.5">
+              <div class="flex items-center gap-2.5 flex-wrap">
                 <span class="w-3 h-3 rounded-full shrink-0" style="background:${g.color}"></span>
                 <h3 class="font-extrabold text-stone-900 text-xs sm:text-sm uppercase tracking-tight">${g.title}</h3>
                 <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-stone-200/70 text-stone-600">${g.items.length} ${g.items.length === 1 ? "item" : "itens"}</span>
+                <button
+                  type="button"
+                  onclick="App.selectAllInstallmentsInList('${groupTxIdsCSV}')"
+                  class="px-2 py-0.5 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 text-[11px] font-bold transition"
+                  title="Marcar ou desmarcar todos deste grupo para recategorizar em lote"
+                >
+                  ☑ Selecionar grupo
+                </button>
               </div>
               <div class="flex items-center gap-3 text-xs">
                 <span class="text-stone-500">No mês: <strong class="text-stone-900">${this.formatBRL(g.monthlyTotal)}</strong></span>
@@ -2958,13 +3050,17 @@ window.App = {
       importSelectAll.indeterminate = selectedItems.length > 0 && selectedItems.length < this.stagedImports.length;
     }
 
+    const importBulkRecat = document.getElementById("import-bulk-recategorize");
+    if (importBulkRecat) {
+      importBulkRecat.innerHTML = `<option value="">🏷️ Recategorizar Marcados (${selectedItems.length}) p/...</option>` +
+        this.buildSubcategorySelectOptionsHTML("", false);
+    }
+
     const availableMonths = ["2026-09", "2026-10", "2026-11", "2026-12", "2027-01"];
 
     tbody.innerHTML = this.stagedImports
       .map((item, idx) => {
-        const subOptions = this.state.subcategories
-          .map(s => `<option value="${s.id}" ${s.id === item.subcategoryId ? "selected" : ""}>${s.name}</option>`)
-          .join("");
+        const subOptions = this.buildSubcategorySelectOptionsHTML(item.subcategoryId, false);
 
         const compOptions = availableMonths
           .map(m => `<option value="${m}" ${m === item.competenceMonth ? "selected" : ""}>${this.getMonthLabel(m)}</option>`)
@@ -3128,6 +3224,35 @@ window.App = {
       item.selected = Boolean(checked);
     });
     this.renderImportTab(this.state.settings.activeMonth);
+  },
+
+  recategorizeSelectedStagedImports(newSubId) {
+    if (!newSubId) return;
+    const selectedItems = this.stagedImports.filter(i => i.selected);
+    if (selectedItems.length === 0) {
+      this.showToast("Marque pelo menos um item na lista de revisão para recategorizar.", "error");
+      return;
+    }
+
+    this.pushUndoSnapshot();
+    const newSub = this.getSubcategory(newSubId);
+    const monthProjs = this.state.projections.filter(p => p.monthYear === this.state.settings.activeMonth);
+
+    selectedItems.forEach(item => {
+      item.subcategoryId = newSubId;
+      item.ownership = this.resolveDefaultOwnership(newSubId, item.paidByUserId);
+      const match = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === item.accountId))
+        || monthProjs.find(p => p.subcategoryId === newSubId);
+      if (match) item.projectionId = match.id;
+    });
+
+    this.lastSavedSnapshot = JSON.stringify({
+      state: this.state,
+      stagedImports: this.stagedImports
+    });
+    this.renderImportTab(this.state.settings.activeMonth);
+    this.updateUndoAndBulkUI();
+    this.showToast(`🏷️ ${selectedItems.length} item(ns) da prévia movido(s) para "${newSub.name}" (Ctrl+Z p/ desfazer)!`, "success");
   },
 
   deleteSelectedStagedImports() {

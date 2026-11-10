@@ -413,6 +413,14 @@
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <span id="import-selected-count" class="text-xs font-bold text-lime-800"></span>
+            <select
+              id="import-bulk-recategorize"
+              onchange="if(this.value){ App.recategorizeSelectedStagedImports(this.value); this.value=''; }"
+              class="bg-white hover:bg-stone-50 border border-lime-300 text-lime-900 text-xs font-bold px-2.5 py-1.5 rounded-xl cursor-pointer max-w-[205px]"
+              title="Alterar a subcategoria de todos os lançamentos marcados na prévia"
+            >
+              <option value="">🏷️ Recategorizar Marcados p/...</option>
+            </select>
             <button
               type="button"
               onclick="App.deleteSelectedStagedImports()"
@@ -475,11 +483,21 @@
               <span id="history-count-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-stone-200/70 text-stone-600"></span>
             </h3>
             <p class="text-xs text-stone-500 mt-0.5">
-              Marque vários itens (ou use <strong>Shift + Clique</strong>) para excluir em lote. Use <strong>Ctrl + Z</strong> para desfazer qualquer ação.
+              Marque vários itens (ou use <strong>Shift + Clique</strong>) para recategorizar ou excluir em lote. Use <strong>Ctrl + Z</strong> para desfazer qualquer ação.
             </p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
+            <!-- Recategorizar Selecionados em Lote -->
+            <select
+              id="history-bulk-recategorize"
+              onchange="if(this.value){ App.recategorizeSelectedTransactions(this.value); this.value=''; }"
+              class="hidden bg-lime-700 hover:bg-lime-800 text-white text-xs font-extrabold px-3 py-1.5 rounded-xl shadow-xs transition cursor-pointer max-w-[210px]"
+              title="Recategorizar todos os lançamentos marcados de uma só vez"
+            >
+              <option value="">🏷️ Recategorizar p/...</option>
+            </select>
+
             <!-- Botão Excluir Selecionados em Lote -->
             <button
               id="history-bulk-delete-btn"
@@ -1080,9 +1098,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=15"></script>
-  <script src="./js/ofx-csv-parser.js?v=15"></script>
-  <script src="./js/supabase-sync.js?v=15"></script>
-  <script src="./js/app.js?v=15"></script>
+  <script src="./js/data-seed.js?v=16"></script>
+  <script src="./js/ofx-csv-parser.js?v=16"></script>
+  <script src="./js/supabase-sync.js?v=16"></script>
+  <script src="./js/app.js?v=16"></script>
 </body>
 </html>
