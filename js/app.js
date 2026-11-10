@@ -15,6 +15,7 @@ const OLIVE_QUOTES = [
 window.App = {
   state: null,
   currentTab: "dashboard",
+  dashboardEntryMode: "IMPORT",
   activeUserFilter: "bruno", // Prioriza Bruno por padrão
   loggedUser: "bruno",
   quickTxType: "EXPENSE",
@@ -1004,6 +1005,35 @@ window.App = {
     window.scrollTo({ top: 0, behavior: "smooth" });
   },
 
+  setDashboardEntryMode(mode = "IMPORT") {
+    this.dashboardEntryMode = mode === "QUICK" ? "QUICK" : "IMPORT";
+    const isQuick = this.dashboardEntryMode === "QUICK";
+    const importPanel = document.getElementById("entry-panel-import");
+    const quickPanel = document.getElementById("entry-panel-quick");
+    const quickTypes = document.getElementById("entry-tab-quick-types");
+    const btnImport = document.getElementById("entry-tab-btn-import");
+    const btnQuick = document.getElementById("entry-tab-btn-quick");
+
+    if (importPanel) importPanel.classList.toggle("hidden", isQuick);
+    if (quickPanel) quickPanel.classList.toggle("hidden", !isQuick);
+    if (quickTypes) quickTypes.classList.toggle("hidden", !isQuick);
+
+    if (btnImport) {
+      btnImport.className = `px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+        !isQuick
+          ? "font-extrabold bg-white text-stone-900 shadow-2xs"
+          : "font-semibold text-stone-500 hover:text-stone-900"
+      }`;
+    }
+    if (btnQuick) {
+      btnQuick.className = `px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+        isQuick
+          ? "font-extrabold bg-white text-stone-900 shadow-2xs"
+          : "font-semibold text-stone-500 hover:text-stone-900"
+      }`;
+    }
+  },
+
   setUserFilter(filter) {
     this.activeUserFilter = filter;
     if (filter === "bruno" || filter === "nubia") {
@@ -1419,13 +1449,13 @@ window.App = {
         : "bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-900";
 
       kpiContainer.innerHTML = `
-        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-xs shadow-2xs">
+        <div class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-[11px] sm:text-xs shadow-2xs">
           <span class="text-stone-400 font-semibold">Saídas (${userLabel}):</span>
-          <strong class="text-stone-900 font-extrabold">${this.formatBRL(summary.totalActualExpenses)}</strong>
+          <strong class="text-stone-900 font-extrabold whitespace-nowrap tabular-nums">${this.formatBRL(summary.totalActualExpenses)}</strong>
         </div>
-        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-xs shadow-2xs">
-          <span class="text-stone-400 font-semibold">Meta Geral:</span>
-          <strong class="text-stone-700 font-bold">${this.formatBRL(summary.totalPlannedExpenses)}</strong>
+        <div class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-[11px] sm:text-xs shadow-2xs">
+          <span class="text-stone-400 font-semibold">Meta:</span>
+          <strong class="text-stone-700 font-bold whitespace-nowrap tabular-nums">${this.formatBRL(summary.totalPlannedExpenses)}</strong>
         </div>
         <button
           type="button"
@@ -1488,17 +1518,18 @@ window.App = {
         if (Math.abs(cs.brunoNetCredit) < 1) {
           settlementMsg = `<span class="text-lime-800 font-bold">🫒 Tudo em equilíbrio! As contas coletivas estão 100% acertadas.</span>`;
         } else if (cs.brunoNetCredit > 0) {
-          settlementMsg = `Para equilibrar as despesas da casa, <strong>Núbia</strong> transfere <strong class="text-lime-800 text-sm">${this.formatBRL(cs.brunoNetCredit)}</strong> para <strong>Bruno</strong>.`;
+          settlementMsg = `Para equilibrar as despesas da casa, <strong>Núbia</strong> transfere <strong class="text-lime-800 text-xs sm:text-sm whitespace-nowrap tabular-nums">${this.formatBRL(cs.brunoNetCredit)}</strong> para <strong>Bruno</strong>.`;
         } else {
-          settlementMsg = `Para equilibrar as despesas da casa, <strong>Bruno</strong> transfere <strong class="text-lime-800 text-sm">${this.formatBRL(Math.abs(cs.brunoNetCredit))}</strong> para <strong>Núbia</strong>.`;
+          settlementMsg = `Para equilibrar as despesas da casa, <strong>Bruno</strong> transfere <strong class="text-lime-800 text-xs sm:text-sm whitespace-nowrap tabular-nums">${this.formatBRL(Math.abs(cs.brunoNetCredit))}</strong> para <strong>Núbia</strong>.`;
         }
 
         splitEl.innerHTML = `
           <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-stone-100">
             <div>
-              <h3 class="text-sm font-extrabold text-stone-900 flex items-center gap-2">
+              <h3 class="text-sm font-extrabold text-stone-900 flex items-center gap-2 flex-wrap">
                 <i data-lucide="users" class="w-4 h-4 text-lime-700"></i>
-                Divisão do Casal • Gastos Coletivos da Casa: ${this.formatBRL(cs.totalHouseholdCollective)}
+                <span>Divisão do Casal • Gastos Coletivos da Casa:</span>
+                <span class="whitespace-nowrap tabular-nums">${this.formatBRL(cs.totalHouseholdCollective)}</span>
               </h3>
               <p class="text-xs text-stone-500 mt-0.5">Comparativo de quanto cada um pagou pelas despesas coletivas e cálculo de equilíbrio</p>
             </div>
@@ -1514,21 +1545,21 @@ window.App = {
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
             <div class="bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-4">
-              <div class="flex items-center justify-between">
+              <div class="flex items-center justify-between gap-2">
                 <span class="text-xs font-extrabold text-lime-800 uppercase">Bruno (${brunoPct}%)</span>
-                <span class="text-xs text-stone-500">Quota Casa: ${this.formatBRL(cs.brunoFairShare)}</span>
+                <span class="text-xs text-stone-500 whitespace-nowrap tabular-nums">Quota: ${this.formatBRL(cs.brunoFairShare)}</span>
               </div>
-              <div class="mt-2 text-lg font-extrabold text-stone-900">Pagou: ${this.formatBRL(cs.paidByBrunoCollective)}</div>
-              <div class="text-xs text-stone-500 mt-1">Gastos Individuais Bruno: ${this.formatBRL(fullSummary.individualBrunoActual)}</div>
+              <div class="mt-2 text-base sm:text-lg font-extrabold text-stone-900 whitespace-nowrap tabular-nums">Pagou: ${this.formatBRL(cs.paidByBrunoCollective)}</div>
+              <div class="text-xs text-stone-500 mt-1">Individuais Bruno: <span class="whitespace-nowrap tabular-nums font-semibold">${this.formatBRL(fullSummary.individualBrunoActual)}</span></div>
             </div>
 
             <div class="bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-4">
-              <div class="flex items-center justify-between">
+              <div class="flex items-center justify-between gap-2">
                 <span class="text-xs font-extrabold text-rose-700 uppercase">Núbia (${nubiaPct}%)</span>
-                <span class="text-xs text-stone-500">Quota Casa: ${this.formatBRL(cs.nubiaFairShare)}</span>
+                <span class="text-xs text-stone-500 whitespace-nowrap tabular-nums">Quota: ${this.formatBRL(cs.nubiaFairShare)}</span>
               </div>
-              <div class="mt-2 text-lg font-extrabold text-stone-900">Pagou: ${this.formatBRL(cs.paidByNubiaCollective)}</div>
-              <div class="text-xs text-stone-500 mt-1">Gastos Individuais Núbia: ${this.formatBRL(fullSummary.individualNubiaActual)}</div>
+              <div class="mt-2 text-base sm:text-lg font-extrabold text-stone-900 whitespace-nowrap tabular-nums">Pagou: ${this.formatBRL(cs.paidByNubiaCollective)}</div>
+              <div class="text-xs text-stone-500 mt-1">Individuais Núbia: <span class="whitespace-nowrap tabular-nums font-semibold">${this.formatBRL(fullSummary.individualNubiaActual)}</span></div>
             </div>
 
             <div class="bg-lime-50 border border-lime-200 rounded-xl p-4 flex flex-col justify-center">
@@ -1546,36 +1577,36 @@ window.App = {
         diagKpis.innerHTML = `
           <div class="oli-card rounded-2xl p-4">
             <div class="text-xs font-bold text-stone-500">Entradas (${activeUserName})</div>
-            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.totalIncome)}</div>
+            <div class="text-lg sm:text-xl font-extrabold text-stone-900 mt-1 whitespace-nowrap tabular-nums">${this.formatBRL(fullSummary.totalIncome)}</div>
             <div class="text-[11px] text-stone-500 mt-1">Receitas nas contas de ${activeUserName}</div>
           </div>
           <div class="oli-card rounded-2xl p-4">
             <div class="text-xs font-bold text-stone-500">Saídas Totais (${activeUserName})</div>
-            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.totalActualExpenses)}</div>
-            <div class="text-[11px] text-stone-500 mt-1">Meta das contas de ${activeUserName}: ${this.formatBRL(fullSummary.totalPlannedExpenses)}</div>
+            <div class="text-lg sm:text-xl font-extrabold text-stone-900 mt-1 whitespace-nowrap tabular-nums">${this.formatBRL(fullSummary.totalActualExpenses)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Meta de ${activeUserName}: <span class="whitespace-nowrap tabular-nums font-semibold">${this.formatBRL(fullSummary.totalPlannedExpenses)}</span></div>
           </div>
           <div class="oli-card rounded-2xl p-4">
             <div class="text-xs font-bold text-stone-500">Individuais (${activeUserName})</div>
-            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.individualTotalActual)}</div>
-            <div class="text-[11px] text-stone-500 mt-1">Meta individual: ${this.formatBRL(fullSummary.individualTotalPlanned)}</div>
+            <div class="text-lg sm:text-xl font-extrabold text-stone-900 mt-1 whitespace-nowrap tabular-nums">${this.formatBRL(fullSummary.individualTotalActual)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Meta individual: <span class="whitespace-nowrap tabular-nums font-semibold">${this.formatBRL(fullSummary.individualTotalPlanned)}</span></div>
           </div>
         `;
       } else {
         diagKpis.innerHTML = `
           <div class="oli-card rounded-2xl p-4">
             <div class="text-xs font-bold text-stone-500">Receita Total da Casa</div>
-            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.incomeBruno + fullSummary.incomeNubia)}</div>
-            <div class="text-[11px] text-stone-500 mt-1">Bruno: ${this.formatBRL(fullSummary.incomeBruno)} • Núbia: ${this.formatBRL(fullSummary.incomeNubia)}</div>
+            <div class="text-lg sm:text-xl font-extrabold text-stone-900 mt-1 whitespace-nowrap tabular-nums">${this.formatBRL(fullSummary.incomeBruno + fullSummary.incomeNubia)}</div>
+            <div class="text-[11px] text-stone-500 mt-1 flex flex-wrap gap-x-2"><span>Bruno: <strong class="whitespace-nowrap tabular-nums">${this.formatBRL(fullSummary.incomeBruno)}</strong></span><span>• Núbia: <strong class="whitespace-nowrap tabular-nums">${this.formatBRL(fullSummary.incomeNubia)}</strong></span></div>
           </div>
           <div class="oli-card rounded-2xl p-4">
             <div class="text-xs font-bold text-stone-500">Gastos Coletivos (Realizado / Meta)</div>
-            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.collectiveActual)}</div>
-            <div class="text-[11px] text-stone-500 mt-1">Meta Coletiva: ${this.formatBRL(fullSummary.collectivePlanned)}</div>
+            <div class="text-lg sm:text-xl font-extrabold text-stone-900 mt-1 whitespace-nowrap tabular-nums">${this.formatBRL(fullSummary.collectiveActual)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Meta Coletiva: <span class="whitespace-nowrap tabular-nums font-semibold">${this.formatBRL(fullSummary.collectivePlanned)}</span></div>
           </div>
           <div class="oli-card rounded-2xl p-4">
             <div class="text-xs font-bold text-stone-500">Gastos Individuais Somados</div>
-            <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(fullSummary.individualBrunoActual + fullSummary.individualNubiaActual)}</div>
-            <div class="text-[11px] text-stone-500 mt-1">Meta Individual: ${this.formatBRL(fullSummary.individualTotalPlanned)}</div>
+            <div class="text-lg sm:text-xl font-extrabold text-stone-900 mt-1 whitespace-nowrap tabular-nums">${this.formatBRL(fullSummary.individualBrunoActual + fullSummary.individualNubiaActual)}</div>
+            <div class="text-[11px] text-stone-500 mt-1">Meta Individual: <span class="whitespace-nowrap tabular-nums font-semibold">${this.formatBRL(fullSummary.individualTotalPlanned)}</span></div>
           </div>
         `;
       }
@@ -1949,6 +1980,7 @@ window.App = {
       return;
     }
 
+    this.setDashboardEntryMode("QUICK");
     if (accSelect) accSelect.value = accountId;
     if (subSelect) subSelect.value = subcategoryId;
     this.onQuickSubcategoryChange(subcategoryId);
@@ -2126,7 +2158,7 @@ window.App = {
                                   >
                                     +Regra
                                   </button>
-                                  <span class="font-extrabold w-20 text-right ${isCredit ? "text-emerald-700" : "text-stone-900"}">
+                                  <span class="font-extrabold text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${isCredit ? "text-emerald-700" : "text-stone-900"}">
                                     ${isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
                                   </span>
                                   <button
@@ -2186,14 +2218,14 @@ window.App = {
             </td>
 
             <!-- Coluna REALIZADO (Estilo Planilha) -->
-            <td class="py-2 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">
-              <div class="inline-block w-full px-2 py-1.5 rounded-lg font-extrabold text-[11px] sm:text-sm text-right break-words ${colors.actualClass}">
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-32">
+              <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
                 ${this.formatBRL(item.actual)}
               </div>
             </td>
 
             <!-- Coluna META (Editável direto na célula) -->
-            <td class="py-2 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
               <div class="relative flex items-center justify-end">
                 <input
                   type="number"
@@ -2201,15 +2233,15 @@ window.App = {
                   value="${Number(item.meta).toFixed(2)}"
                   onchange="${metaChangeCall}"
                   title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
-                  class="w-full rounded-lg px-2 py-1.5 text-right font-extrabold text-[11px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
+                  class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right font-extrabold text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
                 />
               </div>
             </td>
 
             <!-- Coluna SALDO / AÇÃO RÁPIDA -->
-            <td class="py-2.5 px-2 sm:px-4 text-right w-[86px] sm:w-32">
-              <div class="flex items-center justify-end gap-1 flex-wrap">
-                <span class="text-[11px] sm:text-xs font-bold break-words ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+            <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
+              <div class="flex items-center justify-end gap-0.5 sm:gap-1 flex-nowrap">
+                <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
                   ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
                 </span>
                 <button
@@ -2218,7 +2250,7 @@ window.App = {
                   class="opacity-70 group-hover:opacity-100 p-0.5 rounded-lg hover:bg-lime-100 text-lime-800 transition shrink-0"
                   title="Adicionar lançamento nesta categoria"
                 >
-                  <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                  <i data-lucide="plus-circle" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
                 </button>
               </div>
             </td>
@@ -2413,29 +2445,29 @@ window.App = {
                 }
               </div>
             </td>
-            <td class="py-2 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">
-              <div class="inline-block w-full px-2 py-1.5 rounded-lg font-extrabold text-[11px] sm:text-sm text-right break-words ${colors.actualClass}">
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-32">
+              <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
                 ${this.formatBRL(row.actual)}
               </div>
               ${
                 row.invoiceCredits > 0
-                  ? `<div class="text-[10px] text-emerald-700 font-semibold mt-0.5 break-words" title="Compras: ${this.formatBRL(row.grossPurchases)} | Estornos/Descontos: -${this.formatBRL(row.invoiceCredits)}">Compras ${this.formatBRL(row.grossPurchases)} − Desc. ${this.formatBRL(row.invoiceCredits)}</div>`
+                  ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-semibold mt-0.5 whitespace-nowrap tabular-nums" title="Compras: ${this.formatBRL(row.grossPurchases)} | Estornos/Descontos: -${this.formatBRL(row.invoiceCredits)}">${this.formatBRL(row.grossPurchases)} − ${this.formatBRL(row.invoiceCredits)}</div>`
                   : ""
               }
             </td>
-            <td class="py-2 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
               <button
                 type="button"
                 onclick="App.promptCardCustomMeta('${row.card.id}')"
                 title="Clique para arbitrar um valor fixo para o cartão ou usar a soma automática das categorias"
-                class="w-full px-2 py-1.5 rounded-lg font-extrabold text-[11px] sm:text-sm text-right flex items-center justify-between gap-1 hover:ring-2 hover:ring-lime-600 transition ${colors.metaClass}"
+                class="w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right flex items-center justify-between gap-0.5 hover:ring-2 hover:ring-lime-600 transition ${colors.metaClass}"
               >
-                <i data-lucide="pencil" class="w-3 h-3 opacity-50 shrink-0"></i>
-                <span class="break-words">${this.formatBRL(row.meta)}</span>
+                <i data-lucide="pencil" class="w-2.5 h-2.5 sm:w-3 sm:h-3 opacity-50 shrink-0"></i>
+                <span class="whitespace-nowrap tabular-nums">${this.formatBRL(row.meta)}</span>
               </button>
             </td>
-            <td class="py-2.5 px-2 sm:px-4 text-right w-[86px] sm:w-32">
-              <span class="text-[11px] sm:text-xs font-bold break-words ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+            <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
+              <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
                 ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
               </span>
             </td>
@@ -2536,28 +2568,28 @@ window.App = {
               <table class="w-full table-fixed text-left border-collapse">
                 <thead>
                   <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
-                    <th class="py-2.5 px-2.5 sm:px-4 w-auto">Categoria do Cartão</th>
-                    <th class="py-2.5 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">Realizado</th>
-                    <th class="py-2.5 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">Meta</th>
-                    <th class="py-2.5 px-2 sm:px-4 text-right w-[86px] sm:w-32">Saldo</th>
+                    <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria do Cartão</th>
+                    <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
+                    <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
+                    <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
                   ${this.buildCategoryTreeRowsHTML(card.id, displayCardItems, monthYear)}
                 </tbody>
                 <tfoot>
-                  <tr class="bg-emerald-100/70 border-t-2 border-emerald-300/80 font-extrabold text-stone-900 text-xs sm:text-sm">
-                    <td class="py-3 px-3 sm:px-4 uppercase tracking-wide">
+                  <tr class="bg-emerald-100/70 border-t-2 border-emerald-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
+                    <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">
                       TOTAL ${card.name.split("(")[0].trim()}
                       ${
                         metaInfo.isArbitrated
-                          ? `<span class="ml-2 text-[11px] font-semibold text-stone-600 normal-case">(Soma das categorias: ${this.formatBRL(metaInfo.categoriesSum)})</span>`
+                          ? `<span class="ml-1 sm:ml-2 text-[10px] sm:text-[11px] font-semibold text-stone-600 normal-case whitespace-nowrap tabular-nums">(Σ ${this.formatBRL(metaInfo.categoriesSum)})</span>`
                           : ""
                       }
                     </td>
-                    <td class="py-3 px-2 sm:px-3 text-right">${this.formatBRL(cardActual)}</td>
-                    <td class="py-3 px-2 sm:px-3 text-right">${this.formatBRL(metaInfo.effectiveMeta)}</td>
-                    <td class="py-3 px-3 sm:px-4 text-right ${cardDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(cardActual)}</td>
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(metaInfo.effectiveMeta)}</td>
+                    <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${cardDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
                       ${cardDiff >= 0 ? "+" : ""}${this.formatBRL(cardDiff)}
                     </td>
                   </tr>
@@ -2600,10 +2632,10 @@ window.App = {
           <table class="w-full table-fixed text-left border-collapse">
             <thead>
               <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
-                <th class="py-2.5 px-2.5 sm:px-4 w-auto">Conta Corrente (Faturas + Contas em Débito)</th>
-                <th class="py-2.5 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">Realizado</th>
-                <th class="py-2.5 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">Meta</th>
-                <th class="py-2.5 px-2 sm:px-4 text-right w-[86px] sm:w-32">Saldo</th>
+                <th class="py-2.5 px-2 sm:px-4 w-auto">Conta Corrente (Faturas + Débito)</th>
+                <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
+                <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
+                <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
               </tr>
             </thead>
             <tbody>
@@ -2611,18 +2643,18 @@ window.App = {
               ${cardsInCheckingHTML}
 
               <!-- SUBTOTAL CARTÕES (TOTAL CARTÃO) -->
-              <tr class="bg-emerald-100/80 border-b-2 border-emerald-300/80 font-extrabold text-stone-900 text-xs sm:text-sm">
-                <td class="py-2.5 px-3 sm:px-4 uppercase tracking-wide">TOTAL CARTÃO</td>
-                <td class="py-2.5 px-2 sm:px-3 text-right">${this.formatBRL(totalCardsActual)}</td>
-                <td class="py-2.5 px-2 sm:px-3 text-right">${this.formatBRL(totalCardsMeta)}</td>
-                <td class="py-2.5 px-3 sm:px-4 text-right ${(totalCardsMeta - totalCardsActual) >= 0 ? "text-lime-800" : "text-rose-700"}">
+              <tr class="bg-emerald-100/80 border-b-2 border-emerald-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
+                <td class="py-2.5 px-2 sm:px-4 uppercase tracking-wide">TOTAL CARTÃO</td>
+                <td class="py-2.5 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(totalCardsActual)}</td>
+                <td class="py-2.5 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(totalCardsMeta)}</td>
+                <td class="py-2.5 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${(totalCardsMeta - totalCardsActual) >= 0 ? "text-lime-800" : "text-rose-700"}">
                   ${(totalCardsMeta - totalCardsActual) >= 0 ? "+" : ""}${this.formatBRL(totalCardsMeta - totalCardsActual)}
                 </td>
               </tr>
 
               <!-- Divisor sutil para Contas da Casa em Débito -->
               <tr class="bg-stone-50/90 border-b border-stone-200/70">
-                <td colspan="4" class="py-1.5 px-3 sm:px-4 text-[11px] font-extrabold uppercase tracking-wider text-stone-500">
+                <td colspan="4" class="py-1.5 px-2.5 sm:px-4 text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-stone-500">
                   Contas do Mês em Débito / Pix na Conta Corrente (clique em [+] para abrir os lançamentos)
                 </td>
               </tr>
@@ -2632,11 +2664,11 @@ window.App = {
             </tbody>
             <tfoot>
               <!-- TOTAL DESPESAS (CONTA CORRENTE) -->
-              <tr class="bg-stone-900 text-white font-extrabold text-xs sm:text-sm">
-                <td class="py-3.5 px-3 sm:px-4 uppercase tracking-wider">TOTAL DESPESAS (Saída Conta Corrente)</td>
-                <td class="py-3.5 px-2 sm:px-3 text-right text-amber-300">${this.formatBRL(grandTotalCheckingActual)}</td>
-                <td class="py-3.5 px-2 sm:px-3 text-right text-stone-200">${this.formatBRL(grandTotalCheckingMeta)}</td>
-                <td class="py-3.5 px-3 sm:px-4 text-right ${grandTotalDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
+              <tr class="bg-stone-900 text-white font-extrabold text-[10px] sm:text-sm">
+                <td class="py-3.5 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL DESPESAS</td>
+                <td class="py-3.5 px-1 sm:px-3 text-right text-amber-300 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalCheckingActual)}</td>
+                <td class="py-3.5 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalCheckingMeta)}</td>
+                <td class="py-3.5 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${grandTotalDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
                   ${grandTotalDiff >= 0 ? "+" : ""}${this.formatBRL(grandTotalDiff)}
                 </td>
               </tr>
@@ -2934,9 +2966,9 @@ window.App = {
           </div>
 
           <div class="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-            <div class="text-right">
-              <div class="text-sm font-extrabold text-stone-900">${this.formatBRL(s.parcelValue)}<span class="text-[11px] font-medium text-stone-400">/mês</span></div>
-              <div class="text-[11px] font-bold ${s.remainingValue > 0 ? "text-amber-700" : "text-emerald-700"}">
+            <div class="text-left sm:text-right">
+              <div class="text-xs sm:text-sm font-extrabold text-stone-900 whitespace-nowrap tabular-nums">${this.formatBRL(s.parcelValue)}<span class="text-[10px] sm:text-[11px] font-medium text-stone-400">/mês</span></div>
+              <div class="text-[11px] font-bold ${s.remainingValue > 0 ? "text-amber-700" : "text-emerald-700"} whitespace-nowrap tabular-nums">
                 ${s.remainingValue > 0 ? `Falta pagar: ${this.formatBRL(s.remainingValue)}` : "Quitada neste mês"}
               </div>
             </div>
@@ -2947,9 +2979,9 @@ window.App = {
         <div class="flex flex-col sm:flex-row sm:items-center gap-3">
           <div class="flex-1 space-y-1">
             ${barHTML}
-            <div class="flex items-center justify-between text-[10px] text-stone-400 font-semibold">
+            <div class="flex items-center justify-between gap-2 text-[10px] text-stone-400 font-semibold">
               <span>${pct}% concluído (${s.paidCount} de ${s.total})</span>
-              <span>Total compra: ${this.formatBRL(s.totalValue)}</span>
+              <span class="whitespace-nowrap tabular-nums">Total: ${this.formatBRL(s.totalValue)}</span>
             </div>
           </div>
 
@@ -3011,24 +3043,24 @@ window.App = {
     kpisEl.innerHTML = `
       <div class="oli-card rounded-2xl p-4">
         <div class="text-xs font-bold text-stone-500">Parcelas em ${this.getMonthLabel(monthYear)}</div>
-        <div class="text-xl font-extrabold text-stone-900 mt-1">${this.formatBRL(combinedMonthTotal)}</div>
-        <div class="text-[11px] text-stone-500 mt-1">
-          Cartões (${filtered.length}): <strong>${this.formatBRL(monthlyParcelSum)}</strong>
-          ${financingStats.activeCount > 0 ? ` • Imóvel: <strong class="text-orange-700">${this.formatBRL(financingStats.monthlyAmount)}</strong>` : ""}
+        <div class="text-lg sm:text-xl font-extrabold text-stone-900 mt-1 whitespace-nowrap tabular-nums">${this.formatBRL(combinedMonthTotal)}</div>
+        <div class="text-[11px] text-stone-500 mt-1 flex flex-wrap gap-x-2">
+          <span>Cartões (${filtered.length}): <strong class="whitespace-nowrap tabular-nums">${this.formatBRL(monthlyParcelSum)}</strong></span>
+          ${financingStats.activeCount > 0 ? `<span>• Imóvel: <strong class="text-orange-700 whitespace-nowrap tabular-nums">${this.formatBRL(financingStats.monthlyAmount)}</strong></span>` : ""}
         </div>
       </div>
       <div class="oli-card rounded-2xl p-4">
         <div class="text-xs font-bold text-stone-500">Falta Pagar (Cartões)</div>
-        <div class="text-xl font-extrabold text-amber-700 mt-1">${this.formatBRL(totalRemainingSum)}</div>
+        <div class="text-lg sm:text-xl font-extrabold text-amber-700 mt-1 whitespace-nowrap tabular-nums">${this.formatBRL(totalRemainingSum)}</div>
         <div class="text-[11px] text-stone-500 mt-1">
-          ${financingStats.activeCount > 0 ? `Saldo Devedor Financiamento: <strong class="text-stone-700">${this.formatBRL(financingStats.currentBalance)}</strong>` : "Comprometimento futuro dos cartões"}
+          ${financingStats.activeCount > 0 ? `Saldo Devedor Financiamento: <strong class="text-stone-700 whitespace-nowrap tabular-nums">${this.formatBRL(financingStats.currentBalance)}</strong>` : "Comprometimento futuro dos cartões"}
         </div>
       </div>
       <div class="oli-card rounded-2xl p-4">
         <div class="text-xs font-bold text-stone-500">Horizonte & Encerramento</div>
-        <div class="text-xl font-extrabold text-lime-800 mt-1">${finishingSoonCount} ${finishingSoonCount === 1 ? "compra" : "compras"} <span class="text-xs font-semibold text-stone-500">terminando</span></div>
+        <div class="text-lg sm:text-xl font-extrabold text-lime-800 mt-1 whitespace-nowrap tabular-nums">${finishingSoonCount} ${finishingSoonCount === 1 ? "compra" : "compras"} <span class="text-xs font-semibold text-stone-500">terminando</span></div>
         <div class="text-[11px] text-stone-500 mt-1">
-          ${financingStats.activeCount > 0 ? `Imóvel SAC: <strong>${financingStats.currentInstallment}/${financingStats.totalTerm}</strong> (restam ${financingStats.remainingMonths}m)` : "Última parcela agora ou no próximo mês"}
+          ${financingStats.activeCount > 0 ? `Imóvel SAC: <strong class="whitespace-nowrap tabular-nums">${financingStats.currentInstallment}/${financingStats.totalTerm}</strong> (restam ${financingStats.remainingMonths}m)` : "Última parcela agora ou no próximo mês"}
         </div>
       </div>
     `;
@@ -3366,11 +3398,11 @@ window.App = {
                 <td class="py-2 px-2.5 whitespace-nowrap text-stone-600">
                   ${r.dueDateBR}${isCurrentMonthRow ? ` <span class="text-[10px] text-lime-800 font-extrabold">• Mês ativo</span>` : ""}
                 </td>
-                <td class="py-2 px-2.5 text-right whitespace-nowrap text-stone-700">${this.formatBRL(r.amortization)}</td>
-                <td class="py-2 px-2.5 text-right whitespace-nowrap text-stone-700">${this.formatBRL(r.interest)}</td>
-                <td class="py-2 px-2.5 text-right whitespace-nowrap text-stone-500" title="MIP ${this.formatBRL(r.mip)} + DFI ${this.formatBRL(r.dfi)} + TCA ${this.formatBRL(r.tca)}">${this.formatBRL(segTca)}</td>
-                <td class="py-2 px-2.5 text-right whitespace-nowrap font-extrabold text-stone-900">${this.formatBRL(r.total)}</td>
-                <td class="py-2 px-2.5 text-right whitespace-nowrap font-semibold text-orange-800">${this.formatBRL(r.balance)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap tabular-nums text-stone-700">${this.formatBRL(r.amortization)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap tabular-nums text-stone-700">${this.formatBRL(r.interest)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap tabular-nums text-stone-500" title="MIP ${this.formatBRL(r.mip)} + DFI ${this.formatBRL(r.dfi)} + TCA ${this.formatBRL(r.tca)}">${this.formatBRL(segTca)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap tabular-nums font-extrabold text-stone-900">${this.formatBRL(r.total)}</td>
+                <td class="py-2 px-2.5 text-right whitespace-nowrap tabular-nums font-semibold text-orange-800">${this.formatBRL(r.balance)}</td>
                 <td class="py-2 px-2.5 text-center whitespace-nowrap">
                   <button
                     type="button"
@@ -3402,7 +3434,7 @@ window.App = {
                   <span class="px-2 py-0.5 rounded-full bg-lime-100 text-lime-900 text-[10px] font-bold">Casa (Casal)</span>
                 </div>
                 <p class="text-[11px] text-stone-500 mt-1">
-                  ${fin.paymentMethod} (Ag. ${fin.agency} • Cc. ${fin.accountNumber}) • Juros ${fin.monthlyInterestRate} a.m. (${fin.annualEffectiveRate} efetiva a.a.) • Última em <strong>${(fin.lastDueDate || "").split("-").reverse().join("/")}</strong> (${this.formatBRL(fin.lastInstallmentValue)})
+                  ${fin.paymentMethod} (Ag. ${fin.agency} • Cc. ${fin.accountNumber}) • Juros ${fin.monthlyInterestRate} a.m. (${fin.annualEffectiveRate} efetiva a.a.) • Última em <strong>${(fin.lastDueDate || "").split("-").reverse().join("/")}</strong> (<span class="whitespace-nowrap tabular-nums">${this.formatBRL(fin.lastInstallmentValue)}</span>)
                 </p>
               </div>
 
@@ -3445,10 +3477,10 @@ window.App = {
                     <span class="text-xs text-stone-500 font-semibold">Vencimento: <strong class="text-stone-800">${row.dueDateBR}</strong></span>
                   </div>
                   <div class="flex flex-wrap items-baseline gap-2.5 pt-1">
-                    <span class="text-2xl font-extrabold text-stone-900">${this.formatBRL(row.total)}</span>
+                    <span class="text-xl sm:text-2xl font-extrabold text-stone-900 whitespace-nowrap tabular-nums">${this.formatBRL(row.total)}</span>
                     ${
                       nextRow
-                        ? `<span class="text-xs font-semibold text-emerald-700">Próx. mês (${nextRow.dueDateBR.substring(3)}): ${this.formatBRL(nextRow.total)} (${nextDelta <= 0 ? "" : "+"}${this.formatBRL(nextDelta)})</span>`
+                        ? `<span class="text-[11px] sm:text-xs font-semibold text-emerald-700">Próx. (${nextRow.dueDateBR.substring(3)}): <span class="whitespace-nowrap tabular-nums">${this.formatBRL(nextRow.total)}</span> (<span class="whitespace-nowrap tabular-nums">${nextDelta <= 0 ? "" : "+"}${this.formatBRL(nextDelta)}</span>)</span>`
                         : ""
                     }
                   </div>
@@ -3471,25 +3503,25 @@ window.App = {
               </div>
 
               <!-- 4 Cards de Decomposição SAC da Parcela -->
-              <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-3">
+              <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
+                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-2.5 sm:p-3">
                   <div class="text-[11px] font-bold text-stone-500">Amortização</div>
-                  <div class="text-sm sm:text-base font-extrabold text-stone-900 mt-0.5">${this.formatBRL(row.amortization)}</div>
+                  <div class="text-xs sm:text-base font-extrabold text-stone-900 mt-0.5 whitespace-nowrap tabular-nums">${this.formatBRL(row.amortization)}</div>
                   <div class="text-[10px] text-stone-400">Abate direto da dívida</div>
                 </div>
-                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-3">
+                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-2.5 sm:p-3">
                   <div class="text-[11px] font-bold text-stone-500">Juros do Mês</div>
-                  <div class="text-sm sm:text-base font-extrabold text-stone-900 mt-0.5">${this.formatBRL(row.interest)}</div>
+                  <div class="text-xs sm:text-base font-extrabold text-stone-900 mt-0.5 whitespace-nowrap tabular-nums">${this.formatBRL(row.interest)}</div>
                   <div class="text-[10px] text-stone-400">Decai mês a mês no SAC</div>
                 </div>
-                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-3">
+                <div class="rounded-xl bg-stone-50 border border-stone-200/80 p-2.5 sm:p-3">
                   <div class="text-[11px] font-bold text-stone-500">Seguros + TCA</div>
-                  <div class="text-sm sm:text-base font-extrabold text-stone-900 mt-0.5">${this.formatBRL(insuranceAndFees)}</div>
-                  <div class="text-[10px] text-stone-400">MIP ${this.formatBRL(row.mip)} • DFI ${this.formatBRL(row.dfi)} • TCA ${this.formatBRL(row.tca)}</div>
+                  <div class="text-xs sm:text-base font-extrabold text-stone-900 mt-0.5 whitespace-nowrap tabular-nums">${this.formatBRL(insuranceAndFees)}</div>
+                  <div class="text-[10px] text-stone-400 flex flex-wrap gap-x-1"><span class="whitespace-nowrap tabular-nums">MIP ${this.formatBRL(row.mip)}</span><span>•</span><span class="whitespace-nowrap tabular-nums">DFI ${this.formatBRL(row.dfi)}</span><span>•</span><span class="whitespace-nowrap tabular-nums">TCA ${this.formatBRL(row.tca)}</span></div>
                 </div>
-                <div class="rounded-xl bg-orange-50/80 border border-orange-200/90 p-3">
+                <div class="rounded-xl bg-orange-50/80 border border-orange-200/90 p-2.5 sm:p-3">
                   <div class="text-[11px] font-bold text-orange-900">Saldo Devedor Restante</div>
-                  <div class="text-sm sm:text-base font-extrabold text-orange-800 mt-0.5">${this.formatBRL(row.balance)}</div>
+                  <div class="text-xs sm:text-base font-extrabold text-orange-800 mt-0.5 whitespace-nowrap tabular-nums">${this.formatBRL(row.balance)}</div>
                   <div class="text-[10px] text-orange-700/80">Após parcela ${row.installment}/${totalTerm}</div>
                 </div>
               </div>
@@ -3501,7 +3533,7 @@ window.App = {
                 </div>
                 <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-500 font-semibold">
                   <span>${progressPct}% do prazo (${currentInst} de ${totalTerm} • ${paidCount} marcada(s) como Paga)</span>
-                  <span>Soma restante projetada (${remainingCount}m): <strong class="text-stone-800">${this.formatBRL(remainingProjectedSum)}</strong></span>
+                  <span>Soma restante projetada (${remainingCount}m): <strong class="text-stone-800 whitespace-nowrap tabular-nums">${this.formatBRL(remainingProjectedSum)}</strong></span>
                 </div>
               </div>
 
@@ -3749,7 +3781,7 @@ window.App = {
               <div class="text-[11px] text-stone-400">${user.name}</div>
             </td>
             <td class="py-3 px-4">${this.getOwnershipBadge(tx.ownership)}</td>
-            <td class="py-3 px-4 text-right font-extrabold whitespace-nowrap ${
+            <td class="py-3 px-4 text-right font-extrabold whitespace-nowrap tabular-nums text-xs sm:text-sm ${
               tx.type === "TRANSFER" ? "text-sky-700" : tx.type === "INCOME" ? "text-lime-700" : isCredit ? "text-emerald-700" : "text-stone-900"
             }">
               ${tx.type === "TRANSFER" ? `⇄ ${this.formatBRL(tx.amount)}` : tx.type === "INCOME" ? `+${this.formatBRL(tx.amount)}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : `-${this.formatBRL(tx.amount)}`}

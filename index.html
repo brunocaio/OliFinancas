@@ -79,6 +79,18 @@
       background: #cbd5c0;
       border-radius: 9999px;
     }
+    .tabular-nums, .num-nowrap {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    @media (max-width: 639px) {
+      .mobile-compact-num {
+        font-size: 10px !important;
+        line-height: 1.2 !important;
+        white-space: nowrap !important;
+        font-variant-numeric: tabular-nums !important;
+      }
+    }
   </style>
 </head>
 <body class="min-h-screen pb-24 lg:pb-12 selection:bg-lime-200 selection:text-lime-950">
@@ -88,13 +100,13 @@
 
   <!-- TOPBAR MINIMALISTA -->
   <header class="sticky top-0 z-30 bg-[#f7f8f4]/90 backdrop-blur-md border-b border-[#e5eadf]">
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+    <div class="max-w-5xl mx-auto px-3 sm:px-6 py-2 sm:py-0 sm:h-16 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
       
       <!-- Logo & Status Nuvem -->
-      <div class="flex items-center gap-3">
-        <div onclick="App.switchTab('dashboard')" class="flex items-center gap-2.5 cursor-pointer group">
-          <div class="w-9 h-9 rounded-xl bg-lime-700/10 border border-lime-700/20 flex items-center justify-center group-hover:scale-105 transition">
-            <svg viewBox="0 0 40 40" class="w-6 h-6">
+      <div class="flex items-center gap-2 sm:gap-3 order-1">
+        <div onclick="App.switchTab('dashboard')" class="flex items-center gap-2 sm:gap-2.5 cursor-pointer group">
+          <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-lime-700/10 border border-lime-700/20 flex items-center justify-center group-hover:scale-105 transition">
+            <svg viewBox="0 0 40 40" class="w-5 h-5 sm:w-6 sm:h-6">
               <ellipse cx="20" cy="22" rx="11" ry="13" fill="#4d7c0f" />
               <ellipse cx="16" cy="18" rx="2.5" ry="4.5" fill="#a3e635" opacity="0.45" transform="rotate(-15 16 18)" />
               <path d="M16 9 C18 6, 22 6, 24 9 C22 11.5, 18 11.5, 16 9 Z" fill="#dc2626" />
@@ -104,8 +116,8 @@
             </svg>
           </div>
           <div>
-            <div class="flex items-center gap-2">
-              <span class="font-extrabold text-base tracking-tight text-stone-900">
+            <div class="flex items-center gap-1.5 sm:gap-2">
+              <span class="font-extrabold text-sm sm:text-base tracking-tight text-stone-900">
                 Oli<span class="text-lime-700">Finanças</span>
               </span>
               <span id="cloud-status-badge" onclick="event.stopPropagation(); App.switchTab('cloud')"></span>
@@ -115,30 +127,32 @@
       </div>
 
       <!-- Seletor de Mês Clean -->
-      <div class="flex items-center bg-white border border-[#e2e8dc] rounded-full px-1.5 py-1 shadow-sm">
-        <button onclick="App.changeMonth(-1)" class="p-1 rounded-full text-stone-500 hover:text-stone-900 hover:bg-stone-100 transition" title="Mês Anterior">
-          <i data-lucide="chevron-left" class="w-4 h-4"></i>
-        </button>
-        <span id="active-month-label" class="px-3 text-xs sm:text-sm font-bold text-stone-800 min-w-[130px] text-center">Novembro 2026</span>
-        <button onclick="App.changeMonth(1)" class="p-1 rounded-full text-stone-500 hover:text-stone-900 hover:bg-stone-100 transition" title="Próximo Mês">
-          <i data-lucide="chevron-right" class="w-4 h-4"></i>
-        </button>
+      <div class="order-3 sm:order-2 w-full sm:w-auto flex items-center justify-center">
+        <div class="flex items-center bg-white border border-[#e2e8dc] rounded-full px-1.5 py-0.5 sm:py-1 shadow-sm">
+          <button onclick="App.changeMonth(-1)" class="p-1 rounded-full text-stone-500 hover:text-stone-900 hover:bg-stone-100 transition" title="Mês Anterior">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i>
+          </button>
+          <span id="active-month-label" class="px-2 sm:px-3 text-xs sm:text-sm font-bold text-stone-800 min-w-[115px] sm:min-w-[130px] text-center whitespace-nowrap">Novembro 2026</span>
+          <button onclick="App.changeMonth(1)" class="p-1 rounded-full text-stone-500 hover:text-stone-900 hover:bg-stone-100 transition" title="Próximo Mês">
+            <i data-lucide="chevron-right" class="w-4 h-4"></i>
+          </button>
+        </div>
       </div>
 
       <!-- Foco de Usuário (Bruno por padrão) + Botão Desfazer (Ctrl+Z) -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5 sm:gap-2 order-2 sm:order-3">
         <button
           id="undo-top-btn"
           type="button"
           onclick="App.undoLastAction()"
-          class="hidden items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 text-xs font-bold shadow-2xs transition cursor-pointer"
+          class="hidden items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 text-[11px] sm:text-xs font-bold shadow-2xs transition cursor-pointer"
           title="Desfazer última ação (Atalho: Ctrl + Z)"
         >
           <i data-lucide="undo-2" class="w-3.5 h-3.5"></i>
           <span class="hidden sm:inline">Desfazer</span>
-          <span class="text-[10px] opacity-75">(Ctrl+Z)</span>
+          <span class="hidden sm:inline text-[10px] opacity-75">(Ctrl+Z)</span>
         </button>
-        <div class="flex items-center bg-white border border-[#e2e8dc] rounded-full p-0.5 shadow-sm text-xs">
+        <div class="flex items-center bg-white border border-[#e2e8dc] rounded-full p-0.5 shadow-sm text-[11px] sm:text-xs">
           <button data-user-filter="bruno" onclick="App.setUserFilter('bruno')">Bruno</button>
           <button data-user-filter="nubia" onclick="App.setUserFilter('nubia')">Núbia</button>
           <button data-user-filter="ALL" onclick="App.setUserFilter('ALL')">Ambos</button>
@@ -199,238 +213,193 @@
         <div id="dashboard-kpis" class="flex flex-wrap items-center gap-2"></div>
       </div>
 
-      <!-- GRID DE ENTRADA DE DADOS: 1) IMPORTAÇÃO OFX/CSV + 2) LANÇAMENTO RÁPIDO (DINHEIRO SACADO / AJUSTES) -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-
-        <!-- CARD 1 (5 COLUNAS): IMPORTAÇÃO DE OFX / CSV -->
-        <div class="lg:col-span-5 oli-card rounded-3xl p-5 sm:p-6 flex flex-col justify-between border-stone-200/90 shadow-xs">
-          <div>
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <div class="w-7 h-7 rounded-xl bg-lime-100 text-lime-800 flex items-center justify-center">
-                  <i data-lucide="file-up" class="w-4 h-4"></i>
-                </div>
-                <div>
-                  <h2 class="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-800">Importar OFX / CSV</h2>
-                  <p class="text-[11px] text-stone-400">Faturas de cartão e extrato da conta</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onclick="App.loadSampleNubankExtract()"
-                class="text-[11px] font-bold text-lime-700 hover:text-lime-900 bg-lime-50 hover:bg-lime-100 px-2.5 py-1 rounded-lg transition"
-                title="Carregar arquivo OFX de exemplo para testar"
-              >
-                Testar OFX
-              </button>
-            </div>
-
-            <div class="space-y-3 mt-4">
-              <div>
-                <div class="flex items-center justify-between mb-1">
-                  <label class="block text-[11px] font-bold text-stone-500">1. Conta ou Cartão do Arquivo</label>
-                  <button
-                    type="button"
-                    onclick="App.switchTab('cards')"
-                    class="text-[11px] font-bold text-lime-700 hover:text-lime-900 underline cursor-pointer"
-                  >
-                    + Cadastrar / Configurar Virada
-                  </button>
-                </div>
-                <select
-                  id="import-account-select"
-                  onchange="App.onImportAccountChange(this.value)"
-                  class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"
-                ></select>
-                <p id="import-cycle-rule-hint" class="text-[11px] text-lime-800 bg-lime-50/80 border border-lime-200/70 rounded-xl px-2.5 py-1.5 mt-2 leading-snug"></p>
-              </div>
-
-              <div>
-                <label class="block text-[11px] font-bold text-stone-500 mb-1">2. Competência / Fatura deste Arquivo</label>
-                <select
-                  id="import-competence-select"
-                  onchange="App.onImportCompetenceModeChange(this.value)"
-                  class="w-full oli-input rounded-xl px-3 py-2 text-xs font-semibold"
-                >
-                  <option value="SMART_INVOICE">📌 Fatura única (detectar mês da fatura automaticamente)</option>
-                  <option value="AUTO_CYCLE">📅 Calcular item a item pela virada do cartão</option>
-                  <option value="2026-09">📌 Tudo para Fatura de Setembro 2026</option>
-                  <option value="2026-10">📌 Tudo para Fatura de Outubro 2026</option>
-                  <option value="2026-11">📌 Tudo para Fatura de Novembro 2026</option>
-                  <option value="2026-12">📌 Tudo para Fatura de Dezembro 2026</option>
-                  <option value="2027-01">📌 Tudo para Fatura de Janeiro 2027</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-[11px] font-bold text-stone-500 mb-1">3. Selecionar Extrato (.OFX, .CSV ou .PDF Itaú)</label>
-                <label class="flex flex-col items-center justify-center gap-1.5 w-full border-2 border-dashed border-lime-600/35 hover:border-lime-600 bg-[#f9fbf6] hover:bg-lime-50/50 rounded-2xl px-4 py-5 cursor-pointer transition text-center">
-                  <i data-lucide="upload-cloud" class="w-6 h-6 text-lime-700"></i>
-                  <span class="text-xs font-bold text-stone-700">Clique para enviar .OFX, .CSV ou .PDF (Itaú)</span>
-                  <span class="text-[11px] text-stone-400">Abate estornos automaticamente e ignora pagto de fatura</span>
-                  <input id="import-file-input" type="file" accept=".ofx,.csv,.txt,.pdf" class="hidden" onchange="App.handleStatementFileUpload(this.files, this)" />
-                </label>
-              </div>
-            </div>
+      <!-- CARD UNIFICADO ENXUTO: IMPORTAR EXTRATO (PADRÃO) | LANÇAMENTO RÁPIDO (ABA OCULTA) -->
+      <div class="oli-card rounded-3xl p-4 sm:p-5 border-stone-200/90 shadow-xs space-y-3">
+        <!-- Abas do card + seletor de tipo no lançamento rápido -->
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="inline-flex bg-stone-100 p-1 rounded-xl text-xs">
+            <button
+              type="button"
+              id="entry-tab-btn-import"
+              onclick="App.setDashboardEntryMode('IMPORT')"
+              class="px-3 py-1.5 rounded-lg font-extrabold bg-white text-stone-900 shadow-2xs transition flex items-center gap-1.5"
+            >
+              <i data-lucide="file-up" class="w-3.5 h-3.5 text-lime-700"></i>
+              <span>Importar Extrato</span>
+            </button>
+            <button
+              type="button"
+              id="entry-tab-btn-quick"
+              onclick="App.setDashboardEntryMode('QUICK')"
+              class="px-3 py-1.5 rounded-lg font-semibold text-stone-500 hover:text-stone-900 transition flex items-center gap-1.5"
+            >
+              <i data-lucide="banknote" class="w-3.5 h-3.5"></i>
+              <span>Lançamento Rápido</span>
+            </button>
           </div>
 
-          <div class="pt-3 mt-3 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-400">
-            <span>Reconhecimento automático por palavras-chave</span>
-            <button type="button" onclick="App.switchTab('categories')" class="font-bold text-stone-600 hover:text-lime-700">
-              Regras &rarr;
+          <div id="entry-tab-quick-types" class="hidden inline-flex bg-stone-100 p-0.5 rounded-lg text-xs">
+            <button type="button" id="quick-type-expense" onclick="App.setQuickType('EXPENSE')" class="px-2.5 py-1 rounded-md font-bold bg-white text-stone-900 shadow-2xs transition">
+              Saída / Ajuste
+            </button>
+            <button type="button" id="quick-type-income" onclick="App.setQuickType('INCOME')" class="px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition">
+              Entrada
+            </button>
+            <button type="button" id="quick-type-transfer" onclick="App.setQuickType('TRANSFER')" class="px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition" title="Movimentação entre contas próprias (excluída dos gastos)">
+              ⇄ Transf.
             </button>
           </div>
         </div>
 
-        <!-- CARD 2 (7 COLUNAS): LANÇAMENTO RÁPIDO (DINHEIRO SACADO / ESPÉCIE / AJUSTES) -->
-        <div class="lg:col-span-7 oli-card rounded-3xl p-5 sm:p-6 border-lime-600/25 shadow-xs flex flex-col justify-between">
-          <div>
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <div class="w-7 h-7 rounded-xl bg-amber-100/80 text-amber-800 flex items-center justify-center">
-                  <i data-lucide="banknote" class="w-4 h-4"></i>
-                </div>
-                <div>
-                  <h2 class="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-800">Lançamento Rápido</h2>
-                  <p class="text-[11px] text-stone-400">Dinheiro sacado (espécie), pagamentos na rua ou ajustes</p>
-                </div>
-              </div>
+        <!-- ABA 1 (PADRÃO): IMPORTAR OFX / CSV / PDF ITAÚ COMPACTO -->
+        <div id="entry-panel-import" class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+          <div class="sm:col-span-5">
+            <select
+              id="import-account-select"
+              onchange="App.onImportAccountChange(this.value)"
+              class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"
+              title="Conta ou cartão do extrato"
+            ></select>
+          </div>
+          <div class="sm:col-span-7">
+            <label class="flex items-center justify-center gap-2 w-full border-2 border-dashed border-lime-600/35 hover:border-lime-600 bg-[#f9fbf6] hover:bg-lime-50/50 rounded-xl px-4 py-2.5 cursor-pointer transition text-center">
+              <i data-lucide="upload-cloud" class="w-4 h-4 text-lime-700 shrink-0"></i>
+              <span class="text-xs font-bold text-stone-700">Clique para enviar extrato (.OFX, .CSV ou .PDF Itaú)</span>
+              <input id="import-file-input" type="file" accept=".ofx,.csv,.txt,.pdf" class="hidden" onchange="App.handleStatementFileUpload(this.files, this)" />
+            </label>
+          </div>
+          <select id="import-competence-select" onchange="App.onImportCompetenceModeChange(this.value)" class="hidden">
+            <option value="SMART_INVOICE">SMART_INVOICE</option>
+            <option value="AUTO_CYCLE">AUTO_CYCLE</option>
+            <option value="2026-09">2026-09</option>
+            <option value="2026-10">2026-10</option>
+            <option value="2026-11">2026-11</option>
+            <option value="2026-12">2026-12</option>
+            <option value="2027-01">2027-01</option>
+          </select>
+        </div>
 
-              <div class="flex items-center gap-2">
-                <div class="inline-flex bg-stone-100 p-0.5 rounded-lg text-xs">
-                  <button type="button" id="quick-type-expense" onclick="App.setQuickType('EXPENSE')" class="px-2.5 py-1 rounded-md font-bold bg-white text-stone-900 shadow-2xs transition">
-                    Saída / Ajuste
-                  </button>
-                  <button type="button" id="quick-type-income" onclick="App.setQuickType('INCOME')" class="px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition">
-                    Entrada
-                  </button>
-                  <button type="button" id="quick-type-transfer" onclick="App.setQuickType('TRANSFER')" class="px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition" title="Movimentação entre contas próprias (excluída dos gastos)">
-                    ⇄ Transf.
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <form onsubmit="App.handleQuickTransaction(event)" class="space-y-3.5 mt-4">
-              <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <!-- Valor -->
-                <div class="sm:col-span-4">
-                  <label class="block text-[11px] font-bold text-stone-500 mb-1">Valor (R$)</label>
-                  <div class="relative">
-                    <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-extrabold text-stone-400">R$</span>
-                    <input
-                      id="quick-tx-amount"
-                      type="number"
-                      step="0.01"
-                      required
-                      placeholder="0,00"
-                      class="w-full oli-input rounded-2xl pl-10 pr-3 py-2.5 text-base font-extrabold text-stone-900"
-                    />
-                  </div>
-                </div>
-
-                <!-- Descrição -->
-                <div class="sm:col-span-8">
-                  <label class="block text-[11px] font-bold text-stone-500 mb-1">
-                    Descrição (Dinheiro / Ajuste)
-                    <span id="quick-auto-cat-hint" class="text-lime-700 font-semibold ml-1"></span>
-                  </label>
+        <!-- ABA 2 (OCULTA POR PADRÃO): LANÇAMENTO RÁPIDO -->
+        <div id="entry-panel-quick" class="hidden">
+          <form onsubmit="App.handleQuickTransaction(event)" class="space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <!-- Valor -->
+              <div class="sm:col-span-4">
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">Valor (R$)</label>
+                <div class="relative">
+                  <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-extrabold text-stone-400">R$</span>
                   <input
-                    id="quick-tx-desc"
-                    type="text"
+                    id="quick-tx-amount"
+                    type="number"
+                    step="0.01"
                     required
-                    oninput="App.onQuickDescInput(this.value)"
-                    placeholder="Ex: Saque em espécie, Flanelinha, Vigia da rua, Ajuste..."
-                    class="w-full oli-input rounded-2xl px-3.5 py-2.5 text-sm font-semibold text-stone-900"
+                    placeholder="0,00"
+                    class="w-full oli-input rounded-2xl pl-10 pr-3 py-2.5 text-base font-extrabold text-stone-900"
                   />
                 </div>
               </div>
 
-              <div class="grid grid-cols-2 sm:grid-cols-12 gap-2.5 items-end">
-                <!-- Origem (Conta Corrente por padrão p/ saques/ajustes) -->
-                <div class="col-span-1 sm:col-span-4">
-                  <label class="block text-[11px] font-bold text-stone-500 mb-1">Origem / Conta</label>
-                  <select id="quick-tx-account" onchange="App.onQuickAccountChange(this.value)" class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-semibold"></select>
-                </div>
+              <!-- Descrição -->
+              <div class="sm:col-span-8">
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">
+                  Descrição (Dinheiro / Ajuste)
+                  <span id="quick-auto-cat-hint" class="text-lime-700 font-semibold ml-1"></span>
+                </label>
+                <input
+                  id="quick-tx-desc"
+                  type="text"
+                  required
+                  oninput="App.onQuickDescInput(this.value)"
+                  placeholder="Ex: Saque em espécie, Flanelinha, Vigia da rua, Ajuste..."
+                  class="w-full oli-input rounded-2xl px-3.5 py-2.5 text-sm font-semibold text-stone-900"
+                />
+              </div>
+            </div>
 
-                <!-- Categoria -->
-                <div class="col-span-1 sm:col-span-4">
-                  <label class="block text-[11px] font-bold text-stone-500 mb-1">Categoria</label>
-                  <select id="quick-tx-subcategory" onchange="App.onQuickSubcategoryChange(this.value)" class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-semibold"></select>
-                </div>
-
-                <!-- Divisão Automática -->
-                <div class="col-span-1 sm:col-span-2">
-                  <label class="block text-[11px] font-bold text-stone-500 mb-1">Divisão <span id="quick-ownership-auto-tag" class="text-[10px] text-lime-700 font-normal"></span></label>
-                  <select id="quick-tx-ownership" class="w-full oli-input rounded-xl px-2 py-2 text-xs font-semibold">
-                    <option value="COLLECTIVE">Casa</option>
-                    <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
-                    <option value="INDIVIDUAL_NUBIA">Só Núbia</option>
-                  </select>
-                </div>
-
-                <!-- Botão Lançar -->
-                <div class="col-span-1 sm:col-span-2">
-                  <button
-                    type="submit"
-                    class="w-full bg-lime-700 hover:bg-lime-800 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1 transition"
-                  >
-                    <i data-lucide="plus" class="w-4 h-4"></i>
-                    <span>Lançar</span>
-                  </button>
-                </div>
+            <div class="grid grid-cols-2 sm:grid-cols-12 gap-2.5 items-end">
+              <!-- Origem -->
+              <div class="col-span-1 sm:col-span-4">
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">Origem / Conta</label>
+                <select id="quick-tx-account" onchange="App.onQuickAccountChange(this.value)" class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-semibold"></select>
               </div>
 
-              <!-- Campos extras para Transferência / Pix (De quem foi / Para quem foi e Conta Origem/Destino) -->
-              <div id="quick-counterparty-wrap" class="hidden rounded-xl bg-sky-50/80 border border-sky-200 px-3 py-2.5 space-y-2 text-xs">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-end">
-                  <div>
-                    <label id="quick-counterparty-label" class="block text-[11px] font-bold text-sky-900 mb-1">
-                      👤 De quem foi / Para quem foi (Pix ou Transferência)
-                    </label>
-                    <input
-                      id="quick-tx-counterparty"
-                      type="text"
-                      placeholder="Ex: Maria Silva, Bruno Caio, Pedro Gomes..."
-                      class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white"
-                    />
-                  </div>
-                  <div id="quick-target-account-wrap" class="hidden">
-                    <label class="block text-[11px] font-bold text-sky-900 mb-1">
-                      🏦 Conta Destino (entre contas próprias)
-                    </label>
-                    <select id="quick-tx-target-account" class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white"></select>
-                  </div>
-                </div>
-                <div id="quick-transfer-hint" class="hidden text-[10px] text-sky-800 font-semibold">
-                  ⇄ Movimentação entre contas próprias: excluída automaticamente de gastos e receitas.
-                </div>
+              <!-- Categoria -->
+              <div class="col-span-1 sm:col-span-4">
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">Categoria</label>
+                <select id="quick-tx-subcategory" onchange="App.onQuickSubcategoryChange(this.value)" class="w-full oli-input rounded-xl px-2.5 py-2 text-xs font-semibold"></select>
               </div>
 
-              <!-- Atalhos rápidos focados em Dinheiro Sacado, Pix & Ajustes -->
-              <div class="pt-2.5 border-t border-stone-100 flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                <span class="text-[11px] font-semibold text-stone-400 mr-1 whitespace-nowrap">Rápido:</span>
-                <button type="button" onclick="App.applyQuickPixPreset()" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 whitespace-nowrap transition">
-                  ⚡ Pix
-                </button>
-                <button type="button" onclick="App.applyQuickPreset('Flanelinhas (Dinheiro)', 'sub_flanelinhas', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-                  🅿️ Flanelinhas <span class="text-[10px] text-stone-400">(Casa)</span>
-                </button>
-                <button type="button" onclick="App.applyQuickPreset('Vigias da Rua (Dinheiro)', 'sub_vigias', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-                  🛡️ Vigias <span class="text-[10px] text-stone-400">(Casa)</span>
-                </button>
-                <button type="button" onclick="App.applyQuickPreset('Feira em Espécie / Dinheiro', 'sub_feira_cc', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-                  🥬 Feira em Dinheiro <span class="text-[10px] text-stone-400">(Casa)</span>
-                </button>
-                <button type="button" onclick="App.applyQuickPreset('Saque / Dinheiro Pessoal', 'sub_lazer_geral', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-                  💵 Dinheiro Sacado <span class="text-[10px] text-stone-400">(Individual)</span>
-                </button>
-                <button type="button" onclick="App.applyQuickPreset('Ajuste Manual', 'sub_outros', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
-                  ⚖️ Ajuste <span class="text-[10px] text-stone-400">(Individual)</span>
+              <!-- Divisão Automática -->
+              <div class="col-span-1 sm:col-span-2">
+                <label class="block text-[11px] font-bold text-stone-500 mb-1">Divisão <span id="quick-ownership-auto-tag" class="text-[10px] text-lime-700 font-normal"></span></label>
+                <select id="quick-tx-ownership" class="w-full oli-input rounded-xl px-2 py-2 text-xs font-semibold">
+                  <option value="COLLECTIVE">Casa</option>
+                  <option value="INDIVIDUAL_BRUNO">Só Bruno</option>
+                  <option value="INDIVIDUAL_NUBIA">Só Núbia</option>
+                </select>
+              </div>
+
+              <!-- Botão Lançar -->
+              <div class="col-span-1 sm:col-span-2">
+                <button
+                  type="submit"
+                  class="w-full bg-lime-700 hover:bg-lime-800 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1 transition"
+                >
+                  <i data-lucide="plus" class="w-4 h-4"></i>
+                  <span>Lançar</span>
                 </button>
               </div>
-            </form>
-          </div>
+            </div>
+
+            <!-- Campos extras para Transferência / Pix -->
+            <div id="quick-counterparty-wrap" class="hidden rounded-xl bg-sky-50/80 border border-sky-200 px-3 py-2.5 space-y-2 text-xs">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-end">
+                <div>
+                  <label id="quick-counterparty-label" class="block text-[11px] font-bold text-sky-900 mb-1">
+                    👤 De quem foi / Para quem foi (Pix ou Transferência)
+                  </label>
+                  <input
+                    id="quick-tx-counterparty"
+                    type="text"
+                    placeholder="Ex: Maria Silva, Bruno Caio, Pedro Gomes..."
+                    class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white"
+                  />
+                </div>
+                <div id="quick-target-account-wrap" class="hidden">
+                  <label class="block text-[11px] font-bold text-sky-900 mb-1">
+                    🏦 Conta Destino (entre contas próprias)
+                  </label>
+                  <select id="quick-tx-target-account" class="w-full oli-input rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white"></select>
+                </div>
+              </div>
+              <div id="quick-transfer-hint" class="hidden text-[10px] text-sky-800 font-semibold">
+                ⇄ Movimentação entre contas próprias: excluída automaticamente de gastos e receitas.
+              </div>
+            </div>
+
+            <!-- Atalhos rápidos -->
+            <div class="pt-2 border-t border-stone-100 flex items-center gap-1.5 overflow-x-auto pb-0.5">
+              <span class="text-[11px] font-semibold text-stone-400 mr-1 whitespace-nowrap">Rápido:</span>
+              <button type="button" onclick="App.applyQuickPixPreset()" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 whitespace-nowrap transition">
+                ⚡ Pix
+              </button>
+              <button type="button" onclick="App.applyQuickPreset('Flanelinhas (Dinheiro)', 'sub_flanelinhas', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                🅿️ Flanelinhas
+              </button>
+              <button type="button" onclick="App.applyQuickPreset('Vigias da Rua (Dinheiro)', 'sub_vigias', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                🛡️ Vigias
+              </button>
+              <button type="button" onclick="App.applyQuickPreset('Feira em Espécie / Dinheiro', 'sub_feira_cc', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                🥬 Feira
+              </button>
+              <button type="button" onclick="App.applyQuickPreset('Saque / Dinheiro Pessoal', 'sub_lazer_geral', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                💵 Saque
+              </button>
+              <button type="button" onclick="App.applyQuickPreset('Ajuste Manual', 'sub_outros', 'cc_bruno')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-stone-100 hover:bg-lime-100 text-stone-700 hover:text-lime-900 whitespace-nowrap transition">
+                ⚖️ Ajuste
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 
@@ -1364,10 +1333,10 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=29"></script>
-  <script src="./js/housing-financing.js?v=29"></script>
-  <script src="./js/ofx-csv-parser.js?v=29"></script>
-  <script src="./js/supabase-sync.js?v=29"></script>
-  <script src="./js/app.js?v=29"></script>
+  <script src="./js/data-seed.js?v=30"></script>
+  <script src="./js/housing-financing.js?v=30"></script>
+  <script src="./js/ofx-csv-parser.js?v=30"></script>
+  <script src="./js/supabase-sync.js?v=30"></script>
+  <script src="./js/app.js?v=30"></script>
 </body>
 </html>
