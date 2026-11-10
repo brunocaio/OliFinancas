@@ -140,8 +140,9 @@ window.INITIAL_SEED_DATA = {
     { id: "sub_salario_unisuam", categoryId: "cat_receitas", name: "Salário UNISUAM", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_nubia", defaultMeta: 0.00, isFixed: true, keywords: ["UNISUAM"] },
     { id: "sub_rt_rendimentos", categoryId: "cat_receitas", name: "RT / Rendimentos / Caixinha", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["RENDIMENTO", "DIVIDENDO", "RT "] },
 
-    // 11. Transferência / Fatura
-    { id: "sub_pag_fatura", categoryId: "cat_transferencia", name: "Pagamento de Fatura Cartão", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["PAGAMENTO DE FATURA", "PAGTO FATURA", "FATURA CARTAO", "ITAU UNIBANCO SA", "NU PAGAMENTOS"] }
+    // 11. Transferência / Movimentação entre Contas
+    { id: "sub_transf_propria", categoryId: "cat_transferencia", name: "Transferência entre Contas Próprias", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["MESMA TITULARIDADE", "ENTRE CONTAS", "TRANSFERENCIA PROPRIA", "PIX PROPRIO", "RESGATE", "APLICACAO", "DINHEIRO GUARDADO", "CAIXINHA"] },
+    { id: "sub_pag_fatura", categoryId: "cat_transferencia", name: "Pagamento de Fatura Cartão", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["PAGAMENTO DE FATURA", "PAGTO FATURA", "FATURA CARTAO"] }
   ],
 
   projections: [],

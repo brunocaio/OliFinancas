@@ -186,6 +186,29 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 5: adiciona subcategoria dedicada para transferências entre contas próprias
+    if ((stateObj.schemaPatch || 0) < 5 && Array.isArray(stateObj.subcategories)) {
+      if (!stateObj.subcategories.some(s => s.id === "sub_transf_propria")) {
+        stateObj.subcategories.push({
+          id: "sub_transf_propria",
+          categoryId: "cat_transferencia",
+          name: "Transferência entre Contas Próprias",
+          defaultOwnership: "INDIVIDUAL_BRUNO",
+          defaultAccountId: "cc_bruno",
+          defaultMeta: 0.00,
+          isFixed: false,
+          keywords: ["MESMA TITULARIDADE", "ENTRE CONTAS", "TRANSFERENCIA PROPRIA", "PIX PROPRIO", "RESGATE", "APLICACAO", "DINHEIRO GUARDADO", "CAIXINHA"]
+        });
+        changed = true;
+      }
+      const subFatura = stateObj.subcategories.find(s => s.id === "sub_pag_fatura");
+      if (subFatura && Array.isArray(subFatura.keywords)) {
+        subFatura.keywords = subFatura.keywords.filter(k => k !== "ITAU UNIBANCO SA" && k !== "NU PAGAMENTOS");
+      }
+      stateObj.schemaPatch = 5;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -830,6 +853,14 @@ window.App = {
     const ownSelect = document.getElementById("quick-tx-ownership");
     const acc = accSelect ? this.getAccount(accSelect.value) : null;
     const ownerId = (acc && acc.ownerId) || (this.activeUserFilter === "nubia" ? "nubia" : "bruno");
+    const sub = this.getSubcategory(subId);
+    const cat = this.getCategory(sub.categoryId);
+
+    if (cat && cat.type === "TRANSFER" && this.quickTxType !== "TRANSFER") {
+      this.setQuickType("TRANSFER", false);
+    } else if (cat && cat.type === "INCOME" && this.quickTxType !== "INCOME") {
+      this.setQuickType("INCOME", false);
+    }
 
     if (ownSelect) {
       ownSelect.value = this.resolveDefaultOwnership(subId, ownerId);
@@ -844,23 +875,70 @@ window.App = {
     if (subSelect && ownSelect && acc) {
       ownSelect.value = this.resolveDefaultOwnership(subSelect.value, acc.ownerId);
     }
+    this.populateQuickTargetAccounts();
   },
 
-  setQuickType(type) {
+  populateQuickTargetAccounts() {
+    const targetWrap = document.getElementById("quick-target-account-wrap");
+    const targetSelect = document.getElementById("quick-tx-target-account");
+    const originSelect = document.getElementById("quick-tx-account");
+    if (!targetWrap || !targetSelect) return;
+
+    const isTransfer = this.quickTxType === "TRANSFER";
+    targetWrap.classList.toggle("hidden", !isTransfer);
+    if (!isTransfer) return;
+
+    const originId = originSelect ? originSelect.value : null;
+    const accounts = this.getAccountsForActiveUser();
+    const candidates = accounts.filter(a => a.id !== originId);
+    const list = candidates.length > 0 ? candidates : accounts;
+    const prevTarget = targetSelect.value;
+
+    targetSelect.innerHTML = `<option value="">-- Outra conta própria --</option>` +
+      list.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+    if (prevTarget && list.some(a => a.id === prevTarget)) {
+      targetSelect.value = prevTarget;
+    } else if (list.length > 0) {
+      const checking = list.find(a => a.type === "CHECKING") || list[0];
+      targetSelect.value = checking.id;
+    }
+  },
+
+  setQuickType(type, autoSelectSub = true) {
     this.quickTxType = type;
     const btnExp = document.getElementById("quick-type-expense");
     const btnInc = document.getElementById("quick-type-income");
-    if (btnExp && btnInc) {
-      if (type === "EXPENSE") {
-        btnExp.className = "px-2.5 py-1 rounded-md font-bold bg-white text-stone-900 shadow-xs transition";
-        btnInc.className = "px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition";
-      } else {
-        btnInc.className = "px-2.5 py-1 rounded-md font-bold bg-lime-700 text-white shadow-xs transition";
-        btnExp.className = "px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition";
-        const subSelect = document.getElementById("quick-tx-subcategory");
-        if (subSelect) {
-          subSelect.value = this.loggedUser === "nubia" ? "sub_salario_unisuam" : "sub_salario_aoro";
-          this.onQuickSubcategoryChange(subSelect.value);
+    const btnTrf = document.getElementById("quick-type-transfer");
+
+    if (btnExp) {
+      btnExp.className = type === "EXPENSE"
+        ? "px-2.5 py-1 rounded-md font-bold bg-white text-stone-900 shadow-2xs transition"
+        : "px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition";
+    }
+    if (btnInc) {
+      btnInc.className = type === "INCOME"
+        ? "px-2.5 py-1 rounded-md font-bold bg-lime-700 text-white shadow-2xs transition"
+        : "px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition";
+    }
+    if (btnTrf) {
+      btnTrf.className = type === "TRANSFER"
+        ? "px-2.5 py-1 rounded-md font-bold bg-sky-700 text-white shadow-2xs transition"
+        : "px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition";
+    }
+
+    this.populateQuickTargetAccounts();
+
+    if (autoSelectSub) {
+      const subSelect = document.getElementById("quick-tx-subcategory");
+      const descInput = document.getElementById("quick-tx-desc");
+      if (type === "INCOME" && subSelect) {
+        subSelect.value = this.loggedUser === "nubia" ? "sub_salario_unisuam" : "sub_salario_aoro";
+        this.onQuickSubcategoryChange(subSelect.value);
+      } else if (type === "TRANSFER" && subSelect) {
+        subSelect.value = "sub_transf_propria";
+        this.onQuickSubcategoryChange(subSelect.value);
+        if (descInput && !descInput.value.trim()) {
+          descInput.value = "Transferência entre contas";
         }
       }
     }
@@ -923,21 +1001,39 @@ window.App = {
     const todayISO = `${monthYear}-${String(new Date().getDate()).padStart(2, "0")}`;
     const acc = this.getAccount(accountId);
     const paidByUserId = acc.ownerId || this.loggedUser || "bruno";
+    const sub = this.getSubcategory(subcategoryId);
+    const cat = this.getCategory(sub.categoryId);
+    const effectiveType = (cat && cat.type === "TRANSFER") ? "TRANSFER" : this.quickTxType;
+
+    let finalDescription = description;
+    let targetAccountId = null;
+    if (effectiveType === "TRANSFER") {
+      const targetEl = document.getElementById("quick-tx-target-account");
+      targetAccountId = (targetEl && targetEl.value) || null;
+      if (targetAccountId) {
+        const targetAcc = this.getAccount(targetAccountId);
+        if (!finalDescription.includes("→") && !finalDescription.includes(targetAcc.name)) {
+          finalDescription = `${finalDescription} → ${targetAcc.name}`;
+        }
+      }
+    }
 
     // Procura meta correspondente no mês para conciliar automaticamente
     const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
-    const matchingProj = monthProjs.find(
-      p => p.subcategoryId === subcategoryId && (!p.accountId || p.accountId === accountId)
-    ) || monthProjs.find(p => p.subcategoryId === subcategoryId);
+    const matchingProj = effectiveType === "TRANSFER"
+      ? null
+      : (monthProjs.find(p => p.subcategoryId === subcategoryId && (!p.accountId || p.accountId === accountId))
+        || monthProjs.find(p => p.subcategoryId === subcategoryId));
 
     this.state.transactions.push({
       id: "tx_" + Date.now(),
       transactionDate: todayISO,
       competenceMonth: monthYear,
-      description,
+      description: finalDescription,
       amount,
-      type: this.quickTxType,
+      type: effectiveType,
       accountId,
+      targetAccountId,
       paidByUserId,
       ownership,
       subcategoryId,
@@ -952,7 +1048,12 @@ window.App = {
 
     this.saveState(true);
     this.renderAll();
-    this.showToast(`🫒 ${this.formatBRL(amount)} (${description}) registrado!`, "success");
+    this.showToast(
+      effectiveType === "TRANSFER"
+        ? `⇄ Transferência ${this.formatBRL(amount)} registrada (excluída de gastos)!`
+        : `🫒 ${this.formatBRL(amount)} (${finalDescription}) registrado!`,
+      effectiveType === "TRANSFER" ? "info" : "success"
+    );
   },
 
   // ==========================================================================
@@ -2713,6 +2814,9 @@ window.App = {
         const creditBadge = isCredit
           ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Estorno / Abate</span>`
           : "";
+        const transferBadge = tx.type === "TRANSFER"
+          ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold">⇄ Mov. entre contas (Fora dos gastos)</span>`
+          : "";
 
         const txMonthPrefix = tx.transactionDate ? tx.transactionDate.substring(0, 7) : tx.competenceMonth;
         const shiftedBadge = tx.competenceMonth > txMonthPrefix
@@ -2739,6 +2843,7 @@ window.App = {
                 <span>${tx.description}</span>
                 ${instBadge}
                 ${creditBadge}
+                ${transferBadge}
                 ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
               </div>
               ${linkedProj ? `<div class="text-[11px] text-lime-700 font-medium mt-0.5">Meta: ${linkedProj.title}</div>` : ""}
@@ -2761,9 +2866,9 @@ window.App = {
             </td>
             <td class="py-3 px-4">${this.getOwnershipBadge(tx.ownership)}</td>
             <td class="py-3 px-4 text-right font-extrabold whitespace-nowrap ${
-              tx.type === "INCOME" ? "text-lime-700" : isCredit ? "text-emerald-700" : "text-stone-900"
+              tx.type === "TRANSFER" ? "text-sky-700" : tx.type === "INCOME" ? "text-lime-700" : isCredit ? "text-emerald-700" : "text-stone-900"
             }">
-              ${tx.type === "INCOME" ? `+${this.formatBRL(tx.amount)}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : `-${this.formatBRL(tx.amount)}`}
+              ${tx.type === "TRANSFER" ? `⇄ ${this.formatBRL(tx.amount)}` : tx.type === "INCOME" ? `+${this.formatBRL(tx.amount)}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : `-${this.formatBRL(tx.amount)}`}
             </td>
             <td class="py-3 px-4 text-right whitespace-nowrap">
               <button onclick="App.deleteTransaction('${tx.id}')" class="p-1.5 rounded-lg text-stone-300 hover:text-rose-600 transition" title="Excluir (Ctrl+Z para desfazer)">
@@ -2842,11 +2947,19 @@ window.App = {
   applySubcategoryToTx(tx, newSubId) {
     if (!tx || !newSubId) return;
     const acc = this.getAccount(tx.accountId);
+    const sub = this.getSubcategory(newSubId);
+    const cat = this.getCategory(sub.categoryId);
+
     tx.subcategoryId = newSubId;
+    if (cat && (cat.type === "TRANSFER" || cat.type === "INCOME" || cat.type === "EXPENSE")) {
+      tx.type = cat.type;
+    }
     tx.ownership = this.resolveDefaultOwnership(newSubId, acc.ownerId || tx.paidByUserId);
     const monthProjs = this.state.projections.filter(p => p.monthYear === tx.competenceMonth);
-    const matchProj = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
-      || monthProjs.find(p => p.subcategoryId === newSubId);
+    const matchProj = tx.type === "TRANSFER"
+      ? null
+      : (monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === tx.accountId))
+        || monthProjs.find(p => p.subcategoryId === newSubId));
     tx.projectionId = matchProj ? matchProj.id : null;
     this.recordMerchantMemory(tx.description, newSubId, tx.ownership);
   },
@@ -3552,7 +3665,7 @@ window.App = {
               ${item.memoryMatched && !item.alreadyExists && item.type !== "TRANSFER" ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
               ${isCredit ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
-              ${item.type === "TRANSFER" ? `<span class="text-[10px] text-lime-700 font-semibold">Pagamento de fatura ignorado p/ não duplicar</span>` : ""}
+              ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">${item.subcategoryId === "sub_transf_propria" ? "⇄ Movimentação entre contas próprias (excluída dos gastos)" : "Pagamento de fatura ignorado p/ não duplicar"}</span>` : ""}
             </td>
             <td class="py-2.5 px-3">
               <select
@@ -3684,10 +3797,16 @@ window.App = {
 
     selectedItems.forEach(item => {
       item.subcategoryId = newSubId;
+      const newCat = this.getCategory(newSub.categoryId);
+      if (newCat && (newCat.type === "TRANSFER" || newCat.type === "INCOME" || newCat.type === "EXPENSE")) {
+        item.type = newCat.type;
+      }
       item.ownership = this.resolveDefaultOwnership(newSubId, item.paidByUserId);
-      const match = monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === item.accountId))
-        || monthProjs.find(p => p.subcategoryId === newSubId);
-      if (match) item.projectionId = match.id;
+      const match = item.type === "TRANSFER"
+        ? null
+        : (monthProjs.find(p => p.subcategoryId === newSubId && (!p.accountId || p.accountId === item.accountId))
+          || monthProjs.find(p => p.subcategoryId === newSubId));
+      item.projectionId = match ? match.id : null;
     });
 
     this.lastSavedSnapshot = JSON.stringify({
@@ -3737,10 +3856,15 @@ window.App = {
     item[field] = value || null;
 
     if (field === "subcategoryId") {
+      const sub = this.getSubcategory(value);
+      const cat = this.getCategory(sub.categoryId);
+      if (cat && (cat.type === "TRANSFER" || cat.type === "INCOME" || cat.type === "EXPENSE")) {
+        item.type = cat.type;
+      }
       item.ownership = this.resolveDefaultOwnership(value, item.paidByUserId);
       const monthProjs = this.state.projections.filter(p => p.monthYear === this.state.settings.activeMonth);
-      const match = monthProjs.find(p => p.subcategoryId === value);
-      if (match) item.projectionId = match.id;
+      const match = item.type === "TRANSFER" ? null : monthProjs.find(p => p.subcategoryId === value);
+      item.projectionId = match ? match.id : null;
     }
     this.renderImportTab(this.state.settings.activeMonth);
   },

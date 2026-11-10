@@ -300,6 +300,33 @@ window.StatementParser = {
       }
     }
 
+    const ownTransferKeywords = [
+      "MESMA TITULARIDADE",
+      "ENTRE CONTAS",
+      "TRANSFERENCIA PROPRIA",
+      "PIX PROPRIO",
+      "TRANSF ENTRE CONTAS",
+      "DINHEIRO GUARDADO",
+      "RESGATE RDB",
+      "APLICACAO RDB"
+    ];
+    const ownerNameUpper = ownerId === "nubia" ? "NUBIA" : "BRUNO";
+    const looksLikeSelfTransfer =
+      ownTransferKeywords.some(kw => normDesc.includes(kw)) ||
+      (!isCreditCard &&
+        normDesc.includes(ownerNameUpper) &&
+        (normDesc.includes("PIX") || normDesc.includes("TRANSF") || normDesc.includes("TED") || normDesc.includes("DOC")));
+    if (looksLikeSelfTransfer) {
+      return {
+        type: "TRANSFER",
+        subcategoryId: "sub_transf_propria",
+        ownership: ownerId === "nubia" ? "INDIVIDUAL_NUBIA" : "INDIVIDUAL_BRUNO",
+        projectionId: null,
+        confidence: "HIGH",
+        matchedBy: "TRANSFER"
+      };
+    }
+
     let matchedSub = null;
     let matchedBy = "FALLBACK";
     let memoryOwnership = null;

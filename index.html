@@ -303,6 +303,9 @@
                   <button type="button" id="quick-type-income" onclick="App.setQuickType('INCOME')" class="px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition">
                     Entrada
                   </button>
+                  <button type="button" id="quick-type-transfer" onclick="App.setQuickType('TRANSFER')" class="px-2.5 py-1 rounded-md font-medium text-stone-500 hover:text-stone-800 transition" title="Movimentação entre contas próprias (excluída dos gastos)">
+                    ⇄ Transf.
+                  </button>
                 </div>
               </div>
             </div>
@@ -374,6 +377,18 @@
                     <i data-lucide="plus" class="w-4 h-4"></i>
                     <span>Lançar</span>
                   </button>
+                </div>
+              </div>
+
+              <!-- Seletor de Conta Destino (visível apenas quando Tipo = Transferência entre Contas Próprias) -->
+              <div id="quick-target-account-wrap" class="hidden rounded-xl bg-sky-50/80 border border-sky-200 px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div class="text-sky-900 font-bold flex items-center gap-1.5">
+                  <span>⇄</span>
+                  <span>Movimentação entre contas próprias (não entra em gastos nem receitas)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <label class="text-[11px] font-bold text-sky-800 whitespace-nowrap">Conta Destino:</label>
+                  <select id="quick-tx-target-account" class="oli-input rounded-lg px-2.5 py-1 text-xs font-semibold bg-white"></select>
                 </div>
               </div>
 
@@ -941,6 +956,7 @@
             <select id="tx-modal-type" class="w-full oli-input rounded-xl px-3 py-2.5 font-medium">
               <option value="EXPENSE">Despesa / Gasto</option>
               <option value="INCOME">Receita / Salário</option>
+              <option value="TRANSFER">⇄ Transferência entre Contas Próprias (Fora dos gastos)</option>
             </select>
           </div>
           <div>
@@ -1167,9 +1183,9 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=21"></script>
-  <script src="./js/ofx-csv-parser.js?v=21"></script>
-  <script src="./js/supabase-sync.js?v=21"></script>
-  <script src="./js/app.js?v=21"></script>
+  <script src="./js/data-seed.js?v=22"></script>
+  <script src="./js/ofx-csv-parser.js?v=22"></script>
+  <script src="./js/supabase-sync.js?v=22"></script>
+  <script src="./js/app.js?v=22"></script>
 </body>
 </html>
