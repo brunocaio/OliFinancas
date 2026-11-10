@@ -134,7 +134,6 @@ window.StatementParser = {
     return (
       norm.startsWith("ESTORNO") ||
       norm.includes("ESTORNO DE") ||
-      norm.includes("DESCONTO NUBANK") ||
       norm.includes("REEMBOLSO") ||
       norm.includes("CASHBACK")
     );
@@ -289,8 +288,9 @@ window.StatementParser = {
       if (finalType !== "TRANSFER") {
         if (isCreditCard) {
           // No OFX de cartão de crédito: débitos/compras têm TRNAMT negativo (< 0),
-          // enquanto estornos/descontos/créditos na fatura têm TRNAMT positivo (> 0) ou TRNTYPE=CREDIT.
-          if (signedVal > 0 || trnType === "CREDIT" || this.isLikelyRefundDescription(description)) {
+          // enquanto estornos/créditos na fatura têm TRNAMT positivo (> 0).
+          // Confiar estritamente no sinal do arquivo bancário evita falsos positivos em nomes como "Assinatura ... desconto Nubank".
+          if (signedVal > 0) {
             isInvoiceCredit = true;
             finalType = "EXPENSE";
             finalAmount = -absAmount;
@@ -472,7 +472,7 @@ window.StatementParser = {
       if (finalType !== "TRANSFER") {
         if (isCreditCard) {
           const isOppositeSign = purchasesArePositive ? signedVal < 0 : signedVal > 0;
-          if (isOppositeSign || this.isLikelyRefundDescription(rawDesc)) {
+          if (isOppositeSign) {
             isInvoiceCredit = true;
             finalType = "EXPENSE";
             finalAmount = -absAmount;

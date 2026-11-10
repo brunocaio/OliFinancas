@@ -72,8 +72,7 @@ window.App = {
       changed = true;
     }
 
-    // Patch incremental 2: corrige estornos/descontos de cartão importados antes da atualização
-    // (para que abatam o valor da fatura em vez de somar)
+    // Patch incremental 2: corrige estornos de cartão importados antes da atualização
     if ((stateObj.schemaPatch || 0) < 2 && Array.isArray(stateObj.transactions)) {
       const cardIds = new Set(
         (stateObj.accounts || []).filter(a => a.type === "CREDIT_CARD").map(a => a.id)
@@ -88,6 +87,22 @@ window.App = {
         }
       });
       stateObj.schemaPatch = 2;
+      changed = true;
+    }
+
+    // Patch incremental 3: reverte compras de assinatura com "desconto Nubank" no nome
+    // que foram confundidas com estorno pelo patch 2 (ex: "Assinatura HBO Max desconto Nubank")
+    if ((stateObj.schemaPatch || 0) < 3 && Array.isArray(stateObj.transactions)) {
+      stateObj.transactions.forEach(tx => {
+        if (!tx) return;
+        const desc = (tx.description || "").toUpperCase();
+        if (Number(tx.amount) < 0 && desc.includes("DESCONTO NUBANK") && !desc.includes("ESTORNO")) {
+          tx.amount = Math.abs(Number(tx.amount));
+          tx.isInvoiceCredit = false;
+          changed = true;
+        }
+      });
+      stateObj.schemaPatch = 3;
       changed = true;
     }
 
