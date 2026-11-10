@@ -23,6 +23,8 @@ window.App = {
   installmentGroupMode: "CATEGORY",
   installmentScopeFilter: "ACTIVE_MONTH",
   expandedTreeKeys: {},
+  expandedTreeDescIds: {},
+  showAllTreeFullText: false,
   expandedArchiveKeys: {},
   quoteIndex: 0,
   txFilter: {
@@ -487,11 +489,11 @@ window.App = {
         <button
           type="button"
           onclick="${clickCall}"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-[10px] font-bold transition cursor-pointer"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-[10px] font-bold transition cursor-pointer max-w-full"
           title="Clique para editar quem enviou/recebeu e as contas de origem/destino"
         >
-          <span>👤</span>
-          <span>${dirPrefix} ${this.escapeHTML(cp)}</span>
+          <span class="shrink-0">👤</span>
+          <span class="truncate max-w-[180px] sm:max-w-[240px]">${dirPrefix} ${this.escapeHTML(cp)}</span>
         </button>
       `);
     }
@@ -508,8 +510,8 @@ window.App = {
           class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 text-[10px] font-semibold transition cursor-pointer max-w-full"
           title="Contas de origem e destino detectadas (clique para editar)"
         >
-          <span>🏦</span>
-          <span class="truncate max-w-[300px]">${this.escapeHTML(flowText)}</span>
+          <span class="shrink-0">🏦</span>
+          <span class="truncate max-w-[180px] sm:max-w-[240px]">${this.escapeHTML(flowText)}</span>
         </button>
       `);
     }
@@ -1669,6 +1671,16 @@ window.App = {
     this.renderAll();
   },
 
+  toggleTreeTxDesc(txId) {
+    this.expandedTreeDescIds[txId] = !this.expandedTreeDescIds[txId];
+    this.renderAll();
+  },
+
+  toggleAllTreeFullText() {
+    this.showAllTreeFullText = !this.showAllTreeFullText;
+    this.renderAll();
+  },
+
   setBudgetGroupMode(mode) {
     this.budgetGroupMode = mode === "SUBCATEGORY" ? "SUBCATEGORY" : "MACRO";
     this.renderAll();
@@ -1937,14 +1949,22 @@ window.App = {
         const treeChildrenHTML = isExpanded
           ? `
             <tr class="bg-[#f8faf5] border-b border-stone-200/70">
-              <td colspan="4" class="px-4 sm:px-6 py-3">
-                <div class="pl-3 sm:pl-5 border-l-2 border-lime-600/40 space-y-1.5">
+              <td colspan="4" class="px-2.5 sm:px-5 py-3 w-full max-w-0">
+                <div class="pl-2.5 sm:pl-4 border-l-2 border-lime-600/40 space-y-1.5 min-w-0 max-w-full">
                   <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-stone-500 pb-1.5 border-b border-stone-200/60">
                     <span>Árvore de Lançamentos • ${item.sub.name} (${txCount})</span>
-                    <div class="flex items-center gap-1.5">
+                    <div class="flex flex-wrap items-center gap-1.5">
                       ${
                         txCount > 0
                           ? `<button
+                              type="button"
+                              onclick="App.toggleAllTreeFullText()"
+                              class="text-stone-600 hover:text-stone-900 bg-white border border-stone-200 hover:border-lime-600 px-2 py-0.5 rounded-lg font-bold transition"
+                              title="Alternar entre textos compactos (ocultos) e descrição completa com quebra de linha"
+                            >
+                              ${this.showAllTreeFullText ? "▾ Compactar textos" : "▸ Mostrar textos"}
+                            </button>
+                            <button
                               type="button"
                               onclick="${selectAllCall}"
                               class="text-stone-700 hover:text-stone-900 bg-white border border-stone-200 hover:border-lime-600 px-2 py-0.5 rounded-lg font-bold transition"
@@ -1979,30 +1999,58 @@ window.App = {
                               ? `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Estorno / Abate</span>`
                               : "";
                             const isChecked = this.selectedTxIds.includes(tx.id);
+                            const rawDesc = (tx.description || "").trim();
+                            const hasLongText = rawDesc.length > 36 || Boolean(tx.notes || tx.counterparty || tx.originLabel || tx.destinationLabel);
+                            const isDescExpanded = Boolean(this.showAllTreeFullText || this.expandedTreeDescIds[tx.id]);
                             return `
-                              <div class="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 py-1.5 text-xs ${isChecked ? "bg-lime-100/70" : "hover:bg-white/80"} rounded-lg px-2 transition">
-                                <div class="flex items-center gap-2 min-w-0 flex-1">
+                              <div class="flex flex-wrap items-start justify-between gap-2 py-1.5 text-xs ${isChecked ? "bg-lime-100/70" : "hover:bg-white/80"} rounded-lg px-2 transition w-full min-w-0">
+                                <div class="flex items-start gap-2 min-w-0 flex-1 basis-[230px] max-w-full">
                                   <input
                                     type="checkbox"
                                     ${isChecked ? "checked" : ""}
                                     onclick="App.handleTxCheckboxClick(event, '${tx.id}', 'tree')"
-                                    class="w-3.5 h-3.5 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
+                                    class="w-3.5 h-3.5 mt-0.5 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
                                     title="Selecionar para recategorizar ou excluir em lote (Shift + Clique para intervalo)"
                                   />
-                                  <span class="font-mono text-lime-700 font-bold select-none">${branchChar}</span>
-                                  <span class="text-[11px] text-stone-400 font-semibold w-11 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
-                                  <span class="font-semibold text-stone-800 truncate">${tx.description}</span>
-                                  ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
-                                  ${this.buildPixFlowBadgesHTML(tx.id, tx)}
-                                  ${instTag}
-                                  ${creditTag}
-                                  ${this.getOwnershipBadge(tx.ownership)}
+                                  <span class="font-mono text-lime-700 font-bold select-none shrink-0">${branchChar}</span>
+                                  <span class="text-[11px] text-stone-400 font-semibold w-10 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
+                                  <div class="min-w-0 flex-1">
+                                    <div class="flex items-center gap-1.5 min-w-0 ${isDescExpanded ? "flex-wrap" : ""}">
+                                      <button
+                                        type="button"
+                                        onclick="App.toggleTreeTxDesc('${tx.id}')"
+                                        class="font-semibold text-stone-800 hover:text-lime-800 text-left cursor-pointer ${isDescExpanded ? "whitespace-normal break-words leading-snug" : "truncate block flex-1 min-w-0"}"
+                                        title="${isDescExpanded ? "Clique para ocultar o texto completo" : `${this.escapeHTML(rawDesc)} — Clique para ver completo com quebra de linha`}"
+                                      >
+                                        ${this.escapeHTML(rawDesc)}
+                                      </button>
+                                      ${
+                                        hasLongText
+                                          ? `<button
+                                              type="button"
+                                              onclick="App.toggleTreeTxDesc('${tx.id}')"
+                                              class="px-1.5 py-0.5 rounded bg-stone-100 hover:bg-stone-200 text-stone-500 hover:text-stone-800 text-[10px] font-bold shrink-0 transition"
+                                              title="${isDescExpanded ? "Recolher texto longo" : "Mostrar texto completo quebrando linha"}"
+                                            >
+                                              ${isDescExpanded ? "Ocultar ▴" : "+ texto"}
+                                            </button>`
+                                          : ""
+                                      }
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-1 mt-1">
+                                      ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
+                                      ${isDescExpanded || tx.counterparty ? this.buildPixFlowBadgesHTML(tx.id, tx) : ""}
+                                      ${instTag}
+                                      ${creditTag}
+                                      ${this.getOwnershipBadge(tx.ownership)}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div class="flex items-center gap-1.5 shrink-0 ml-auto">
+                                <div class="flex flex-wrap items-center justify-end gap-1.5 shrink-0 ml-auto max-w-full">
                                   <select
                                     onchange="App.recategorizeTransaction('${tx.id}', this.value)"
                                     title="Recategorizar este lançamento para outra categoria"
-                                    class="oli-input rounded-lg px-2 py-0.5 text-[11px] font-semibold text-stone-700 bg-white max-w-[165px] cursor-pointer"
+                                    class="oli-input rounded-lg px-2 py-0.5 text-[11px] font-semibold text-stone-700 bg-white max-w-[140px] sm:max-w-[165px] cursor-pointer"
                                   >
                                     ${this.buildSubcategorySelectOptionsHTML(tx.subcategoryId, false)}
                                   </select>
@@ -2039,8 +2087,8 @@ window.App = {
 
         return `
           <tr class="border-b border-stone-100 hover:bg-stone-50/90 transition group">
-            <td class="py-2.5 px-3 sm:px-4">
-              <div class="flex items-center gap-2.5">
+            <td class="py-2.5 px-2.5 sm:px-4">
+              <div class="flex items-start sm:items-center gap-2 min-w-0">
                 <button
                   type="button"
                   onclick="App.toggleTreeRow('${treeKey}')"
@@ -2053,12 +2101,12 @@ window.App = {
                 >
                   ${isExpanded ? "&minus;" : "+"}
                 </button>
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2 flex-wrap">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5 flex-wrap">
                     <button
                       type="button"
                       onclick="App.toggleTreeRow('${treeKey}')"
-                      class="font-bold text-stone-800 hover:text-lime-800 text-xs sm:text-sm text-left transition"
+                      class="font-bold text-stone-800 hover:text-lime-800 text-xs sm:text-sm text-left break-words transition"
                     >
                       ${item.sub.name}
                     </button>
@@ -2074,14 +2122,14 @@ window.App = {
             </td>
 
             <!-- Coluna REALIZADO (Estilo Planilha) -->
-            <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
-              <div class="inline-block w-full px-2.5 py-1.5 rounded-lg font-extrabold text-xs sm:text-sm text-right ${colors.actualClass}">
+            <td class="py-2 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">
+              <div class="inline-block w-full px-2 py-1.5 rounded-lg font-extrabold text-[11px] sm:text-sm text-right break-words ${colors.actualClass}">
                 ${this.formatBRL(item.actual)}
               </div>
             </td>
 
             <!-- Coluna META (Editável direto na célula) -->
-            <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
+            <td class="py-2 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">
               <div class="relative flex items-center justify-end">
                 <input
                   type="number"
@@ -2089,21 +2137,21 @@ window.App = {
                   value="${Number(item.meta).toFixed(2)}"
                   onchange="${metaChangeCall}"
                   title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
-                  class="w-full rounded-lg px-2.5 py-1.5 text-right font-extrabold text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
+                  class="w-full rounded-lg px-2 py-1.5 text-right font-extrabold text-[11px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
                 />
               </div>
             </td>
 
             <!-- Coluna SALDO / AÇÃO RÁPIDA -->
-            <td class="py-2.5 px-3 sm:px-4 text-right whitespace-nowrap w-24 sm:w-32">
-              <div class="flex items-center justify-end gap-1.5">
-                <span class="text-xs font-bold ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+            <td class="py-2.5 px-2 sm:px-4 text-right w-[86px] sm:w-32">
+              <div class="flex items-center justify-end gap-1 flex-wrap">
+                <span class="text-[11px] sm:text-xs font-bold break-words ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
                   ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
                 </span>
                 <button
                   type="button"
                   onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
-                  class="opacity-70 group-hover:opacity-100 p-1 rounded-lg hover:bg-lime-100 text-lime-800 transition"
+                  class="opacity-70 group-hover:opacity-100 p-0.5 rounded-lg hover:bg-lime-100 text-lime-800 transition shrink-0"
                   title="Adicionar lançamento nesta categoria"
                 >
                   <i data-lucide="plus-circle" class="w-4 h-4"></i>
@@ -2266,14 +2314,14 @@ window.App = {
         const diff = row.meta - row.actual;
         return `
           <tr class="border-b border-stone-200/70 hover:bg-stone-50 transition">
-            <td class="py-2.5 px-3 sm:px-4">
-              <div class="flex items-center justify-between gap-2">
+            <td class="py-2.5 px-2.5 sm:px-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
                 <a
                   href="#card-block-${row.card.id}"
-                  class="font-extrabold text-stone-900 hover:text-lime-800 text-xs sm:text-sm uppercase tracking-tight flex items-center gap-2"
+                  class="font-extrabold text-stone-900 hover:text-lime-800 text-xs sm:text-sm uppercase tracking-tight flex flex-wrap items-center gap-1.5"
                 >
                   <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${row.card.color}"></span>
-                  <span>${row.card.name.replace(" (Dia 8)", "").replace(" (Dia 19)", "")}</span>
+                  <span class="break-words">${row.card.name.replace(" (Dia 8)", "").replace(" (Dia 19)", "")}</span>
                   <span class="text-[10px] font-semibold text-stone-400 normal-case">(ver categorias &darr;)</span>
                 </a>
                 ${
@@ -2301,29 +2349,29 @@ window.App = {
                 }
               </div>
             </td>
-            <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
-              <div class="inline-block w-full px-2.5 py-1.5 rounded-lg font-extrabold text-xs sm:text-sm text-right ${colors.actualClass}">
+            <td class="py-2 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">
+              <div class="inline-block w-full px-2 py-1.5 rounded-lg font-extrabold text-[11px] sm:text-sm text-right break-words ${colors.actualClass}">
                 ${this.formatBRL(row.actual)}
               </div>
               ${
                 row.invoiceCredits > 0
-                  ? `<div class="text-[10px] text-emerald-700 font-semibold mt-0.5" title="Compras: ${this.formatBRL(row.grossPurchases)} | Estornos/Descontos: -${this.formatBRL(row.invoiceCredits)}">Compras ${this.formatBRL(row.grossPurchases)} − Desc. ${this.formatBRL(row.invoiceCredits)}</div>`
+                  ? `<div class="text-[10px] text-emerald-700 font-semibold mt-0.5 break-words" title="Compras: ${this.formatBRL(row.grossPurchases)} | Estornos/Descontos: -${this.formatBRL(row.invoiceCredits)}">Compras ${this.formatBRL(row.grossPurchases)} − Desc. ${this.formatBRL(row.invoiceCredits)}</div>`
                   : ""
               }
             </td>
-            <td class="py-2 px-2 sm:px-3 text-right w-28 sm:w-36">
+            <td class="py-2 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">
               <button
                 type="button"
                 onclick="App.promptCardCustomMeta('${row.card.id}')"
                 title="Clique para arbitrar um valor fixo para o cartão ou usar a soma automática das categorias"
-                class="w-full px-2.5 py-1.5 rounded-lg font-extrabold text-xs sm:text-sm text-right flex items-center justify-between gap-1 hover:ring-2 hover:ring-lime-600 transition ${colors.metaClass}"
+                class="w-full px-2 py-1.5 rounded-lg font-extrabold text-[11px] sm:text-sm text-right flex items-center justify-between gap-1 hover:ring-2 hover:ring-lime-600 transition ${colors.metaClass}"
               >
                 <i data-lucide="pencil" class="w-3 h-3 opacity-50 shrink-0"></i>
-                <span>${this.formatBRL(row.meta)}</span>
+                <span class="break-words">${this.formatBRL(row.meta)}</span>
               </button>
             </td>
-            <td class="py-2.5 px-3 sm:px-4 text-right whitespace-nowrap w-24 sm:w-32">
-              <span class="text-xs font-bold ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+            <td class="py-2.5 px-2 sm:px-4 text-right w-[86px] sm:w-32">
+              <span class="text-[11px] sm:text-xs font-bold break-words ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
                 ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
               </span>
             </td>
@@ -2420,14 +2468,14 @@ window.App = {
             </div>
 
             <!-- Tabela de Categorias Ativas do Cartão -->
-            <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse">
+            <div class="w-full overflow-x-hidden">
+              <table class="w-full table-fixed text-left border-collapse">
                 <thead>
-                  <tr class="border-b border-stone-200/80 text-[11px] font-extrabold uppercase text-stone-400 bg-white">
-                    <th class="py-2.5 px-3 sm:px-4">Categoria do Cartão</th>
-                    <th class="py-2.5 px-2 sm:px-3 text-right">Realizado</th>
-                    <th class="py-2.5 px-2 sm:px-3 text-right">Meta</th>
-                    <th class="py-2.5 px-3 sm:px-4 text-right">Saldo</th>
+                  <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
+                    <th class="py-2.5 px-2.5 sm:px-4 w-auto">Categoria do Cartão</th>
+                    <th class="py-2.5 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">Realizado</th>
+                    <th class="py-2.5 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">Meta</th>
+                    <th class="py-2.5 px-2 sm:px-4 text-right w-[86px] sm:w-32">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2484,14 +2532,14 @@ window.App = {
           </div>
         </div>
 
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse">
+        <div class="w-full overflow-x-hidden">
+          <table class="w-full table-fixed text-left border-collapse">
             <thead>
-              <tr class="border-b border-stone-200/80 text-[11px] font-extrabold uppercase text-stone-400 bg-white">
-                <th class="py-2.5 px-3 sm:px-4">Conta Corrente (Faturas + Contas em Débito)</th>
-                <th class="py-2.5 px-2 sm:px-3 text-right">Realizado</th>
-                <th class="py-2.5 px-2 sm:px-3 text-right">Meta</th>
-                <th class="py-2.5 px-3 sm:px-4 text-right">Saldo</th>
+              <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
+                <th class="py-2.5 px-2.5 sm:px-4 w-auto">Conta Corrente (Faturas + Contas em Débito)</th>
+                <th class="py-2.5 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">Realizado</th>
+                <th class="py-2.5 px-1.5 sm:px-3 text-right w-[86px] sm:w-32">Meta</th>
+                <th class="py-2.5 px-2 sm:px-4 text-right w-[86px] sm:w-32">Saldo</th>
               </tr>
             </thead>
             <tbody>
