@@ -2068,14 +2068,33 @@ window.App = {
       `;
     }
 
+    const isCheckingScope = Boolean(
+      accountId &&
+      accountId !== "ALL_ACCOUNTS" &&
+      accountId !== "ALL_INCOME" &&
+      this.getAccount(accountId).type === "CHECKING"
+    );
+
     return items
       .map(item => {
         const isMacroRow = Boolean(item.isMacro);
+        const catObj = item.cat || this.getCategory(item.sub.categoryId);
+        const isIncomeCat = accountId === "ALL_INCOME" || (catObj && catObj.type === "INCOME");
         const treeKey = item.treeKey || `${accountId}__${item.sub.id}`;
         const isExpanded = Boolean(this.expandedTreeKeys[treeKey]);
         const txCount = item.txs.length;
-        const colors = this.getSpreadsheetCellColor(item.actual, item.meta);
-        const diff = item.meta - item.actual;
+        const colors = isIncomeCat
+          ? {
+              actualClass: item.actual > 0 ? "bg-emerald-50/90 text-emerald-800 border border-emerald-200/80" : "bg-stone-50 text-stone-500 border border-stone-200/70",
+              metaClass: "bg-lime-50/70 text-lime-900 border border-lime-200/70"
+            }
+          : this.getSpreadsheetCellColor(item.actual, item.meta);
+        const diff = isIncomeCat ? (item.actual - item.meta) : (item.meta - item.actual);
+        const actualFormatted = isIncomeCat
+          ? (item.actual > 0 ? `+${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0))
+          : isCheckingScope
+          ? (item.actual > 0 ? `-${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0))
+          : this.formatBRL(item.actual);
         const selectAllCall = isMacroRow
           ? `App.selectAllInMacroTree('${accountId}', '${item.cat.id}')`
           : `App.selectAllInTree('${accountId}', '${item.sub.id}')`;
@@ -2204,8 +2223,8 @@ window.App = {
                                   >
                                     +Regra
                                   </button>
-                                  <span class="font-extrabold text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${isCredit ? "text-emerald-700" : "text-stone-900"}">
-                                    ${isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
+                                  <span class="font-extrabold text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${tx.type === "INCOME" || isCredit ? "text-emerald-700" : isCheckingScope ? "text-rose-700" : "text-stone-900"}">
+                                    ${tx.type === "INCOME" ? `+${this.formatBRL(Math.abs(tx.amount))}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : isCheckingScope ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
                                   </span>
                                   <button
                                     type="button"
@@ -2266,7 +2285,7 @@ window.App = {
             <!-- Coluna REALIZADO (Estilo Planilha) -->
             <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-32">
               <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
-                ${this.formatBRL(item.actual)}
+                ${actualFormatted}
               </div>
             </td>
 
@@ -2467,12 +2486,15 @@ window.App = {
     // Resumo das Contas Correntes (para o painel resumo antes do detalhamento das contas correntes)
     const checkingSummaryRows = checkingAccounts.map(acc => {
       const accTxs = monthTxs.filter(t => t.accountId === acc.id);
+      const accIncomeTxs = monthIncomeTxs.filter(t => t.accountId === acc.id);
       const accProjs = monthProjs.filter(p => p.accountId === acc.id);
       const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const incomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
       const meta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-      return { acc, actual, meta };
+      return { acc, actual, incomeActual, meta };
     });
     const totalCheckingSummaryActual = checkingSummaryRows.reduce((s, r) => s + r.actual, 0);
+    const totalCheckingSummaryIncome = checkingSummaryRows.reduce((s, r) => s + r.incomeActual, 0);
     const totalCheckingSummaryMeta = checkingSummaryRows.reduce((s, r) => s + r.meta, 0);
     const totalCheckingSummaryDiff = totalCheckingSummaryMeta - totalCheckingSummaryActual;
 
@@ -2498,8 +2520,13 @@ window.App = {
             </td>
             <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-32">
               <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
-                ${this.formatBRL(row.actual)}
+                ${row.actual > 0 ? `-${this.formatBRL(Math.abs(row.actual))}` : this.formatBRL(0)}
               </div>
+              ${
+                row.incomeActual > 0
+                  ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold mt-0.5 whitespace-nowrap tabular-nums">+${this.formatBRL(row.incomeActual)}</div>`
+                  : ""
+              }
             </td>
             <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
               <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.metaClass}">
@@ -2645,14 +2672,34 @@ window.App = {
     const checkingAccountsBlocksHTML = checkingAccounts
       .map(acc => {
         const accTxs = monthTxs.filter(t => t.accountId === acc.id);
+        const accIncomeTxs = monthIncomeTxs.filter(t => t.accountId === acc.id);
         const accProjs = monthProjs.filter(p => p.accountId === acc.id);
         const accActual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
+        const accIncomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
         const accMeta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
         const accDiff = accMeta - accActual;
         const owner = this.getUser(acc.ownerId);
 
         const activeAccItems = [];
         const archivedAccSubs = [];
+
+        incomeSubcategories.forEach(sub => {
+          const subTxs = accIncomeTxs.filter(t => t.subcategoryId === sub.id);
+          const subProjs = accProjs.filter(p => p.subcategoryId === sub.id);
+          const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
+          const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+          if (subTxs.length > 0 || meta > 0) {
+            const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id, acc.ownerId);
+            activeAccItems.push({
+              sub,
+              accountId: acc.id,
+              actual,
+              meta,
+              txs: subTxs,
+              ownership
+            });
+          }
+        });
 
         expenseSubcategories.forEach(sub => {
           const subTxs = accTxs.filter(t => t.subcategoryId === sub.id);
@@ -2726,7 +2773,10 @@ window.App = {
                 <tfoot>
                   <tr class="bg-sky-100/70 border-t-2 border-sky-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
                     <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">TOTAL ${this.escapeHTML(acc.name)}</td>
-                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(accActual)}</td>
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
+                      <div>${accActual > 0 ? `-${this.formatBRL(accActual)}` : this.formatBRL(0)}</div>
+                      ${accIncomeActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeActual)}</div>` : ""}
+                    </td>
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(accMeta)}</td>
                     <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${accDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
                       ${accDiff >= 0 ? "+" : ""}${this.formatBRL(accDiff)}
@@ -2868,7 +2918,10 @@ window.App = {
               <tfoot>
                 <tr class="bg-sky-900 text-white font-extrabold text-[10px] sm:text-sm">
                   <td class="py-3 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL CONTAS CORRENTES</td>
-                  <td class="py-3 px-1 sm:px-3 text-right text-sky-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalCheckingSummaryActual)}</td>
+                  <td class="py-3 px-1 sm:px-3 text-right text-sky-200 whitespace-nowrap tabular-nums">
+                    <div>${totalCheckingSummaryActual > 0 ? `-${this.formatBRL(totalCheckingSummaryActual)}` : this.formatBRL(0)}</div>
+                    ${totalCheckingSummaryIncome > 0 ? `<div class="text-[9px] sm:text-[10px] text-lime-300 font-bold">+${this.formatBRL(totalCheckingSummaryIncome)}</div>` : ""}
+                  </td>
                   <td class="py-3 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalCheckingSummaryMeta)}</td>
                   <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
                     ${totalCheckingSummaryDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryDiff)}
