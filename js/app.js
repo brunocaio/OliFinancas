@@ -2094,6 +2094,8 @@ window.App = {
       </div>
     `;
   },
+
+  selectAllInMacroTree(accountId, categoryId) {
     const monthYear = this.state.settings.activeMonth;
     const scopeIds = this.getBudgetScopeAccountIds(accountId);
     const txType = accountId === "ALL_INCOME" ? "INCOME" : "EXPENSE";
