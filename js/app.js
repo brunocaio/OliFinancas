@@ -2798,20 +2798,9 @@ window.App = {
 
       const expenseDiff = expenseMeta - actual;
       const incomeDiff = incomeActual - incomeMeta;
-      const netCheckingBalance = (incomeActual + transferInActual) - (actual + transferOutActual);
-
-      let diff = 0;
-      if (hasAnyMeta) {
-        if (expenseMeta > 0 && incomeMeta > 0) {
-          diff = expenseDiff + incomeDiff;
-        } else if (expenseMeta > 0) {
-          diff = expenseDiff + incomeActual;
-        } else {
-          diff = incomeDiff - actual;
-        }
-      } else {
-        diff = netCheckingBalance;
-      }
+      const budgetDiff = (expenseMeta > 0 ? expenseDiff : 0) + (incomeMeta > 0 ? incomeDiff : 0);
+      // Saldo consolidado da conta corrente: Receitas - Despesas (desconsiderando transferências entre contas)
+      const diff = incomeActual - actual;
 
       return {
         acc,
@@ -2821,15 +2810,18 @@ window.App = {
         expenseMeta,
         incomeMeta,
         meta: expenseMeta,
-        diff,
-        netCheckingBalance
+        hasAnyMeta,
+        budgetDiff,
+        diff
       };
     });
     const totalCheckingSummaryActual = checkingSummaryRows.reduce((s, r) => s + r.actual, 0);
     const totalCheckingSummaryIncome = checkingSummaryRows.reduce((s, r) => s + r.incomeActual, 0);
     const totalCheckingSummaryExpenseMeta = checkingSummaryRows.reduce((s, r) => s + r.expenseMeta, 0);
     const totalCheckingSummaryIncomeMeta = checkingSummaryRows.reduce((s, r) => s + r.incomeMeta, 0);
-    const totalCheckingSummaryDiff = checkingSummaryRows.reduce((s, r) => s + r.diff, 0);
+    const totalCheckingSummaryDiff = totalCheckingSummaryIncome - totalCheckingSummaryActual;
+    const totalCheckingSummaryBudgetDiff = checkingSummaryRows.reduce((s, r) => s + (r.hasAnyMeta ? r.budgetDiff : 0), 0);
+    const totalCheckingSummaryHasAnyMeta = checkingSummaryRows.some(r => r.hasAnyMeta);
 
     const checkingSummaryRowsHTML = checkingSummaryRows
       .map(row => {
@@ -2879,6 +2871,11 @@ window.App = {
               <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${row.diff >= 0 ? "text-lime-700" : "text-rose-600"}">
                 ${row.diff >= 0 ? "+" : ""}${this.formatBRL(row.diff)}
               </span>
+              ${
+                row.hasAnyMeta
+                  ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-medium whitespace-nowrap tabular-nums" title="Saldo orçamentário das metas">Meta: ${row.budgetDiff >= 0 ? "+" : ""}${this.formatBRL(row.budgetDiff)}</div>`
+                  : ""
+              }
             </td>
           </tr>
         `;
@@ -3031,22 +3028,10 @@ window.App = {
 
         const expenseDiff = accExpenseMeta - accActual;
         const incomeDiff = accIncomeActual - accIncomeMeta;
-        const netAccBalance = (accIncomeActual + accTransferInActual) - (accActual + accTransferOutActual);
+        const budgetDiff = (accExpenseMeta > 0 ? expenseDiff : 0) + (accIncomeMeta > 0 ? incomeDiff : 0);
 
-        // Se houver metas estipuladas, o saldo acompanha o status de cada meta (receita vs despesa)
-        // Se não houver nenhuma meta na conta, o saldo é a compensação real financeira (entradas - saídas)
-        let accDiff = 0;
-        if (hasAnyMeta) {
-          if (accExpenseMeta > 0 && accIncomeMeta > 0) {
-            accDiff = expenseDiff + incomeDiff;
-          } else if (accExpenseMeta > 0) {
-            accDiff = expenseDiff + accIncomeActual;
-          } else {
-            accDiff = incomeDiff - accActual;
-          }
-        } else {
-          accDiff = netAccBalance;
-        }
+        // Saldo consolidado da conta corrente: Receitas realizadas - Despesas realizadas (desconsiderando transferências entre contas)
+        const accDiff = accIncomeActual - accActual;
 
         const owner = this.getUser(acc.ownerId);
 
@@ -3193,7 +3178,8 @@ window.App = {
                       ${accIncomeMeta > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeMeta)}</div>` : ""}
                     </td>
                     <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${accDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
-                      ${accDiff >= 0 ? "+" : ""}${this.formatBRL(accDiff)}
+                      <div>${accDiff >= 0 ? "+" : ""}${this.formatBRL(accDiff)}</div>
+                      ${hasAnyMeta ? `<div class="text-[9px] sm:text-[10px] text-stone-500 font-medium" title="Saldo orçamentário das metas">Meta: ${budgetDiff >= 0 ? "+" : ""}${this.formatBRL(budgetDiff)}</div>` : ""}
                     </td>
                   </tr>
                 </tfoot>
@@ -3347,7 +3333,8 @@ window.App = {
                     ${totalCheckingSummaryIncomeMeta > 0 ? `<div class="text-[9px] sm:text-[10px] text-lime-300 font-bold">+${this.formatBRL(totalCheckingSummaryIncomeMeta)}</div>` : ""}
                   </td>
                   <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
-                    ${totalCheckingSummaryDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryDiff)}
+                    <div>${totalCheckingSummaryDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryDiff)}</div>
+                    ${totalCheckingSummaryHasAnyMeta ? `<div class="text-[9px] sm:text-[10px] text-lime-300/80 font-medium whitespace-nowrap tabular-nums" title="Saldo orçamentário das metas">Meta: ${totalCheckingSummaryBudgetDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryBudgetDiff)}</div>` : ""}
                   </td>
                 </tr>
               </tfoot>
