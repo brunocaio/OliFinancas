@@ -28,6 +28,7 @@ window.App = {
   updatingFinancingId: null,
   expandedTreeKeys: {},
   expandedTreeDescIds: {},
+  treeSearchQuery: {},
   showAllTreeFullText: false,
   expandedArchiveKeys: {},
   quoteIndex: 0,
@@ -2033,7 +2034,66 @@ window.App = {
     this.showToast(`🫒 Meta da categoria "${cat.name}" atualizada para ${this.formatBRL(val)}!`, "success");
   },
 
-  selectAllInMacroTree(accountId, categoryId) {
+  filterBlockTree(accountId, query) {
+    if (!this.treeSearchQuery) this.treeSearchQuery = {};
+    this.treeSearchQuery[accountId] = (query || "").trim();
+    const tabEl = document.getElementById("tab-projections");
+    if (!tabEl || tabEl.classList.contains("hidden")) {
+      this.renderAll();
+      return;
+    }
+    const html = this.buildStructuredBudgetHTML(this.state.settings.activeMonth);
+    const container = document.getElementById("structured-budget-container");
+    if (container) {
+      container.innerHTML = html;
+      this.refreshLucideIcons();
+      // Restaura o foco e o cursor no campo de busca que o usuário estava digitando
+      const inputEl = document.getElementById(`tree-search-${accountId}`);
+      if (inputEl) {
+        inputEl.focus();
+        const len = inputEl.value.length;
+        inputEl.setSelectionRange(len, len);
+      }
+    } else {
+      this.renderAll();
+    }
+  },
+
+  clearBlockTreeSearch(accountId) {
+    if (!this.treeSearchQuery) this.treeSearchQuery = {};
+    this.treeSearchQuery[accountId] = "";
+    this.renderAll();
+  },
+
+  buildTreeSearchInputHTML(accountId, placeholder = "Buscar na árvore...") {
+    const currentVal = (this.treeSearchQuery && this.treeSearchQuery[accountId]) || "";
+    return `
+      <div class="relative flex items-center min-w-[130px] sm:min-w-[180px] max-w-full">
+        <input
+          id="tree-search-${accountId}"
+          type="text"
+          value="${this.escapeHTML(currentVal)}"
+          oninput="App.filterBlockTree('${accountId}', this.value)"
+          placeholder="${placeholder}"
+          class="w-full bg-white border border-stone-200 hover:border-lime-500 focus:border-lime-600 focus:ring-1 focus:ring-lime-600 rounded-lg pl-7 pr-6 py-1 text-[11px] font-semibold text-stone-700 placeholder-stone-400 focus:outline-none transition shadow-2xs"
+          title="Filtrar categorias e lançamentos deste bloco em tempo real"
+        />
+        <i data-lucide="search" class="w-3.5 h-3.5 text-stone-400 absolute left-2 pointer-events-none"></i>
+        ${
+          currentVal
+            ? `<button
+                type="button"
+                onclick="App.clearBlockTreeSearch('${accountId}')"
+                class="absolute right-1.5 p-0.5 text-stone-400 hover:text-stone-700 rounded transition"
+                title="Limpar busca"
+              >
+                <i data-lucide="x" class="w-3 h-3"></i>
+              </button>`
+            : ""
+        }
+      </div>
+    `;
+  },
     const monthYear = this.state.settings.activeMonth;
     const scopeIds = this.getBudgetScopeAccountIds(accountId);
     const txType = accountId === "ALL_INCOME" ? "INCOME" : "EXPENSE";
@@ -2220,14 +2280,50 @@ window.App = {
       this.getAccount(accountId).type === "CHECKING"
     );
 
-    return items
+    const blockSearch = ((this.treeSearchQuery && this.treeSearchQuery[accountId]) || "").trim().toLowerCase();
+
+    // Filtra itens com base na busca do bloco
+    let filteredItems = items;
+    if (blockSearch) {
+      filteredItems = items.filter(item => {
+        const catObj = item.cat || this.getCategory(item.sub.categoryId);
+        const nameMatch = (item.sub.name || "").toLowerCase().includes(blockSearch) ||
+          (catObj && catObj.name && catObj.name.toLowerCase().includes(blockSearch));
+        if (nameMatch) return true;
+        // Verifica se alguma transação filha atende à busca
+        return (item.txs || []).some(tx => {
+          const desc = (tx.description || "").toLowerCase();
+          const notes = (tx.notes || "").toLowerCase();
+          const cp = (tx.counterparty || "").toLowerCase();
+          const orig = (tx.originLabel || "").toLowerCase();
+          const dest = (tx.destinationLabel || "").toLowerCase();
+          const amtStr = String(tx.amount || "");
+          return desc.includes(blockSearch) || notes.includes(blockSearch) ||
+            cp.includes(blockSearch) || orig.includes(blockSearch) ||
+            dest.includes(blockSearch) || amtStr.includes(blockSearch);
+        });
+      });
+
+      if (filteredItems.length === 0) {
+        return `
+          <tr>
+            <td colspan="4" class="py-6 px-4 text-center text-xs text-stone-400">
+              Nenhuma categoria ou lançamento encontrado para "<strong>${this.escapeHTML(blockSearch)}</strong>" neste bloco.
+            </td>
+          </tr>
+        `;
+      }
+    }
+
+    return filteredItems
       .map(item => {
         const isMacroRow = Boolean(item.isMacro);
         const catObj = item.cat || this.getCategory(item.sub.categoryId);
         const isTransferCat = Boolean(item.isTransfer) || (catObj && catObj.type === "TRANSFER");
         const isIncomeCat = !isTransferCat && (accountId === "ALL_INCOME" || (catObj && catObj.type === "INCOME"));
         const treeKey = item.treeKey || `${accountId}__${item.sub.id}`;
-        const isExpanded = Boolean(this.expandedTreeKeys[treeKey]);
+        // Se houver busca ativa no bloco, expande automaticamente as categorias que contêm resultados
+        const isExpanded = blockSearch ? true : Boolean(this.expandedTreeKeys[treeKey]);
         const txCount = item.txs.length;
         const baseColors = this.getSpreadsheetCellColor(item.actual, item.meta);
         const colors = isTransferCat
@@ -2302,10 +2398,23 @@ window.App = {
                     txCount === 0
                       ? `<div class="py-2 text-xs text-stone-400 italic">└─ Nenhum lançamento registrado ainda nesta categoria no mês (Meta: ${this.formatBRL(item.meta)}).</div>`
                       : item.txs
-                          .map((tx, idx) => {
+                          .filter(tx => {
+                            if (!blockSearch) return true;
+                            const desc = (tx.description || "").toLowerCase();
+                            const notes = (tx.notes || "").toLowerCase();
+                            const cp = (tx.counterparty || "").toLowerCase();
+                            const orig = (tx.originLabel || "").toLowerCase();
+                            const dest = (tx.destinationLabel || "").toLowerCase();
+                            const amtStr = String(tx.amount || "");
+                            return desc.includes(blockSearch) || notes.includes(blockSearch) ||
+                              cp.includes(blockSearch) || orig.includes(blockSearch) ||
+                              dest.includes(blockSearch) || amtStr.includes(blockSearch) ||
+                              (item.sub.name || "").toLowerCase().includes(blockSearch);
+                          })
+                          .map((tx, idx, arr) => {
                             if (!this.visibleTreeTxIds) this.visibleTreeTxIds = [];
                             this.visibleTreeTxIds.push(tx.id);
-                            const branchChar = idx === txCount - 1 ? "└─" : "├─";
+                            const branchChar = idx === arr.length - 1 ? "└─" : "├─";
                             const instTag = tx.installmentTotal > 1
                               ? `<span class="px-1.5 py-0.5 rounded bg-stone-200/80 text-stone-700 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
                               : "";
@@ -2787,6 +2896,7 @@ window.App = {
               </div>
 
               <div class="flex flex-wrap items-center gap-2 self-start sm:self-center">
+                ${this.buildTreeSearchInputHTML(card.id, "Filtrar no cartão...")}
                 <button
                   type="button"
                   onclick="App.expandAllTrees(true, '${card.id}')"
@@ -2968,6 +3078,7 @@ window.App = {
               </div>
 
               <div class="flex flex-wrap items-center gap-2 self-start sm:self-center">
+                ${this.buildTreeSearchInputHTML(acc.id, "Filtrar na conta...")}
                 <button
                   type="button"
                   onclick="App.expandAllTrees(true, '${acc.id}')"
@@ -3027,10 +3138,13 @@ window.App = {
       <!-- RECEITAS DO MÊS                                                  -->
       <!-- ================================================================ -->
       <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-lime-200/90">
-        <div class="px-5 py-4 bg-lime-50/70 border-b border-lime-200/80 flex items-center justify-between gap-2">
+        <div class="px-5 py-4 bg-lime-50/70 border-b border-lime-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
             Receitas
           </h3>
+          <div class="flex items-center gap-2 self-start sm:self-center">
+            ${this.buildTreeSearchInputHTML("ALL_INCOME", "Filtrar receitas...")}
+          </div>
         </div>
 
         <div class="w-full overflow-x-hidden">
@@ -3066,10 +3180,13 @@ window.App = {
       <!-- DESPESAS TOTAIS (TODAS AS FORMAS DE PAGAMENTO POR CATEGORIA)     -->
       <!-- ================================================================ -->
       <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-stone-300/80">
-        <div class="px-5 py-4 bg-stone-100/90 border-b border-stone-200 flex items-center justify-between gap-2">
+        <div class="px-5 py-4 bg-stone-100/90 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
             Despesas Totais
           </h3>
+          <div class="flex items-center gap-2 self-start sm:self-center">
+            ${this.buildTreeSearchInputHTML("ALL_ACCOUNTS", "Filtrar despesas totais...")}
+          </div>
         </div>
 
         <div class="w-full overflow-x-hidden">
