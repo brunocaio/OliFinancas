@@ -2146,6 +2146,114 @@ window.App = {
     this.renderAll();
   },
 
+  getPreviousMonth(monthYear) {
+    if (!monthYear) return "";
+    const [y, m] = monthYear.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  },
+
+  isCategoryExplicitlyActive(monthYear, categoryId, subcategoryId) {
+    if (!this.state || !this.state.settings) return false;
+    const activeCats = this.state.settings.activeCategoryIdsByMonth && this.state.settings.activeCategoryIdsByMonth[monthYear];
+    if (activeCats && activeCats.includes(categoryId)) return true;
+    const activeSubs = this.state.settings.activeSubcategoryIdsByMonth && this.state.settings.activeSubcategoryIdsByMonth[monthYear];
+    if (activeSubs && activeSubs.includes(subcategoryId)) return true;
+    return false;
+  },
+
+  importCategoriesFromPreviousMonth() {
+    const currentMonth = this.state.settings.activeMonth;
+    const prevMonth = this.getPreviousMonth(currentMonth);
+    const prevMonthLabel = this.getMonthLabel(prevMonth);
+
+    const prevTxs = this.state.transactions.filter(t => t.competenceMonth === prevMonth);
+    const prevProjs = this.state.projections.filter(p => p.monthYear === prevMonth);
+
+    const macroIds = new Set();
+    const subIds = new Set();
+
+    prevTxs.forEach(t => {
+      if (t.subcategoryId) {
+        subIds.add(t.subcategoryId);
+        const sub = this.getSubcategory(t.subcategoryId);
+        if (sub && sub.categoryId) macroIds.add(sub.categoryId);
+      }
+    });
+
+    prevProjs.forEach(p => {
+      if (p.subcategoryId) {
+        subIds.add(p.subcategoryId);
+        const sub = this.getSubcategory(p.subcategoryId);
+        if (sub && sub.categoryId) macroIds.add(sub.categoryId);
+      }
+    });
+
+    const prevSavedMacro = (this.state.settings.activeCategoryIdsByMonth && this.state.settings.activeCategoryIdsByMonth[prevMonth]) || [];
+    const prevSavedSub = (this.state.settings.activeSubcategoryIdsByMonth && this.state.settings.activeSubcategoryIdsByMonth[prevMonth]) || [];
+    prevSavedMacro.forEach(id => macroIds.add(id));
+    prevSavedSub.forEach(id => subIds.add(id));
+
+    if (macroIds.size === 0) {
+      this.state.categories.forEach(c => {
+        macroIds.add(c.id);
+        const child = this.state.subcategories.find(s => s.categoryId === c.id);
+        if (child) subIds.add(child.id);
+      });
+    } else {
+      macroIds.forEach(catId => {
+        const hasSub = Array.from(subIds).some(sId => {
+          const s = this.getSubcategory(sId);
+          return s && s.categoryId === catId;
+        });
+        if (!hasSub) {
+          const firstChild = this.state.subcategories.find(s => s.categoryId === catId);
+          if (firstChild) subIds.add(firstChild.id);
+        }
+      });
+    }
+
+    if (!this.state.settings.activeCategoryIdsByMonth) {
+      this.state.settings.activeCategoryIdsByMonth = {};
+    }
+    if (!this.state.settings.activeSubcategoryIdsByMonth) {
+      this.state.settings.activeSubcategoryIdsByMonth = {};
+    }
+
+    const currentMacro = new Set(this.state.settings.activeCategoryIdsByMonth[currentMonth] || []);
+    const currentSub = new Set(this.state.settings.activeSubcategoryIdsByMonth[currentMonth] || []);
+    macroIds.forEach(id => currentMacro.add(id));
+    subIds.forEach(id => currentSub.add(id));
+
+    this.state.settings.activeCategoryIdsByMonth[currentMonth] = Array.from(currentMacro);
+    this.state.settings.activeSubcategoryIdsByMonth[currentMonth] = Array.from(currentSub);
+
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`✨ ${macroIds.size} categorias macro trazidas de ${prevMonthLabel} com valores zerados!`, "success");
+  },
+
+  copyActualToMeta(accountId, targetId, isMacro) {
+    const monthYear = this.state.settings.activeMonth;
+    let actual = 0;
+
+    if (isMacro) {
+      const childSubs = this.state.subcategories.filter(s => s.categoryId === targetId);
+      const childSubIds = new Set(childSubs.map(s => s.id));
+      const txs = this.state.transactions.filter(
+        t => t.competenceMonth === monthYear && childSubIds.has(t.subcategoryId)
+      );
+      actual = txs.reduce((s, t) => s + Number(t.amount || 0), 0);
+      this.setMacroCategoryMeta(accountId, targetId, Math.abs(actual));
+    } else {
+      const txs = this.state.transactions.filter(
+        t => t.competenceMonth === monthYear && t.subcategoryId === targetId
+      );
+      actual = txs.reduce((s, t) => s + Number(t.amount || 0), 0);
+      this.setCategoryMeta(accountId, targetId, Math.abs(actual));
+    }
+  },
+
   setMacroCategoryMeta(accountId, categoryId, rawValue) {
     const monthYear = this.state.settings.activeMonth;
     const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
@@ -2178,6 +2286,15 @@ window.App = {
         isFixed: false,
         dueDay: acc.dueDay || 10
       });
+    }
+
+    if (val === 0) {
+      const txCount = this.state.transactions.filter(
+        t => t.competenceMonth === monthYear && childSubIds.has(t.subcategoryId)
+      ).length;
+      if (txCount === 0 && this.state.settings && this.state.settings.activeCategoryIdsByMonth && this.state.settings.activeCategoryIdsByMonth[monthYear]) {
+        this.state.settings.activeCategoryIdsByMonth[monthYear] = this.state.settings.activeCategoryIdsByMonth[monthYear].filter(id => id !== categoryId);
+      }
     }
 
     this.saveState(true);
@@ -2334,6 +2451,15 @@ window.App = {
       });
     }
 
+    if (val === 0) {
+      const txCount = this.state.transactions.filter(
+        t => t.competenceMonth === monthYear && t.subcategoryId === subcategoryId
+      ).length;
+      if (txCount === 0 && this.state.settings && this.state.settings.activeSubcategoryIdsByMonth && this.state.settings.activeSubcategoryIdsByMonth[monthYear]) {
+        this.state.settings.activeSubcategoryIdsByMonth[monthYear] = this.state.settings.activeSubcategoryIdsByMonth[monthYear].filter(id => id !== subcategoryId);
+      }
+    }
+
     this.saveState(true);
     this.renderAll();
     if (val === 0) {
@@ -2424,8 +2550,22 @@ window.App = {
     if (items.length === 0) {
       return `
         <tr>
-          <td colspan="${colSpanTotal}" class="py-6 px-4 text-center text-xs text-stone-400">
-            Nenhuma categoria com meta ou lançamento ativo neste bloco.
+          <td colspan="${colSpanTotal}" class="py-8 px-4 text-center text-xs text-stone-400 space-y-2">
+            <div>Nenhuma categoria com meta ou lançamento ativo neste mês.</div>
+            ${
+              isMetaEditable
+                ? `<div class="pt-1">
+                    <button
+                      type="button"
+                      onclick="App.importCategoriesFromPreviousMonth()"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-lime-100 hover:bg-lime-200 text-lime-900 font-bold text-xs transition cursor-pointer"
+                    >
+                      <i data-lucide="copy-plus" class="w-3.5 h-3.5"></i>
+                      <span>Trazer categorias do mês anterior</span>
+                    </button>
+                  </div>`
+                : ""
+            }
           </td>
         </tr>
       `;
@@ -2534,6 +2674,10 @@ window.App = {
         const metaChangeCall = isMacroRow
           ? `App.setMacroCategoryMeta('${accountId}', '${item.cat.id}', this.value)`
           : `App.setCategoryMeta('${accountId}', '${item.sub.id}', this.value)`;
+        const actualPositive = Math.abs(Number(item.actual || 0));
+        const copyActualToMetaCall = isMacroRow
+          ? `App.copyActualToMeta('${accountId}', '${item.cat.id}', true)`
+          : `App.copyActualToMeta('${accountId}', '${item.sub.id}', false)`;
 
         const treeChildrenHTML = isExpanded
           ? `
@@ -2744,8 +2888,16 @@ window.App = {
               isMetaEditable
                 ? `
             <!-- Coluna META (Preenchível apenas para receitas totais e despesas totais) -->
-            <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
-              <div class="relative flex items-center justify-end">
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[88px] sm:w-36">
+              <div class="relative flex items-center justify-end gap-1">
+                <button
+                  type="button"
+                  onclick="${copyActualToMetaCall}"
+                  class="opacity-40 hover:opacity-100 p-1 text-stone-400 hover:text-lime-700 hover:bg-lime-100/80 rounded-md transition shrink-0 cursor-pointer"
+                  title="Transferir valor Realizado (${this.formatBRL(actualPositive)}) para a Meta"
+                >
+                  <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                </button>
                 <input
                   type="number"
                   step="0.01"
@@ -2908,7 +3060,8 @@ window.App = {
       const subProjs = monthProjs.filter(p => allUserAccountIds.includes(p.accountId) && p.subcategoryId === sub.id);
       const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
       const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-      if (subTxs.length > 0 || meta > 0) {
+      const isExplicit = this.isCategoryExplicitlyActive(monthYear, sub.categoryId, sub.id);
+      if (subTxs.length > 0 || meta > 0 || isExplicit) {
         const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id);
         activeIncomeItems.push({
           sub,
@@ -2942,8 +3095,9 @@ window.App = {
       const subProjs = monthProjs.filter(p => allUserAccountIds.includes(p.accountId) && p.subcategoryId === sub.id);
       const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
       const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+      const isExplicit = this.isCategoryExplicitlyActive(monthYear, sub.categoryId, sub.id);
 
-      if (subTxs.length > 0 || meta > 0) {
+      if (subTxs.length > 0 || meta > 0 || isExplicit) {
         const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id);
         activeConsolidatedItems.push({
           sub,
@@ -3345,7 +3499,7 @@ window.App = {
               <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
                 <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
-                <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
+                <th class="py-2.5 px-1 sm:px-3 text-right w-[88px] sm:w-36 whitespace-nowrap">Meta</th>
                 <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
               </tr>
             </thead>
@@ -3373,9 +3527,20 @@ window.App = {
       <!-- ================================================================ -->
       <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-stone-300/80">
         <div class="px-5 py-4 bg-stone-100/90 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
-            Despesas Totais
-          </h3>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
+              Despesas Totais
+            </h3>
+            <button
+              type="button"
+              onclick="App.importCategoriesFromPreviousMonth()"
+              class="px-2.5 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 hover:text-lime-900 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+              title="Trazer categorias macro do mês anterior com valores zerados"
+            >
+              <i data-lucide="copy-plus" class="w-3.5 h-3.5 text-lime-700"></i>
+              <span>Trazer do Mês Anterior</span>
+            </button>
+          </div>
           <div class="flex items-center gap-2 self-start sm:self-center">
             ${this.buildTreeSearchInputHTML("ALL_ACCOUNTS", "Filtrar despesas totais...")}
           </div>
@@ -3387,7 +3552,7 @@ window.App = {
               <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
                 <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria (Todas as Formas de Pagamento)</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
-                <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
+                <th class="py-2.5 px-1 sm:px-3 text-right w-[88px] sm:w-36 whitespace-nowrap">Meta</th>
                 <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
               </tr>
             </thead>
