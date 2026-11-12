@@ -2783,49 +2783,38 @@ window.App = {
     const checkingSummaryRows = checkingAccounts.map(acc => {
       const accTxs = monthTxs.filter(t => t.accountId === acc.id);
       const accIncomeTxs = monthIncomeTxs.filter(t => t.accountId === acc.id);
-      const accTransferTxs = monthTransferTxs.filter(t => t.accountId === acc.id);
       const accProjs = monthProjs.filter(p => p.accountId === acc.id);
       const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
       const incomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
-      const transferInActual = accTransferTxs.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
-      const transferOutActual = accTransferTxs.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
 
       const accExpenseProjs = accProjs.filter(p => this.getProjectionType(p) === "EXPENSE");
       const accIncomeProjs = accProjs.filter(p => this.getProjectionType(p) === "INCOME");
       const expenseMeta = accExpenseProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
       const incomeMeta = accIncomeProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-      const hasAnyMeta = expenseMeta > 0 || incomeMeta > 0;
 
-      const expenseDiff = expenseMeta - actual;
-      const incomeDiff = incomeActual - incomeMeta;
-      const budgetDiff = (expenseMeta > 0 ? expenseDiff : 0) + (incomeMeta > 0 ? incomeDiff : 0);
-      // Saldo consolidado da conta corrente: Receitas - Despesas (desconsiderando transferências entre contas)
-      const diff = incomeActual - actual;
+      // Somatório consolidado considerando status de despesa (-) ou receita (+), desconsiderando transferências
+      const netActual = incomeActual - actual;
+      const netMeta = incomeMeta - expenseMeta;
+      const netDiff = netActual - netMeta;
 
       return {
         acc,
         actual,
         incomeActual,
-        transferActual: transferInActual,
         expenseMeta,
         incomeMeta,
-        meta: expenseMeta,
-        hasAnyMeta,
-        budgetDiff,
-        diff
+        netActual,
+        netMeta,
+        netDiff
       };
     });
-    const totalCheckingSummaryActual = checkingSummaryRows.reduce((s, r) => s + r.actual, 0);
-    const totalCheckingSummaryIncome = checkingSummaryRows.reduce((s, r) => s + r.incomeActual, 0);
-    const totalCheckingSummaryExpenseMeta = checkingSummaryRows.reduce((s, r) => s + r.expenseMeta, 0);
-    const totalCheckingSummaryIncomeMeta = checkingSummaryRows.reduce((s, r) => s + r.incomeMeta, 0);
-    const totalCheckingSummaryDiff = totalCheckingSummaryIncome - totalCheckingSummaryActual;
-    const totalCheckingSummaryBudgetDiff = checkingSummaryRows.reduce((s, r) => s + (r.hasAnyMeta ? r.budgetDiff : 0), 0);
-    const totalCheckingSummaryHasAnyMeta = checkingSummaryRows.some(r => r.hasAnyMeta);
+
+    const totalCheckingSummaryNetActual = checkingSummaryRows.reduce((s, r) => s + r.netActual, 0);
+    const totalCheckingSummaryNetMeta = checkingSummaryRows.reduce((s, r) => s + r.netMeta, 0);
+    const totalCheckingSummaryNetDiff = checkingSummaryRows.reduce((s, r) => s + r.netDiff, 0);
 
     const checkingSummaryRowsHTML = checkingSummaryRows
       .map(row => {
-        const colors = this.getSpreadsheetCellColor(row.actual, row.expenseMeta);
         const owner = this.getUser(row.acc.ownerId);
         return `
           <tr class="border-b border-stone-200/70 hover:bg-stone-50 transition">
@@ -2842,40 +2831,14 @@ window.App = {
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 font-semibold">${owner.name}</span>
               </div>
             </td>
-            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-36">
-              <div class="inline-block min-w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${row.actual > 0 ? "bg-rose-50/90 text-rose-700 border border-rose-200/80" : colors.actualClass}">
-                ${row.actual > 0 ? `-${this.formatBRL(Math.abs(row.actual))}` : this.formatBRL(0)}
-              </div>
-              ${
-                row.incomeActual > 0
-                  ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold mt-0.5 whitespace-nowrap tabular-nums">+${this.formatBRL(row.incomeActual)}</div>`
-                  : ""
-              }
-              ${
-                row.transferActual > 0
-                  ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold mt-0.5 whitespace-nowrap tabular-nums">⇄ +${this.formatBRL(row.transferActual)}</div>`
-                  : ""
-              }
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-36 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${row.netActual >= 0 ? "text-lime-700" : "text-rose-600"}">
+              ${row.netActual >= 0 ? "+" : ""}${this.formatBRL(row.netActual)}
             </td>
-            <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
-              <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.metaClass}">
-                ${this.formatBRL(row.expenseMeta)}
-              </div>
-              ${
-                row.incomeMeta > 0
-                  ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold mt-0.5 whitespace-nowrap tabular-nums">+${this.formatBRL(row.incomeMeta)}</div>`
-                  : ""
-              }
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${row.netMeta > 0 ? "text-lime-700" : row.netMeta < 0 ? "text-rose-600" : "text-stone-500"}">
+              ${row.netMeta > 0 ? "+" : ""}${this.formatBRL(row.netMeta)}
             </td>
-            <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
-              <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${row.diff >= 0 ? "text-lime-700" : "text-rose-600"}">
-                ${row.diff >= 0 ? "+" : ""}${this.formatBRL(row.diff)}
-              </span>
-              ${
-                row.hasAnyMeta
-                  ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-medium whitespace-nowrap tabular-nums" title="Saldo orçamentário das metas">Meta: ${row.budgetDiff >= 0 ? "+" : ""}${this.formatBRL(row.budgetDiff)}</div>`
-                  : ""
-              }
+            <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${row.netDiff >= 0 ? "text-lime-700" : "text-rose-600"}">
+              ${row.netDiff >= 0 ? "+" : ""}${this.formatBRL(row.netDiff)}
             </td>
           </tr>
         `;
@@ -3024,14 +2987,11 @@ window.App = {
         const accIncomeProjs = accProjs.filter(p => this.getProjectionType(p) === "INCOME");
         const accExpenseMeta = accExpenseProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
         const accIncomeMeta = accIncomeProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-        const hasAnyMeta = accExpenseMeta > 0 || accIncomeMeta > 0;
 
-        const expenseDiff = accExpenseMeta - accActual;
-        const incomeDiff = accIncomeActual - accIncomeMeta;
-        const budgetDiff = (accExpenseMeta > 0 ? expenseDiff : 0) + (accIncomeMeta > 0 ? incomeDiff : 0);
-
-        // Saldo consolidado da conta corrente: Receitas realizadas - Despesas realizadas (desconsiderando transferências entre contas)
-        const accDiff = accIncomeActual - accActual;
+        // Somatório das colunas considerando status de despesa (-) ou receita (+), desconsiderando transferências
+        const netActual = accIncomeActual - accActual;
+        const netMeta = accIncomeMeta - accExpenseMeta;
+        const netDiff = netActual - netMeta;
 
         const owner = this.getUser(acc.ownerId);
 
@@ -3168,18 +3128,14 @@ window.App = {
                 <tfoot>
                   <tr class="bg-sky-100/70 border-t-2 border-sky-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
                     <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">TOTAL ${this.escapeHTML(acc.name)}</td>
-                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
-                      <div class="${accActual > 0 ? "text-rose-700" : ""}">${accActual > 0 ? `-${this.formatBRL(accActual)}` : this.formatBRL(0)}</div>
-                      ${accIncomeActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeActual)}</div>` : ""}
-                      ${accTransferInActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold">⇄ +${this.formatBRL(accTransferInActual)}</div>` : ""}
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${netActual >= 0 ? "text-lime-800" : "text-rose-700"}">
+                      ${netActual >= 0 ? "+" : ""}${this.formatBRL(netActual)}
                     </td>
-                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
-                      <div class="${accExpenseMeta > 0 ? "text-stone-900" : "text-stone-400"}">${this.formatBRL(accExpenseMeta)}</div>
-                      ${accIncomeMeta > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeMeta)}</div>` : ""}
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${netMeta > 0 ? "text-lime-800" : netMeta < 0 ? "text-rose-700" : "text-stone-600"}">
+                      ${netMeta > 0 ? "+" : ""}${this.formatBRL(netMeta)}
                     </td>
-                    <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${accDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
-                      <div>${accDiff >= 0 ? "+" : ""}${this.formatBRL(accDiff)}</div>
-                      ${hasAnyMeta ? `<div class="text-[9px] sm:text-[10px] text-stone-500 font-medium" title="Saldo orçamentário das metas">Meta: ${budgetDiff >= 0 ? "+" : ""}${this.formatBRL(budgetDiff)}</div>` : ""}
+                    <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${netDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
+                      ${netDiff >= 0 ? "+" : ""}${this.formatBRL(netDiff)}
                     </td>
                   </tr>
                 </tfoot>
@@ -3324,17 +3280,14 @@ window.App = {
               <tfoot>
                 <tr class="bg-sky-900 text-white font-extrabold text-[10px] sm:text-sm">
                   <td class="py-3 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL CONTAS CORRENTES</td>
-                  <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
-                    <div class="${totalCheckingSummaryActual > 0 ? "text-rose-300" : "text-sky-200"}">${totalCheckingSummaryActual > 0 ? `-${this.formatBRL(totalCheckingSummaryActual)}` : this.formatBRL(0)}</div>
-                    ${totalCheckingSummaryIncome > 0 ? `<div class="text-[9px] sm:text-[10px] text-lime-300 font-bold">+${this.formatBRL(totalCheckingSummaryIncome)}</div>` : ""}
+                  <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryNetActual >= 0 ? "text-lime-300" : "text-rose-300"}">
+                    ${totalCheckingSummaryNetActual >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryNetActual)}
                   </td>
-                  <td class="py-3 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">
-                    <div>${this.formatBRL(totalCheckingSummaryExpenseMeta)}</div>
-                    ${totalCheckingSummaryIncomeMeta > 0 ? `<div class="text-[9px] sm:text-[10px] text-lime-300 font-bold">+${this.formatBRL(totalCheckingSummaryIncomeMeta)}</div>` : ""}
+                  <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryNetMeta > 0 ? "text-lime-300" : totalCheckingSummaryNetMeta < 0 ? "text-rose-300" : "text-stone-300"}">
+                    ${totalCheckingSummaryNetMeta > 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryNetMeta)}
                   </td>
-                  <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
-                    <div>${totalCheckingSummaryDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryDiff)}</div>
-                    ${totalCheckingSummaryHasAnyMeta ? `<div class="text-[9px] sm:text-[10px] text-lime-300/80 font-medium whitespace-nowrap tabular-nums" title="Saldo orçamentário das metas">Meta: ${totalCheckingSummaryBudgetDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryBudgetDiff)}</div>` : ""}
+                  <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryNetDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
+                    ${totalCheckingSummaryNetDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryNetDiff)}
                   </td>
                 </tr>
               </tfoot>
