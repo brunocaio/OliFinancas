@@ -2083,12 +2083,18 @@ window.App = {
         const treeKey = item.treeKey || `${accountId}__${item.sub.id}`;
         const isExpanded = Boolean(this.expandedTreeKeys[treeKey]);
         const txCount = item.txs.length;
+        const baseColors = this.getSpreadsheetCellColor(item.actual, item.meta);
         const colors = isIncomeCat
           ? {
               actualClass: item.actual > 0 ? "bg-emerald-50/90 text-emerald-800 border border-emerald-200/80" : "bg-stone-50 text-stone-500 border border-stone-200/70",
               metaClass: "bg-lime-50/70 text-lime-900 border border-lime-200/70"
             }
-          : this.getSpreadsheetCellColor(item.actual, item.meta);
+          : isCheckingScope && item.actual > 0
+          ? {
+              actualClass: "bg-rose-50/90 text-rose-700 border border-rose-200/80",
+              metaClass: baseColors.metaClass
+            }
+          : baseColors;
         const diff = isIncomeCat ? (item.actual - item.meta) : (item.meta - item.actual);
         const actualFormatted = isIncomeCat
           ? (item.actual > 0 ? `+${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0))
@@ -2283,8 +2289,8 @@ window.App = {
             </td>
 
             <!-- Coluna REALIZADO (Estilo Planilha) -->
-            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-32">
-              <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-36">
+              <div class="inline-block min-w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
                 ${actualFormatted}
               </div>
             </td>
@@ -2518,8 +2524,8 @@ window.App = {
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 font-semibold">${owner.name}</span>
               </div>
             </td>
-            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-32">
-              <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-36">
+              <div class="inline-block min-w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${row.actual > 0 ? "bg-rose-50/90 text-rose-700 border border-rose-200/80" : colors.actualClass}">
                 ${row.actual > 0 ? `-${this.formatBRL(Math.abs(row.actual))}` : this.formatBRL(0)}
               </div>
               ${
@@ -2774,7 +2780,7 @@ window.App = {
                   <tr class="bg-sky-100/70 border-t-2 border-sky-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
                     <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">TOTAL ${this.escapeHTML(acc.name)}</td>
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
-                      <div>${accActual > 0 ? `-${this.formatBRL(accActual)}` : this.formatBRL(0)}</div>
+                      <div class="${accActual > 0 ? "text-rose-700" : ""}">${accActual > 0 ? `-${this.formatBRL(accActual)}` : this.formatBRL(0)}</div>
                       ${accIncomeActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeActual)}</div>` : ""}
                     </td>
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(accMeta)}</td>
@@ -2918,8 +2924,8 @@ window.App = {
               <tfoot>
                 <tr class="bg-sky-900 text-white font-extrabold text-[10px] sm:text-sm">
                   <td class="py-3 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL CONTAS CORRENTES</td>
-                  <td class="py-3 px-1 sm:px-3 text-right text-sky-200 whitespace-nowrap tabular-nums">
-                    <div>${totalCheckingSummaryActual > 0 ? `-${this.formatBRL(totalCheckingSummaryActual)}` : this.formatBRL(0)}</div>
+                  <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
+                    <div class="${totalCheckingSummaryActual > 0 ? "text-rose-300" : "text-sky-200"}">${totalCheckingSummaryActual > 0 ? `-${this.formatBRL(totalCheckingSummaryActual)}` : this.formatBRL(0)}</div>
                     ${totalCheckingSummaryIncome > 0 ? `<div class="text-[9px] sm:text-[10px] text-lime-300 font-bold">+${this.formatBRL(totalCheckingSummaryIncome)}</div>` : ""}
                   </td>
                   <td class="py-3 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalCheckingSummaryMeta)}</td>
