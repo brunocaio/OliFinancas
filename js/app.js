@@ -519,6 +519,18 @@ window.App = {
       if (floatRecat && selCount > 0) {
         floatRecat.innerHTML = `<option value="">🏷️ Recategorizar p/...</option>` + this.buildSubcategorySelectOptionsHTML("", false);
       }
+
+      const sameOriginBtn = document.getElementById("floating-bulk-same-origin-btn");
+      const sameOriginLabel = document.getElementById("floating-bulk-same-origin-label");
+      if (sameOriginBtn) {
+        const extraMatchingIds = selCount > 0 ? this.getExtraSameOriginTxIdsForSelection() : [];
+        const hasExtra = extraMatchingIds.length > 0;
+        sameOriginBtn.classList.toggle("hidden", !hasExtra);
+        sameOriginBtn.classList.toggle("inline-flex", hasExtra);
+        if (sameOriginLabel && hasExtra) {
+          sameOriginLabel.textContent = `+ Mesma origem (${extraMatchingIds.length})`;
+        }
+      }
     }
   },
 
@@ -3701,6 +3713,13 @@ window.App = {
     }
 
     const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
+    const originGroups = {};
+    txs.forEach(t => {
+      const key = this.getTransactionOriginKey(t);
+      if (!key) return;
+      if (!originGroups[key]) originGroups[key] = [];
+      originGroups[key].push(t.id);
+    });
 
     tbody.innerHTML = txs
       .map(tx => {
@@ -3711,6 +3730,16 @@ window.App = {
         const linkedProj = monthProjs.find(p => p.id === tx.projectionId);
         const isChecked = this.selectedTxIds.includes(tx.id);
         const isCredit = Number(tx.amount) < 0 || tx.isInvoiceCredit;
+        const originKey = this.getTransactionOriginKey(tx);
+        const sameOriginIds = originKey ? (originGroups[originKey] || []) : [];
+        const allOriginSelected = sameOriginIds.length >= 2 && sameOriginIds.every(id => this.selectedTxIds.includes(id));
+        const sameOriginBtnHTML = sameOriginIds.length >= 2
+          ? `<button type="button" onclick="App.selectSameOriginTransactions('${tx.id}')" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-bold transition cursor-pointer ${
+              allOriginSelected
+                ? "bg-lime-700 text-white border-lime-700"
+                : "bg-stone-100 hover:bg-lime-100 text-stone-600 hover:text-lime-900 border-stone-200"
+            }" title="Selecionar todos os ${sameOriginIds.length} lançamentos da mesma origem">≡ Mesma origem (${sameOriginIds.length})</button>`
+          : "";
 
         const instBadge = tx.installmentTotal > 1
           ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 text-[10px] font-bold">${tx.installmentCurrent}/${tx.installmentTotal}</span>`
@@ -3750,6 +3779,7 @@ window.App = {
                 ${transferBadge}
                 ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
                 ${this.buildPixFlowBadgesHTML(tx.id, tx)}
+                ${sameOriginBtnHTML}
               </div>
               ${linkedProj ? `<div class="text-[11px] text-lime-700 font-medium mt-0.5">Meta: ${linkedProj.title}</div>` : ""}
             </td>
@@ -3976,6 +4006,80 @@ window.App = {
     this.renderAll();
     const extraMsg = extraMoved > 0 ? ` e ${extraMoved} outro(s) item(ns) recategorizado(s)` : "";
     this.showToast(`🧠 Regra "${normKw}" salva em "${sub.name}"${extraMsg}!`, "success");
+  },
+
+  getTransactionOriginKey(tx) {
+    if (!tx) return "";
+    const base = (tx.counterparty && String(tx.counterparty).trim()) ||
+      String(tx.description || "")
+        .replace(/\s*-\s*Parcela\s*\d+\s*\/\s*\d+/gi, "")
+        .replace(/\s+\d{1,2}\s*\/\s*\d{1,2}\s*$/g, "")
+        .replace(/\s*-\s*(NuPay|PayPal)\s*$/gi, "")
+        .trim();
+    const normalized = (window.StatementParser && window.StatementParser.normalizeText
+      ? window.StatementParser.normalizeText(base)
+      : base.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9\s]/g, " "))
+      .replace(/\s+/g, " ")
+      .trim();
+    return normalized.length >= 2 ? normalized : "";
+  },
+
+  getSameOriginTxIdsInActiveScope(originKeysSet) {
+    const activeMonth = (this.state && this.state.settings && this.state.settings.activeMonth) || "";
+    const visibleScope = (this.visibleHistoryTxIds && this.visibleHistoryTxIds.length > 0)
+      ? this.state.transactions.filter(t => this.visibleHistoryTxIds.includes(t.id))
+      : this.state.transactions.filter(t => {
+          if (t.competenceMonth !== activeMonth) return false;
+          if (this.activeUserFilter === "bruno") return t.paidByUserId === "bruno" || t.ownership === "INDIVIDUAL_BRUNO";
+          if (this.activeUserFilter === "nubia") return t.paidByUserId === "nubia" || t.ownership === "INDIVIDUAL_NUBIA";
+          return true;
+        });
+    return visibleScope
+      .filter(t => originKeysSet.has(this.getTransactionOriginKey(t)))
+      .map(t => t.id);
+  },
+
+  getExtraSameOriginTxIdsForSelection() {
+    if (!this.selectedTxIds || this.selectedTxIds.length === 0) return [];
+    const selectedSet = new Set(this.selectedTxIds);
+    const originKeys = new Set();
+    this.state.transactions.forEach(t => {
+      if (selectedSet.has(t.id)) {
+        const k = this.getTransactionOriginKey(t);
+        if (k) originKeys.add(k);
+      }
+    });
+    if (originKeys.size === 0) return [];
+    return this.getSameOriginTxIdsInActiveScope(originKeys).filter(id => !selectedSet.has(id));
+  },
+
+  selectSameOriginTransactions(txId) {
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx) return;
+    const key = this.getTransactionOriginKey(tx);
+    if (!key) return;
+    const matchingIds = this.getSameOriginTxIdsInActiveScope(new Set([key]));
+    if (matchingIds.length === 0) return;
+
+    const allSelected = matchingIds.every(id => this.selectedTxIds.includes(id));
+    if (allSelected) {
+      const removeSet = new Set(matchingIds);
+      this.selectedTxIds = this.selectedTxIds.filter(id => !removeSet.has(id));
+    } else {
+      matchingIds.forEach(id => {
+        if (!this.selectedTxIds.includes(id)) this.selectedTxIds.push(id);
+      });
+    }
+    this.renderAll();
+  },
+
+  expandSelectionBySameOrigin() {
+    const extraIds = this.getExtraSameOriginTxIdsForSelection();
+    if (extraIds.length === 0) return;
+    extraIds.forEach(id => {
+      if (!this.selectedTxIds.includes(id)) this.selectedTxIds.push(id);
+    });
+    this.renderAll();
   },
 
   toggleSelectAllTransactions(checked) {
@@ -4572,10 +4676,28 @@ window.App = {
     this.renderStagedStatementMetaBar();
 
     const availableMonths = this.getStatementMonthOptions();
+    const stagedOriginGroups = {};
+    this.stagedImports.forEach((it, i) => {
+      if (it.alreadyExists || it.type === "TRANSFER") return;
+      const k = this.getTransactionOriginKey(it);
+      if (!k) return;
+      if (!stagedOriginGroups[k]) stagedOriginGroups[k] = [];
+      stagedOriginGroups[k].push(i);
+    });
 
     tbody.innerHTML = this.stagedImports
       .map((item, idx) => {
         const subOptions = this.buildSubcategorySelectOptionsHTML(item.subcategoryId, false);
+        const stagedKey = !item.alreadyExists && item.type !== "TRANSFER" ? this.getTransactionOriginKey(item) : "";
+        const sameStagedIdxs = stagedKey ? (stagedOriginGroups[stagedKey] || []) : [];
+        const allStagedOriginSelected = sameStagedIdxs.length >= 2 && sameStagedIdxs.every(i => this.stagedImports[i]?.selected);
+        const sameStagedBtnHTML = sameStagedIdxs.length >= 2
+          ? `<button type="button" onclick="App.selectSameOriginStaged(${idx})" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-bold transition cursor-pointer ${
+              allStagedOriginSelected
+                ? "bg-lime-700 text-white border-lime-700"
+                : "bg-stone-100 hover:bg-lime-100 text-stone-600 hover:text-lime-900 border-stone-200"
+            }" title="Marcar todos os ${sameStagedIdxs.length} itens da mesma origem">≡ Mesma origem (${sameStagedIdxs.length})</button>`
+          : "";
 
         const compOptions = availableMonths
           .map(m => `<option value="${m}" ${m === item.competenceMonth ? "selected" : ""}>${this.getMonthLabel(m)}</option>`)
@@ -4638,6 +4760,7 @@ window.App = {
                 <span>${item.description}</span>
                 ${!item.alreadyExists && item.type !== "TRANSFER" ? this.buildTxNoteBadgeHTML(null, item.notes, idx) : ""}
                 ${!item.alreadyExists ? this.buildPixFlowBadgesHTML(null, item, idx) : ""}
+                ${sameStagedBtnHTML}
               </div>
               ${item.memoryMatched && !item.alreadyExists && item.type !== "TRANSFER" ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
               ${isIncome && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5 mr-1">↓ Entrada</span>` : ""}
@@ -4938,6 +5061,25 @@ window.App = {
     }
     this.lastClickedStagedIdx = idx;
     this.renderImportTab(this.state.settings.activeMonth);
+  },
+
+  selectSameOriginStaged(idx) {
+    const item = this.stagedImports[idx];
+    if (!item) return;
+    const key = this.getTransactionOriginKey(item);
+    if (!key) return;
+    const matchingIdxs = [];
+    this.stagedImports.forEach((it, i) => {
+      if (!it.alreadyExists && it.type !== "TRANSFER" && this.getTransactionOriginKey(it) === key) {
+        matchingIdxs.push(i);
+      }
+    });
+    if (matchingIdxs.length === 0) return;
+    const allSelected = matchingIdxs.every(i => this.stagedImports[i].selected);
+    matchingIdxs.forEach(i => {
+      this.stagedImports[i].selected = !allSelected;
+    });
+    this.renderImportStagingTable();
   },
 
   toggleSelectAllStaged(checked) {

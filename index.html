@@ -1268,6 +1268,16 @@
     class="hidden fixed bottom-16 lg:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-stone-900 text-white rounded-2xl px-4 py-2.5 shadow-2xl items-center gap-2.5 text-xs border border-stone-700 flex-wrap max-w-[95vw]"
   >
     <span id="floating-bulk-count" class="font-extrabold text-lime-400">0 selecionados</span>
+    <button
+      id="floating-bulk-same-origin-btn"
+      type="button"
+      onclick="App.expandSelectionBySameOrigin()"
+      class="hidden bg-lime-700 hover:bg-lime-600 text-white font-extrabold px-2.5 py-1.5 rounded-xl items-center gap-1 transition cursor-pointer"
+      title="Selecionar outros lançamentos do mês com a mesma origem"
+    >
+      <span>≡</span>
+      <span id="floating-bulk-same-origin-label">+ Mesma origem</span>
+    </button>
     <select
       id="floating-bulk-recategorize"
       onchange="if(this.value){ App.recategorizeSelectedTransactions(this.value); this.value=''; }"
@@ -1307,10 +1317,10 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=31"></script>
-  <script src="./js/housing-financing.js?v=31"></script>
-  <script src="./js/ofx-csv-parser.js?v=31"></script>
-  <script src="./js/supabase-sync.js?v=31"></script>
-  <script src="./js/app.js?v=31"></script>
+  <script src="./js/data-seed.js?v=32"></script>
+  <script src="./js/housing-financing.js?v=32"></script>
+  <script src="./js/ofx-csv-parser.js?v=32"></script>
+  <script src="./js/supabase-sync.js?v=32"></script>
+  <script src="./js/app.js?v=32"></script>
 </body>
 </html>
