@@ -4,9 +4,9 @@
 // ============================================================================
 
 (function () {
-  // Formato compacto: "num|DD/MM/YYYY|amort|juros|mip|dfi|tca|status(P/J)|total|saldo"
+  // Formato compacto: "num|DD/MM/YYYY|amort|juros|mip|dfi|tca|status(P/J/S)|total|saldo"
   const RAW_ROWS = `
-1|09/10/2026|1013.63|4039.62|259.48|59.38|25.00|P|5397.11|424712.27
+1|09/10/2026|1013.63|4039.62|259.48|59.38|25.00|S|5397.11|424712.27
 2|09/11/2026|1027.42|4084.81|130.92|29.72|25.00|P|5297.87|429460.03
 3|09/12/2026|1027.42|4075.06|130.61|29.72|25.00|J|5287.81|428432.61
 4|09/01/2027|1027.42|4065.31|134.91|29.72|25.00|J|5282.36|427405.19
@@ -444,7 +444,7 @@
           mip: Number(mip),
           dfi: Number(dfi),
           tca: Number(tca),
-          status: st === "P" ? "Paga" : "Projetada",
+          status: st === "P" ? "Paga" : (st === "S" || st === "PULA") ? "Pulada" : "Projetada",
           total: Number(total),
           balance: Number(saldo)
         };
@@ -473,6 +473,16 @@
     lastInstallmentValue: 1062.16,
     lastDueDate: "2061-09-09",
     issuedAt: "2026-11-10T18:33:24",
+    operations: [
+      {
+        type: "PULA_PARCELA",
+        installment: 1,
+        dueDateBR: "09/10/2026",
+        dueDate: "2026-10-09",
+        amount: 5397.11,
+        description: "Parcela 1 pulada através do recurso Pula Parcela do Itaú e incorporada ao saldo devedor."
+      }
+    ],
     schedule: parseScheduleRows()
   };
 })();

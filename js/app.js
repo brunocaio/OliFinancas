@@ -626,6 +626,41 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 13: ajusta status da parcela 1 para 'Pulada' e registra operação de Pula Parcela
+    if ((stateObj.schemaPatch || 0) < 13) {
+      if (Array.isArray(stateObj.housingFinancings)) {
+        stateObj.housingFinancings.forEach(fin => {
+          if (!Array.isArray(fin.operations)) fin.operations = [];
+          if (!fin.operations.some(op => op.type === "PULA_PARCELA" && Number(op.installment) === 1)) {
+            fin.operations.push({
+              type: "PULA_PARCELA",
+              installment: 1,
+              dueDateBR: "09/10/2026",
+              dueDate: "2026-10-09",
+              amount: 5397.11,
+              description: "Parcela 1 pulada através do recurso Pula Parcela do Itaú e incorporada ao saldo devedor."
+            });
+          }
+          if (Array.isArray(fin.schedule)) {
+            const p1 = fin.schedule.find(r => Number(r.installment) === 1);
+            if (p1 && p1.status !== "Pulada") {
+              p1.status = "Pulada";
+            }
+          }
+        });
+        changed = true;
+      }
+      if (Array.isArray(stateObj.transactions)) {
+        const p1TxIdx = stateObj.transactions.findIndex(t => t.importHash === "fin_10307559107_p1");
+        if (p1TxIdx >= 0) {
+          stateObj.transactions.splice(p1TxIdx, 1);
+          changed = true;
+        }
+      }
+      stateObj.schemaPatch = 13;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -3948,10 +3983,133 @@ window.App = {
     if (!fin || !Array.isArray(fin.schedule)) return;
     const row = fin.schedule.find(r => Number(r.installment) === Number(instNum));
     if (!row) return;
-    row.status = row.status === "Paga" ? "Projetada" : "Paga";
+    if (row.status === "Projetada") {
+      row.status = "Paga";
+    } else if (row.status === "Paga") {
+      row.status = "Pulada";
+      if (!Array.isArray(fin.operations)) fin.operations = [];
+      if (!fin.operations.some(op => op.type === "PULA_PARCELA" && Number(op.installment) === Number(row.installment))) {
+        fin.operations.push({
+          type: "PULA_PARCELA",
+          installment: row.installment,
+          dueDateBR: row.dueDateBR,
+          dueDate: row.dueDate,
+          amount: row.total,
+          description: `Parcela ${row.installment} pulada através do recurso Pula Parcela e incorporada ao saldo.`
+        });
+      }
+    } else {
+      row.status = "Projetada";
+      if (Array.isArray(fin.operations)) {
+        fin.operations = fin.operations.filter(op => !(op.type === "PULA_PARCELA" && Number(op.installment) === Number(row.installment)));
+      }
+    }
     this.saveState(true);
     this.renderAll();
-    this.showToast(`🏠 Parcela ${row.installment}/${fin.totalTermMonths} marcada como "${row.status}"!`, "info");
+    const statusMsg = row.status === "Pulada" ? 'marcada como "Pulada" (recurso Pula Parcela)' : `marcada como "${row.status}"`;
+    this.showToast(`🏠 Parcela ${row.installment}/${fin.totalTermMonths} ${statusMsg}!`, "info");
+  },
+
+  parseFinancingCSV(text) {
+    const lines = (text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const schedule = [];
+    const operations = [];
+    const skippedDatesBR = new Set();
+
+    for (const line of lines) {
+      const opMatch = line.match(/Opera[cç][aã]o:\s*(Pula\s*parcela|[^\-]+?)\s+Data:\s*(\d{2}\/\d{2}\/\d{4})\s+Valor\s+da\s+Opera[cç][aã]o:\s*([\d\.,]+)/i);
+      if (opMatch) {
+        const opLabel = opMatch[1].trim();
+        const opDateBR = opMatch[2];
+        const [opD, opM, opY] = opDateBR.split("/");
+        const opVal = window.StatementParser ? window.StatementParser.parseBRLNumber(opMatch[3]) : parseFloat(opMatch[3].replace(".", "").replace(",", "."));
+        const isPula = /pula\s*parcela/i.test(opLabel);
+        operations.push({
+          type: isPula ? "PULA_PARCELA" : "OPERACAO",
+          label: isPula ? "Pula Parcela" : opLabel,
+          dateBR: opDateBR,
+          date: `${opY}-${opM}-${opD}`,
+          amount: opVal,
+          description: isPula ? `Operação Pula Parcela no valor de R$ ${opMatch[3]} incorporada ao saldo devedor` : `Operação: ${opLabel}`
+        });
+        if (isPula) skippedDatesBR.add(opDateBR);
+        continue;
+      }
+
+      // Linhas com pipe: num|dueBR|amort|juros|mip|dfi|tca|status|total|saldo
+      const pipeParts = line.split("|");
+      if (pipeParts.length >= 8 && /^\d+$/.test(pipeParts[0].trim())) {
+        const [numStr, dueBR, amort, juros, mip, dfi, tca, st, total, saldo] = pipeParts.map(s => s.trim());
+        const [dd, mm, yyyy] = dueBR.split("/");
+        const isSkipped = st === "S" || st === "PULA" || /^Pulada$/i.test(st) || skippedDatesBR.has(dueBR);
+        schedule.push({
+          installment: Number(numStr),
+          dueDate: `${yyyy}-${mm}-${dd}`,
+          dueDateBR: dueBR,
+          competenceMonth: `${yyyy}-${mm}`,
+          amortization: Number(amort) || 0,
+          interest: Number(juros) || 0,
+          mip: Number(mip) || 0,
+          dfi: Number(dfi) || 0,
+          tca: Number(tca) || 25,
+          status: isSkipped ? "Pulada" : (/^Paga$/i.test(st) || st === "P" ? "Paga" : "Projetada"),
+          total: Number(total) || 0,
+          balance: Number(saldo) || 0
+        });
+        continue;
+      }
+
+      // Linhas CSV com ponto-e-vírgula ou vírgula
+      const parts = line.split(/[;,]/).map(s => s.replace(/"/g, "").trim());
+      if (parts.length >= 7 && /^\d+$/.test(parts[0])) {
+        const num = Number(parts[0]);
+        const dateMatch = parts[1].match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (!dateMatch) continue;
+        const dueBR = parts[1];
+        const [_, dd, mm, yyyy] = dateMatch;
+        const parseNum = (v) => (window.StatementParser ? window.StatementParser.parseBRLNumber(v) : (parseFloat(String(v || "").replace(".", "").replace(",", ".")) || 0));
+        const amort = parseNum(parts[2]);
+        const juros = parseNum(parts[3]);
+        const statusRaw = parts[parts.length - 3] || parts[7] || "";
+        const isSkipped = /^Pulada$/i.test(statusRaw) || skippedDatesBR.has(dueBR);
+        const total = parseNum(parts[parts.length - 2]);
+        const saldo = parseNum(parts[parts.length - 1]);
+        schedule.push({
+          installment: num,
+          dueDate: `${yyyy}-${mm}-${dd}`,
+          dueDateBR: dueBR,
+          competenceMonth: `${yyyy}-${mm}`,
+          amortization: amort,
+          interest: juros,
+          mip: 0,
+          dfi: 0,
+          tca: 25,
+          status: isSkipped ? "Pulada" : (/^Paga$/i.test(statusRaw) ? "Paga" : "Projetada"),
+          total,
+          balance: saldo
+        });
+      }
+    }
+
+    operations.forEach(op => {
+      const matchingRow = schedule.find(r => r.dueDateBR === op.dateBR);
+      if (matchingRow) {
+        op.installment = matchingRow.installment;
+        if (op.type === "PULA_PARCELA") matchingRow.status = "Pulada";
+      }
+    });
+
+    return {
+      contractNumber: null,
+      totalTermMonths: schedule.length,
+      monthlyInterestRate: null,
+      annualInterestRate: null,
+      annualEffectiveRate: null,
+      lastInstallmentValue: schedule.length > 0 ? schedule[schedule.length - 1].total : 0,
+      lastDueDate: schedule.length > 0 ? schedule[schedule.length - 1].dueDate : null,
+      operations,
+      schedule
+    };
   },
 
   launchFinancingInstallmentForMonth(finId, monthYear) {
@@ -4007,31 +4165,36 @@ window.App = {
     }
 
     try {
-      const buffer = await file.arrayBuffer();
-      let password = null;
       let parsedDDC = null;
+      if (file.name.toLowerCase().endsWith(".csv") || file.name.toLowerCase().endsWith(".txt")) {
+        const text = await file.text();
+        parsedDDC = this.parseFinancingCSV(text);
+      } else {
+        const buffer = await file.arrayBuffer();
+        let password = null;
 
-      while (true) {
-        try {
-          parsedDDC = await window.StatementParser.parseItauDDCPDF(buffer.slice(0), password);
-          break;
-        } catch (pdfErr) {
-          if (pdfErr && (pdfErr.name === "PasswordException" || /password/i.test(pdfErr.message || ""))) {
-            const entered = prompt("Este DDC do Itaú possui senha. Informe a senha para atualizar:", "");
-            if (entered === null) {
-              if (inputEl) inputEl.value = "";
-              return;
+        while (true) {
+          try {
+            parsedDDC = await window.StatementParser.parseItauDDCPDF(buffer.slice(0), password);
+            break;
+          } catch (pdfErr) {
+            if (pdfErr && (pdfErr.name === "PasswordException" || /password/i.test(pdfErr.message || ""))) {
+              const entered = prompt("Este DDC do Itaú possui senha. Informe a senha para atualizar:", "");
+              if (entered === null) {
+                if (inputEl) inputEl.value = "";
+                return;
+              }
+              password = entered.trim();
+            } else {
+              throw pdfErr;
             }
-            password = entered.trim();
-          } else {
-            throw pdfErr;
           }
         }
       }
 
       if (inputEl) inputEl.value = "";
       if (!parsedDDC || !parsedDDC.schedule || parsedDDC.schedule.length === 0) {
-        this.showToast("Nenhuma linha de parcela SAC reconhecida neste PDF DDC.", "error");
+        this.showToast("Nenhuma linha de parcela SAC reconhecida neste arquivo.", "error");
         return;
       }
 
@@ -4042,16 +4205,19 @@ window.App = {
       if (parsedDDC.annualEffectiveRate) fin.annualEffectiveRate = parsedDDC.annualEffectiveRate;
       if (parsedDDC.lastInstallmentValue) fin.lastInstallmentValue = parsedDDC.lastInstallmentValue;
       if (parsedDDC.lastDueDate) fin.lastDueDate = parsedDDC.lastDueDate;
+      if (Array.isArray(parsedDDC.operations) && parsedDDC.operations.length > 0) {
+        fin.operations = parsedDDC.operations;
+      }
       fin.schedule = parsedDDC.schedule;
       fin.issuedAt = new Date().toISOString();
 
       this.saveState(true);
       this.renderAll();
-      this.showToast(`🏠 Tabela do financiamento atualizada via DDC (${parsedDDC.schedule.length} parcelas)!`, "success");
+      this.showToast(`🏠 Tabela do financiamento atualizada via arquivo (${parsedDDC.schedule.length} parcelas)!`, "success");
     } catch (err) {
       if (inputEl) inputEl.value = "";
-      console.error("Erro ao ler DDC Itaú:", err);
-      this.showToast("Não foi possível ler este PDF DDC do Itaú.", "error");
+      console.error("Erro ao ler arquivo do financiamento:", err);
+      this.showToast("Não foi possível ler este arquivo do financiamento.", "error");
     }
   },
 
@@ -4090,14 +4256,18 @@ window.App = {
         const acc = this.getAccount(fin.accountId);
         const totalTerm = fin.totalTermMonths || sched.length;
         const paidCount = sched.filter(r => r.status === "Paga").length;
+        const skippedCount = sched.filter(r => r.status === "Pulada").length;
         const currentInst = row.installment;
         const remainingCount = Math.max(0, totalTerm - currentInst);
-        const remainingProjectedSum = sched.slice(idx + 1).reduce((s, r) => s + Number(r.total || 0), 0);
+        const remainingProjectedSum = sched.slice(idx + 1).reduce((s, r) => s + (r.status === "Pulada" ? 0 : Number(r.total || 0)), 0);
         const progressPct = Math.max(0.5, Math.min(100, Number(((currentInst / totalTerm) * 100).toFixed(1))));
         const nextDelta = nextRow ? nextRow.total - row.total : 0;
         const insuranceAndFees = Number(row.mip || 0) + Number(row.dfi || 0) + Number(row.tca || 0);
 
-        monthlySum += Number(row.total || 0);
+        const isCurrentSkipped = row.status === "Pulada";
+        if (!isCurrentSkipped) {
+          monthlySum += Number(row.total || 0);
+        }
         totalBalanceSum += Number(row.balance || 0);
         totalRemainingMonths = Math.max(totalRemainingMonths, remainingCount);
         if (!firstCurrentInst) {
@@ -4133,15 +4303,19 @@ window.App = {
         const tableRowsHTML = tableRows
           .map(r => {
             const isCurrentMonthRow = r.competenceMonth === monthYear;
+            const isRowSkipped = r.status === "Pulada";
             const segTca = Number(r.mip || 0) + Number(r.dfi || 0) + Number(r.tca || 0);
-            const rowStatusBadge = r.status === "Paga"
+            const rowStatusBadge = isRowSkipped
+              ? `<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-extrabold">⏭️ Pulada</span>`
+              : r.status === "Paga"
               ? `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-extrabold">✓ Paga</span>`
               : `<span class="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 font-bold">Projetada</span>`;
 
             return `
-              <tr class="border-b border-stone-100 text-[11px] ${isCurrentMonthRow ? "bg-lime-50/90 font-bold" : "hover:bg-stone-50/70"}">
+              <tr class="border-b border-stone-100 text-[11px] ${isCurrentMonthRow ? "bg-lime-50/90 font-bold" : isRowSkipped ? "bg-amber-50/40 text-stone-800" : "hover:bg-stone-50/70"}">
                 <td class="py-2 px-2.5 whitespace-nowrap">
                   <span class="font-extrabold text-stone-800">${r.installment}/${totalTerm}</span>
+                  ${isRowSkipped ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-200/80 text-amber-900 font-bold ml-1.5">Pula Parcela</span>` : ""}
                 </td>
                 <td class="py-2 px-2.5 whitespace-nowrap text-stone-600">
                   ${r.dueDateBR}${isCurrentMonthRow ? ` <span class="text-[10px] text-lime-800 font-extrabold">• Mês ativo</span>` : ""}
@@ -4156,7 +4330,7 @@ window.App = {
                     type="button"
                     onclick="App.toggleFinancingInstallmentStatus('${fin.id}', ${r.installment})"
                     class="cursor-pointer text-[10px] hover:opacity-80 transition"
-                    title="Clique para alternar entre Paga e Projetada"
+                    title="Clique para alternar entre Projetada, Paga e Pulada"
                   >
                     ${rowStatusBadge}
                   </button>
@@ -4165,6 +4339,35 @@ window.App = {
             `;
           })
           .join("");
+
+        const operationsListHTML = Array.isArray(fin.operations) && fin.operations.length > 0
+          ? fin.operations.map(op => `
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/90">
+                <div class="flex items-start sm:items-center gap-2.5">
+                  <span class="w-7 h-7 rounded-xl bg-amber-200/70 text-amber-900 flex items-center justify-center shrink-0 font-bold">
+                    <i data-lucide="skip-forward" class="w-3.5 h-3.5 text-amber-800"></i>
+                  </span>
+                  <div>
+                    <div class="font-extrabold text-amber-950 flex items-center gap-1.5 flex-wrap">
+                      <span>Recurso Pula Parcela Utilizado</span>
+                      <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">Parcela ${op.installment || 1} • ${op.dueDateBR || op.dateBR || "09/10/2026"}</span>
+                    </div>
+                    <p class="text-[11px] text-amber-900/80 mt-0.5">
+                      A parcela de <strong>${this.formatBRL(op.amount || 5397.11)}</strong> foi pulada e o saldo reorganizado pelo banco a partir da parcela 2 (09/11/2026).
+                    </p>
+                  </div>
+                </div>
+                <span class="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-900 shrink-0 self-start sm:self-center whitespace-nowrap">
+                  Saldo reorganizado
+                </span>
+              </div>
+            `).join("")
+          : (skippedCount > 0
+              ? `<div class="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/90 text-xs text-amber-950 flex items-center gap-2">
+                  <i data-lucide="skip-forward" class="w-4 h-4 text-amber-700"></i>
+                  <span>Recurso Pula Parcela ativo: <strong>${skippedCount}</strong> parcela(s) pulada(s) e incorporada(s) ao saldo devedor.</span>
+                </div>`
+              : "");
 
         return `
           <div class="oli-card rounded-3xl overflow-hidden border-orange-200/90 shadow-xs">
@@ -4180,6 +4383,14 @@ window.App = {
                     ${acc ? acc.name : `Ag. ${fin.agency} / Cc. ${fin.accountNumber}`}
                   </span>
                   <span class="px-2 py-0.5 rounded-full bg-lime-100 text-lime-900 text-[10px] font-bold">Casa (Casal)</span>
+                  ${
+                    skippedCount > 0
+                      ? `<span class="px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-extrabold flex items-center gap-1" title="Parcela(s) pulada(s) pelo recurso Pula Parcela do Itaú">
+                          <i data-lucide="skip-forward" class="w-3 h-3 text-amber-700"></i>
+                          <span>${skippedCount} ${skippedCount === 1 ? "parcela pulada" : "parcelas puladas"}</span>
+                        </span>`
+                      : ""
+                  }
                 </div>
                 <p class="text-[11px] text-stone-500 mt-1">
                   ${fin.paymentMethod} (Ag. ${fin.agency} • Cc. ${fin.accountNumber}) • Juros ${fin.monthlyInterestRate} a.m. (${fin.annualEffectiveRate} efetiva a.a.) • Última em <strong>${(fin.lastDueDate || "").split("-").reverse().join("/")}</strong> (<span class="whitespace-nowrap tabular-nums">${this.formatBRL(fin.lastInstallmentValue)}</span>)
@@ -4191,9 +4402,9 @@ window.App = {
                   type="button"
                   onclick="App.openDDCUpload('${fin.id}')"
                   class="px-3 py-1.5 rounded-xl bg-white hover:bg-orange-50 border border-orange-200 text-orange-900 text-xs font-bold transition"
-                  title="Caso faça amortização extra ou pula-parcela no banco, suba o novo PDF DDC do Itaú para atualizar as parcelas"
+                  title="Atualizar o financiamento enviando novo PDF DDC do Itaú ou arquivo de planilha (.csv)"
                 >
-                  📄 Atualizar DDC (.PDF)
+                  📄 Atualizar DDC / Planilha
                 </button>
                 <button
                   type="button"
@@ -4207,6 +4418,8 @@ window.App = {
 
             <!-- Painel do Mês Ativo + Decomposição SAC -->
             <div class="p-4 sm:p-5 space-y-4">
+              ${operationsListHTML}
+
               <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-2xl bg-[#fcfdf9] border border-stone-200/80 p-4">
                 <div class="space-y-1">
                   <div class="flex flex-wrap items-center gap-2">
@@ -4217,17 +4430,24 @@ window.App = {
                     <button
                       type="button"
                       onclick="App.toggleFinancingInstallmentStatus('${fin.id}', ${row.installment})"
-                      class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold transition cursor-pointer ${row.status === "Paga" ? "bg-emerald-100 text-emerald-900 border border-emerald-200" : "bg-amber-100 text-amber-900 border border-amber-200"}"
-                      title="Clique para alternar Paga / Projetada"
+                      class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold transition cursor-pointer ${
+                        isCurrentSkipped
+                          ? "bg-amber-100 text-amber-900 border border-amber-300"
+                          : row.status === "Paga"
+                          ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                          : "bg-amber-100 text-amber-900 border border-amber-200"
+                      }"
+                      title="Clique para alternar entre Projetada, Paga e Pulada"
                     >
-                      ${row.status === "Paga" ? "✓ Paga" : "📅 Projetada"}
+                      ${isCurrentSkipped ? "⏭️ Pulada (Pula Parcela)" : row.status === "Paga" ? "✓ Paga" : "📅 Projetada"}
                     </button>
                     <span class="text-xs text-stone-500 font-semibold">Vencimento: <strong class="text-stone-800">${row.dueDateBR}</strong></span>
                   </div>
                   <div class="flex flex-wrap items-baseline gap-2.5 pt-1">
-                    <span class="text-xl sm:text-2xl font-extrabold text-stone-900 whitespace-nowrap tabular-nums">${this.formatBRL(row.total)}</span>
+                    <span class="text-xl sm:text-2xl font-extrabold ${isCurrentSkipped ? "text-stone-400 line-through" : "text-stone-900"} whitespace-nowrap tabular-nums">${this.formatBRL(row.total)}</span>
+                    ${isCurrentSkipped ? `<span class="text-xs font-extrabold text-amber-800 bg-amber-100/70 border border-amber-200 px-2 py-0.5 rounded-md">Parcela pulada • Incorporada ao saldo</span>` : ""}
                     ${
-                      nextRow
+                      !isCurrentSkipped && nextRow
                         ? `<span class="text-[11px] sm:text-xs font-semibold text-emerald-700">Próx. (${nextRow.dueDateBR.substring(3)}): <span class="whitespace-nowrap tabular-nums">${this.formatBRL(nextRow.total)}</span> (<span class="whitespace-nowrap tabular-nums">${nextDelta <= 0 ? "" : "+"}${this.formatBRL(nextDelta)}</span>)</span>`
                         : ""
                     }
@@ -4236,7 +4456,12 @@ window.App = {
 
                 <div class="flex flex-wrap items-center gap-2">
                   ${
-                    alreadyLaunched
+                    isCurrentSkipped
+                      ? `<span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-bold">
+                          <i data-lucide="skip-forward" class="w-3.5 h-3.5 text-amber-700"></i>
+                          <span>Parcela pulada no banco (incorporada ao saldo)</span>
+                        </span>`
+                      : alreadyLaunched
                       ? `<span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold">✓ Parcela já registrada no mês</span>`
                       : `<button
                           type="button"

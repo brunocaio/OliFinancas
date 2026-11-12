@@ -1469,6 +1469,34 @@ VERSION:102
     const rateAnnualMatch = fullHeader.match(/Taxa de Juros \(anual\)\s+([\d,]+%)/i);
     const rateEffMatch = fullHeader.match(/Taxa efetiva \(anual\)\s+([\d,]+%)/i);
 
+    const operations = [];
+    const skippedDatesBR = new Set();
+
+    for (const rawLine of lines || []) {
+      const line = (rawLine || "").replace(/\s+/g, " ").trim();
+      const opMatch = line.match(/Opera[cç][aã]o:\s*(Pula\s*parcela|[^\-]+?)\s+Data:\s*(\d{2}\/\d{2}\/\d{4})\s+Valor\s+da\s+Opera[cç][aã]o:\s*([\d\.,]+)/i);
+      if (opMatch) {
+        const opLabel = opMatch[1].trim();
+        const opDateBR = opMatch[2];
+        const [opD, opM, opY] = opDateBR.split("/");
+        const opVal = this.parseBRLNumber(opMatch[3]);
+        const isPula = /pula\s*parcela/i.test(opLabel);
+        operations.push({
+          type: isPula ? "PULA_PARCELA" : "OPERACAO",
+          label: isPula ? "Pula Parcela" : opLabel,
+          dateBR: opDateBR,
+          date: `${opY}-${opM}-${opD}`,
+          amount: opVal,
+          description: isPula
+            ? `Operação Pula Parcela no valor de R$ ${opMatch[3]} incorporada ao saldo devedor`
+            : `Operação: ${opLabel} no valor de R$ ${opMatch[3]}`
+        });
+        if (isPula) {
+          skippedDatesBR.add(opDateBR);
+        }
+      }
+    }
+
     const schedule = [];
     const seenNums = new Set();
 
@@ -1491,6 +1519,9 @@ VERSION:102
       const dfi = numTokens[4] || 0;
       const tca = numTokens[6] !== undefined ? numTokens[6] : 25;
 
+      const isSkipped = skippedDatesBR.has(dueDateBR);
+      const rowStatus = isSkipped ? "Pulada" : (/^Paga$/i.test(m[4]) ? "Paga" : "Projetada");
+
       schedule.push({
         installment: num,
         dueDate: `${yyyy}-${mm}-${dd}`,
@@ -1501,13 +1532,23 @@ VERSION:102
         mip,
         dfi,
         tca,
-        status: /^Paga$/i.test(m[4]) ? "Paga" : "Projetada",
+        status: rowStatus,
         total: this.parseBRLNumber(m[5]),
         balance: this.parseBRLNumber(m[6])
       });
     }
 
     schedule.sort((a, b) => a.installment - b.installment);
+
+    operations.forEach(op => {
+      const matchingRow = schedule.find(r => r.dueDateBR === op.dateBR);
+      if (matchingRow) {
+        op.installment = matchingRow.installment;
+        if (op.type === "PULA_PARCELA") {
+          matchingRow.status = "Pulada";
+        }
+      }
+    });
 
     return {
       contractNumber: contractMatch ? contractMatch[1] : null,
@@ -1517,6 +1558,7 @@ VERSION:102
       annualEffectiveRate: rateEffMatch ? rateEffMatch[1] : null,
       lastInstallmentValue: schedule.length > 0 ? schedule[schedule.length - 1].total : 0,
       lastDueDate: schedule.length > 0 ? schedule[schedule.length - 1].dueDate : null,
+      operations,
       schedule
     };
   }
