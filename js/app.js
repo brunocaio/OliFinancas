@@ -2079,12 +2079,18 @@ window.App = {
       .map(item => {
         const isMacroRow = Boolean(item.isMacro);
         const catObj = item.cat || this.getCategory(item.sub.categoryId);
-        const isIncomeCat = accountId === "ALL_INCOME" || (catObj && catObj.type === "INCOME");
+        const isTransferCat = Boolean(item.isTransfer) || (catObj && catObj.type === "TRANSFER");
+        const isIncomeCat = !isTransferCat && (accountId === "ALL_INCOME" || (catObj && catObj.type === "INCOME"));
         const treeKey = item.treeKey || `${accountId}__${item.sub.id}`;
         const isExpanded = Boolean(this.expandedTreeKeys[treeKey]);
         const txCount = item.txs.length;
         const baseColors = this.getSpreadsheetCellColor(item.actual, item.meta);
-        const colors = isIncomeCat
+        const colors = isTransferCat
+          ? {
+              actualClass: "bg-stone-100/90 text-stone-500 border border-stone-200/80",
+              metaClass: "bg-stone-50 text-stone-400 border border-stone-200/60"
+            }
+          : isIncomeCat
           ? {
               actualClass: item.actual > 0 ? "bg-emerald-50/90 text-emerald-800 border border-emerald-200/80" : "bg-stone-50 text-stone-500 border border-stone-200/70",
               metaClass: "bg-lime-50/70 text-lime-900 border border-lime-200/70"
@@ -2096,7 +2102,9 @@ window.App = {
             }
           : baseColors;
         const diff = isIncomeCat ? (item.actual - item.meta) : (item.meta - item.actual);
-        const actualFormatted = isIncomeCat
+        const actualFormatted = isTransferCat
+          ? this.formatBRL(Math.abs(item.actual))
+          : isIncomeCat
           ? (item.actual > 0 ? `+${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0))
           : isCheckingScope
           ? (item.actual > 0 ? `-${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0))
@@ -2161,6 +2169,7 @@ window.App = {
                               ? `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Estorno / Abate</span>`
                               : "";
                             const isChecked = this.selectedTxIds.includes(tx.id);
+                            const isTransferTx = isTransferCat || tx.type === "TRANSFER";
                             const rawDesc = (tx.description || "").trim();
                             const hasLongText = rawDesc.length > 36 || Boolean(tx.notes || tx.counterparty || tx.originLabel || tx.destinationLabel);
                             const isDescExpanded = Boolean(this.showAllTreeFullText || this.expandedTreeDescIds[tx.id]);
@@ -2178,14 +2187,14 @@ window.App = {
                                     class="w-3.5 h-3.5 mt-0.5 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
                                     title="Selecionar para recategorizar ou excluir em lote (Shift + Clique para intervalo)"
                                   />
-                                  <span class="font-mono text-lime-700 font-bold select-none shrink-0">${branchChar}</span>
+                                  <span class="font-mono ${isTransferTx ? "text-stone-400" : "text-lime-700"} font-bold select-none shrink-0">${branchChar}</span>
                                   <span class="text-[11px] text-stone-400 font-semibold w-10 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
                                   <div class="min-w-0 flex-1">
                                     <div class="flex items-center gap-1.5 min-w-0 ${isDescExpanded ? "flex-wrap" : ""}">
                                       <button
                                         type="button"
                                         onclick="App.toggleTreeTxDesc('${tx.id}')"
-                                        class="font-semibold text-stone-800 hover:text-lime-800 text-left cursor-pointer ${isDescExpanded ? "whitespace-normal break-words leading-snug" : "truncate block flex-1 min-w-0"}"
+                                        class="font-semibold ${isTransferTx ? "text-stone-400 hover:text-stone-600" : "text-stone-800 hover:text-lime-800"} text-left cursor-pointer ${isDescExpanded ? "whitespace-normal break-words leading-snug" : "truncate block flex-1 min-w-0"}"
                                         title="${isDescExpanded ? "Clique para ocultar o texto completo" : `${this.escapeHTML(rawDesc)} — Clique para ver completo com quebra de linha`}"
                                       >
                                         ${this.escapeHTML(rawDesc)}
@@ -2229,8 +2238,8 @@ window.App = {
                                   >
                                     +Regra
                                   </button>
-                                  <span class="font-extrabold text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${tx.type === "INCOME" || isCredit ? "text-emerald-700" : isCheckingScope ? "text-rose-700" : "text-stone-900"}">
-                                    ${tx.type === "INCOME" ? `+${this.formatBRL(Math.abs(tx.amount))}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : isCheckingScope ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
+                                  <span class="font-extrabold text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${isTransferTx ? "text-stone-400" : tx.type === "INCOME" || isCredit ? "text-emerald-700" : isCheckingScope ? "text-rose-700" : "text-stone-900"}">
+                                    ${isTransferTx ? `⇄ ${this.formatBRL(Math.abs(tx.amount))}` : tx.type === "INCOME" ? `+${this.formatBRL(Math.abs(tx.amount))}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : isCheckingScope ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
                                   </span>
                                   <button
                                     type="button"
@@ -2253,7 +2262,7 @@ window.App = {
           : "";
 
         return `
-          <tr class="border-b border-stone-100 hover:bg-stone-50/90 transition group">
+          <tr class="border-b border-stone-100 ${isTransferCat ? "bg-stone-50/60 hover:bg-stone-100/70" : "hover:bg-stone-50/90"} transition group">
             <td class="py-2.5 px-2.5 sm:px-4">
               <div class="flex items-start sm:items-center gap-2 min-w-0">
                 <button
@@ -2273,7 +2282,7 @@ window.App = {
                     <button
                       type="button"
                       onclick="App.toggleTreeRow('${treeKey}')"
-                      class="font-bold text-stone-800 hover:text-lime-800 text-xs sm:text-sm text-left break-words transition"
+                      class="font-bold ${isTransferCat ? "text-stone-400 hover:text-stone-600" : "text-stone-800 hover:text-lime-800"} text-xs sm:text-sm text-left break-words transition"
                     >
                       ${item.sub.name}
                     </button>
@@ -2297,24 +2306,32 @@ window.App = {
 
             <!-- Coluna META (Editável direto na célula) -->
             <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
-              <div class="relative flex items-center justify-end">
-                <input
-                  type="number"
-                  step="0.01"
-                  value="${Number(item.meta).toFixed(2)}"
-                  onchange="${metaChangeCall}"
-                  title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
-                  class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right font-extrabold text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
-                />
-              </div>
+              ${
+                isTransferCat
+                  ? `<div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg text-right font-bold text-[10px] sm:text-xs text-stone-400 bg-stone-50 border border-stone-200/60">—</div>`
+                  : `<div class="relative flex items-center justify-end">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value="${Number(item.meta).toFixed(2)}"
+                        onchange="${metaChangeCall}"
+                        title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
+                        class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right font-extrabold text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
+                      />
+                    </div>`
+              }
             </td>
 
             <!-- Coluna SALDO / AÇÃO RÁPIDA -->
             <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
               <div class="flex items-center justify-end gap-0.5 sm:gap-1 flex-nowrap">
-                <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
-                  ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
-                </span>
+                ${
+                  isTransferCat
+                    ? `<span class="text-[10px] sm:text-xs font-bold whitespace-nowrap text-stone-400">Movim.</span>`
+                    : `<span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+                        ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
+                      </span>`
+                }
                 <button
                   type="button"
                   onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
@@ -2398,6 +2415,9 @@ window.App = {
     const monthIncomeTxs = this.state.transactions.filter(
       t => t.competenceMonth === monthYear && t.type === "INCOME"
     );
+    const monthTransferTxs = this.state.transactions.filter(
+      t => t.competenceMonth === monthYear && t.type === "TRANSFER"
+    );
     const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
 
     // Filtra contas correntes e cartões do usuário ativo
@@ -2423,6 +2443,10 @@ window.App = {
     const incomeSubcategories = this.state.subcategories.filter(s => {
       const cat = this.getCategory(s.categoryId);
       return cat && cat.type === "INCOME";
+    });
+    const transferSubcategories = this.state.subcategories.filter(s => {
+      const cat = this.getCategory(s.categoryId);
+      return cat && cat.type === "TRANSFER";
     });
     const activeIncomeItems = [];
     const archivedIncomeSubs = [];
@@ -2493,11 +2517,13 @@ window.App = {
     const checkingSummaryRows = checkingAccounts.map(acc => {
       const accTxs = monthTxs.filter(t => t.accountId === acc.id);
       const accIncomeTxs = monthIncomeTxs.filter(t => t.accountId === acc.id);
+      const accTransferTxs = monthTransferTxs.filter(t => t.accountId === acc.id);
       const accProjs = monthProjs.filter(p => p.accountId === acc.id);
       const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
       const incomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const transferActual = accTransferTxs.reduce((s, t) => s + Number(t.amount), 0);
       const meta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-      return { acc, actual, incomeActual, meta };
+      return { acc, actual, incomeActual, transferActual, meta };
     });
     const totalCheckingSummaryActual = checkingSummaryRows.reduce((s, r) => s + r.actual, 0);
     const totalCheckingSummaryIncome = checkingSummaryRows.reduce((s, r) => s + r.incomeActual, 0);
@@ -2531,6 +2557,11 @@ window.App = {
               ${
                 row.incomeActual > 0
                   ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold mt-0.5 whitespace-nowrap tabular-nums">+${this.formatBRL(row.incomeActual)}</div>`
+                  : ""
+              }
+              ${
+                row.transferActual > 0
+                  ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold mt-0.5 whitespace-nowrap tabular-nums">⇄ ${this.formatBRL(row.transferActual)}</div>`
                   : ""
               }
             </td>
@@ -2679,9 +2710,11 @@ window.App = {
       .map(acc => {
         const accTxs = monthTxs.filter(t => t.accountId === acc.id);
         const accIncomeTxs = monthIncomeTxs.filter(t => t.accountId === acc.id);
+        const accTransferTxs = monthTransferTxs.filter(t => t.accountId === acc.id);
         const accProjs = monthProjs.filter(p => p.accountId === acc.id);
         const accActual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
         const accIncomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
+        const accTransferActual = accTransferTxs.reduce((s, t) => s + Number(t.amount), 0);
         const accMeta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
         const accDiff = accMeta - accActual;
         const owner = this.getUser(acc.ownerId);
@@ -2727,6 +2760,45 @@ window.App = {
             archivedAccSubs.push(sub);
           }
         });
+
+        transferSubcategories.forEach(sub => {
+          const subTxs = accTransferTxs.filter(t => t.subcategoryId === sub.id);
+          const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
+          if (subTxs.length > 0) {
+            const ownership = (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id, acc.ownerId);
+            activeAccItems.push({
+              sub,
+              accountId: acc.id,
+              actual,
+              meta: 0,
+              txs: subTxs,
+              ownership,
+              isTransfer: true
+            });
+          }
+        });
+
+        const matchedTransferSubIds = new Set(transferSubcategories.map(s => s.id));
+        const orphanTransferTxs = accTransferTxs.filter(t => !matchedTransferSubIds.has(t.subcategoryId));
+        if (orphanTransferTxs.length > 0) {
+          const fallbackSub = transferSubcategories[0] || { id: "sub_transf_propria", categoryId: "cat_transferencia", name: "Transferência entre Contas Próprias" };
+          const existingTransferItem = activeAccItems.find(i => i.sub.id === fallbackSub.id);
+          const orphanSum = orphanTransferTxs.reduce((s, t) => s + Number(t.amount), 0);
+          if (existingTransferItem) {
+            existingTransferItem.txs.push(...orphanTransferTxs);
+            existingTransferItem.actual += orphanSum;
+          } else {
+            activeAccItems.push({
+              sub: fallbackSub,
+              accountId: acc.id,
+              actual: orphanSum,
+              meta: 0,
+              txs: orphanTransferTxs,
+              ownership: (orphanTransferTxs[0] && orphanTransferTxs[0].ownership) || this.resolveDefaultOwnership(fallbackSub.id, acc.ownerId),
+              isTransfer: true
+            });
+          }
+        }
 
         const displayAccItems = this.budgetGroupMode === "MACRO"
           ? this.groupBudgetItemsByMacro(acc.id, activeAccItems)
@@ -2782,6 +2854,7 @@ window.App = {
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
                       <div class="${accActual > 0 ? "text-rose-700" : ""}">${accActual > 0 ? `-${this.formatBRL(accActual)}` : this.formatBRL(0)}</div>
                       ${accIncomeActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeActual)}</div>` : ""}
+                      ${accTransferActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold">⇄ ${this.formatBRL(accTransferActual)}</div>` : ""}
                     </td>
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(accMeta)}</td>
                     <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${accDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
