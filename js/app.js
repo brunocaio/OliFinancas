@@ -1076,7 +1076,7 @@ window.App = {
 
   getOwnershipBadge(ownership) {
     if (ownership === "COLLECTIVE") {
-      return `<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-lime-100 text-lime-800">Casa</span>`;
+      return `<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-lime-100 text-lime-800">Coletivo</span>`;
     }
     if (ownership === "INDIVIDUAL_BRUNO") {
       return `<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-stone-100 text-stone-700">Bruno</span>`;
@@ -1394,7 +1394,7 @@ window.App = {
 
   formatSubOptionLabel(sub) {
     const isCollective = (sub.defaultOwnership || "COLLECTIVE") === "COLLECTIVE";
-    return `${sub.name} (${isCollective ? "Casa" : "Individual"})`;
+    return `${sub.name} (${isCollective ? "Coletivo" : "Individual"})`;
   },
 
   flashAutoOwnershipTag(tagElementId) {
@@ -1586,7 +1586,7 @@ window.App = {
       if (subSelect) subSelect.value = matchedSub.id;
       this.onQuickSubcategoryChange(matchedSub.id);
       const isCollective = (matchedSub.defaultOwnership || "COLLECTIVE") === "COLLECTIVE";
-      if (hint) hint.textContent = `• ${matchedSub.name} (${isCollective ? "Casa" : "Individual"})`;
+      if (hint) hint.textContent = `• ${matchedSub.name} (${isCollective ? "Coletivo" : "Individual"})`;
     } else if (hint) {
       hint.textContent = "";
     }
@@ -2418,10 +2418,13 @@ window.App = {
   },
 
   buildCategoryTreeRowsHTML(accountId, items, monthYear) {
+    const isMetaEditable = accountId === "ALL_INCOME" || accountId === "ALL_ACCOUNTS";
+    const colSpanTotal = isMetaEditable ? 4 : 3;
+
     if (items.length === 0) {
       return `
         <tr>
-          <td colspan="4" class="py-6 px-4 text-center text-xs text-stone-400">
+          <td colspan="${colSpanTotal}" class="py-6 px-4 text-center text-xs text-stone-400">
             Nenhuma categoria com meta ou lançamento ativo neste bloco.
           </td>
         </tr>
@@ -2462,7 +2465,7 @@ window.App = {
       if (filteredItems.length === 0) {
         return `
           <tr>
-            <td colspan="4" class="py-6 px-4 text-center text-xs text-stone-400">
+            <td colspan="${colSpanTotal}" class="py-6 px-4 text-center text-xs text-stone-400">
               Nenhuma categoria ou lançamento encontrado para "<strong>${this.escapeHTML(blockSearch)}</strong>" neste bloco.
             </td>
           </tr>
@@ -2535,7 +2538,7 @@ window.App = {
         const treeChildrenHTML = isExpanded
           ? `
             <tr class="${isTransferCat ? "bg-[#fafaf9] border-b border-stone-200/60" : "bg-[#f8faf5] border-b border-stone-200/70"}">
-              <td colspan="4" class="px-2.5 sm:px-5 py-3 w-full max-w-0">
+              <td colspan="${colSpanTotal}" class="px-2.5 sm:px-5 py-3 w-full max-w-0">
                 <div class="pl-2.5 sm:pl-4 border-l-2 ${isTransferCat ? "border-stone-300" : "border-lime-600/40"} space-y-1.5 min-w-0 max-w-full">
                   <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold ${isTransferCat ? "text-stone-400" : "text-stone-500"} pb-1.5 border-b border-stone-200/60">
                     <span>Árvore de Lançamentos • ${item.sub.name} (${txCount})</span>
@@ -2731,30 +2734,27 @@ window.App = {
             </td>
 
             <!-- Coluna REALIZADO (Estilo Planilha) -->
-            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-36">
+            <td class="py-2 px-0.5 sm:px-3 text-right ${isMetaEditable ? "w-[78px] sm:w-36" : "w-[90px] sm:w-44"}">
               <div class="inline-block min-w-full px-1 sm:px-2.5 py-1.5 rounded-lg ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
                 ${actualFormatted}
               </div>
             </td>
 
+            ${
+              isMetaEditable
+                ? `
             <!-- Coluna META (Preenchível apenas para receitas totais e despesas totais) -->
             <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
-              ${
-                isMetaEditable
-                  ? `<div class="relative flex items-center justify-end">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value="${Number(item.meta).toFixed(2)}"
-                        onchange="${metaChangeCall}"
-                        title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
-                        class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
-                      />
-                    </div>`
-                  : `<div class="inline-block min-w-full px-1 sm:px-2.5 py-1.5 rounded-lg ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.metaClass}">
-                      ${this.formatBRL(item.meta)}
-                    </div>`
-              }
+              <div class="relative flex items-center justify-end">
+                <input
+                  type="number"
+                  step="0.01"
+                  value="${Number(item.meta).toFixed(2)}"
+                  onchange="${metaChangeCall}"
+                  title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
+                  class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
+                />
+              </div>
             </td>
 
             <!-- Coluna SALDO / AÇÃO RÁPIDA -->
@@ -2773,6 +2773,21 @@ window.App = {
                 </button>
               </div>
             </td>
+            `
+                : `
+            <!-- Coluna AÇÃO RÁPIDA (Quando não há Meta/Saldo) -->
+            <td class="py-2.5 px-1 sm:px-3 text-right w-10 sm:w-14">
+              <button
+                type="button"
+                onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
+                class="opacity-70 group-hover:opacity-100 p-1 rounded-lg hover:bg-lime-100 ${isTransferCat ? "text-stone-400 hover:text-stone-600" : "text-lime-800"} transition shrink-0"
+                title="Adicionar lançamento nesta categoria"
+              >
+                <i data-lucide="plus-circle" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+              </button>
+            </td>
+            `
+            }
           </tr>
           ${treeChildrenHTML}
         `;
@@ -2807,7 +2822,7 @@ window.App = {
                     sub => `
                       <div class="inline-flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs text-stone-600 shadow-2xs">
                         <span class="font-semibold text-stone-700">${sub.name}</span>
-                        <span class="text-[10px] text-stone-400">(0,00 / 0,00)</span>
+                        <span class="text-[10px] text-stone-400">${isMetaEditable ? "(0,00 / 0,00)" : "(0,00)"}</span>
                         ${
                           isMetaEditable
                             ? `<button
@@ -3010,14 +3025,8 @@ window.App = {
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 font-semibold">${owner.name}</span>
               </div>
             </td>
-            <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-36 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${row.netActual >= 0 ? "text-lime-700" : "text-rose-600"}">
+            <td class="py-2.5 px-2 sm:px-4 text-right w-36 sm:w-48 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${row.netActual >= 0 ? "text-lime-700" : "text-rose-600"}">
               ${row.netActual >= 0 ? "+" : ""}${this.formatBRL(row.netActual)}
-            </td>
-            <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${row.netMeta > 0 ? "text-lime-700" : row.netMeta < 0 ? "text-rose-600" : "text-stone-500"}">
-              ${row.netMeta > 0 ? "+" : ""}${this.formatBRL(row.netMeta)}
-            </td>
-            <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${row.netDiff >= 0 ? "text-lime-700" : "text-rose-600"}">
-              ${row.netDiff >= 0 ? "+" : ""}${this.formatBRL(row.netDiff)}
             </td>
           </tr>
         `;
@@ -3108,9 +3117,8 @@ window.App = {
                 <thead>
                   <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
                     <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria do Cartão</th>
-                    <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
-                    <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
-                    <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
+                    <th class="py-2.5 px-1 sm:px-3 text-right w-[90px] sm:w-44 whitespace-nowrap">Realizado</th>
+                    <th class="py-2.5 px-1 sm:px-3 text-right w-10 sm:w-14 whitespace-nowrap"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3120,17 +3128,9 @@ window.App = {
                   <tr class="bg-emerald-100/70 border-t-2 border-emerald-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
                     <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">
                       TOTAL ${card.name.split("(")[0].trim()}
-                      ${
-                        metaInfo.isArbitrated
-                          ? `<span class="ml-1 sm:ml-2 text-[10px] sm:text-[11px] font-semibold text-stone-600 normal-case whitespace-nowrap tabular-nums">(Σ ${this.formatBRL(metaInfo.categoriesSum)})</span>`
-                          : ""
-                      }
                     </td>
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(cardActual)}</td>
-                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(metaInfo.effectiveMeta)}</td>
-                    <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${cardDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
-                      ${cardDiff >= 0 ? "+" : ""}${this.formatBRL(cardDiff)}
-                    </td>
+                    <td class="py-3 px-1 sm:px-3 text-right"></td>
                   </tr>
                 </tfoot>
               </table>
@@ -3299,9 +3299,8 @@ window.App = {
                 <thead>
                   <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
                     <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria da Conta Corrente</th>
-                    <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
-                    <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
-                    <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
+                    <th class="py-2.5 px-1 sm:px-3 text-right w-[90px] sm:w-44 whitespace-nowrap">Realizado</th>
+                    <th class="py-2.5 px-1 sm:px-3 text-right w-10 sm:w-14 whitespace-nowrap"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3313,12 +3312,7 @@ window.App = {
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${netActual >= 0 ? "text-lime-800" : "text-rose-700"}">
                       ${netActual >= 0 ? "+" : ""}${this.formatBRL(netActual)}
                     </td>
-                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${netMeta > 0 ? "text-lime-800" : netMeta < 0 ? "text-rose-700" : "text-stone-600"}">
-                      ${netMeta > 0 ? "+" : ""}${this.formatBRL(netMeta)}
-                    </td>
-                    <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${netDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
-                      ${netDiff >= 0 ? "+" : ""}${this.formatBRL(netDiff)}
-                    </td>
+                    <td class="py-3 px-1 sm:px-3 text-right"></td>
                   </tr>
                 </tfoot>
               </table>
@@ -3451,9 +3445,7 @@ window.App = {
               <thead>
                 <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
                   <th class="py-2.5 px-2 sm:px-4 w-auto">Conta Corrente</th>
-                  <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
-                  <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
-                  <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
+                  <th class="py-2.5 px-1 sm:px-4 text-right w-36 sm:w-48 whitespace-nowrap">Realizado</th>
                 </tr>
               </thead>
               <tbody>
@@ -3462,14 +3454,8 @@ window.App = {
               <tfoot>
                 <tr class="bg-sky-900 text-white font-extrabold text-[10px] sm:text-sm">
                   <td class="py-3 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL CONTAS CORRENTES</td>
-                  <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryNetActual >= 0 ? "text-lime-300" : "text-rose-300"}">
+                  <td class="py-3 px-1 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryNetActual >= 0 ? "text-lime-300" : "text-rose-300"}">
                     ${totalCheckingSummaryNetActual >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryNetActual)}
-                  </td>
-                  <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryNetMeta > 0 ? "text-lime-300" : totalCheckingSummaryNetMeta < 0 ? "text-rose-300" : "text-stone-300"}">
-                    ${totalCheckingSummaryNetMeta > 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryNetMeta)}
-                  </td>
-                  <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryNetDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
-                    ${totalCheckingSummaryNetDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryNetDiff)}
                   </td>
                 </tr>
               </tfoot>
@@ -4382,7 +4368,7 @@ window.App = {
                   <span class="px-2 py-0.5 rounded-full bg-white border border-orange-200 text-orange-900 text-[10px] font-bold">
                     ${acc ? acc.name : `Ag. ${fin.agency} / Cc. ${fin.accountNumber}`}
                   </span>
-                  <span class="px-2 py-0.5 rounded-full bg-lime-100 text-lime-900 text-[10px] font-bold">Casa (Casal)</span>
+                  <span class="px-2 py-0.5 rounded-full bg-lime-100 text-lime-900 text-[10px] font-bold">Coletivo</span>
                   ${
                     skippedCount > 0
                       ? `<span class="px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-extrabold flex items-center gap-1" title="Parcela(s) pulada(s) pelo recurso Pula Parcela do Itaú">
@@ -5797,7 +5783,7 @@ window.App = {
                 onchange="App.updateStagedItem(${idx}, 'ownership', this.value)"
                 class="oli-input rounded-lg px-2 py-1 text-xs"
               >
-                <option value="COLLECTIVE" ${item.ownership === "COLLECTIVE" ? "selected" : ""}>Casa</option>
+                <option value="COLLECTIVE" ${item.ownership === "COLLECTIVE" ? "selected" : ""}>Coletivo</option>
                 <option value="INDIVIDUAL_BRUNO" ${item.ownership === "INDIVIDUAL_BRUNO" ? "selected" : ""}>Só Bruno</option>
                 <option value="INDIVIDUAL_NUBIA" ${item.ownership === "INDIVIDUAL_NUBIA" ? "selected" : ""}>Só Núbia</option>
               </select>
@@ -7682,7 +7668,7 @@ window.App = {
                               ${s.name}
                               <button
                                 onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')"
-                                title="Clique para alternar o padrão entre Casa (Casal) e Individual"
+                                title="Clique para alternar o padrão entre Coletivo e Individual"
                                 class="cursor-pointer hover:opacity-80 transition"
                               >
                                 ${this.getOwnershipBadge(s.defaultOwnership)}
@@ -7915,7 +7901,7 @@ window.App = {
     sub.defaultOwnership = sub.defaultOwnership === "COLLECTIVE" ? "INDIVIDUAL_BRUNO" : "COLLECTIVE";
     this.saveState(true);
     this.renderAll();
-    const label = sub.defaultOwnership === "COLLECTIVE" ? "Casa (Casal)" : "Individual (Pessoal)";
+    const label = sub.defaultOwnership === "COLLECTIVE" ? "Coletivo" : "Individual (Pessoal)";
     this.showToast(`🫒 Padrão de "${sub.name}" alterado para ${label}!`, "info");
   },
 
