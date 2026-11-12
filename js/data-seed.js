@@ -61,9 +61,11 @@ window.INITIAL_SEED_DATA = {
     { id: "cat_pets", name: "Pets (Chicó)", type: "EXPENSE", icon: "dog", color: "#f97316", sortOrder: 6 },
     { id: "cat_assinaturas", name: "Assinaturas", type: "EXPENSE", icon: "tv", color: "#06b6d4", sortOrder: 7 },
     { id: "cat_lazer", name: "Lazer, Cultura & Social", type: "EXPENSE", icon: "sparkles", color: "#f43f5e", sortOrder: 8 },
-    { id: "cat_financeiro", name: "Parcelados, Cartão & Outros", type: "EXPENSE", icon: "credit-card", color: "#78716c", sortOrder: 9 },
-    { id: "cat_receitas", name: "Receitas & Salários", type: "INCOME", icon: "wallet", color: "#65a30d", sortOrder: 10 },
-    { id: "cat_transferencia", name: "Pagamento de Fatura / Transferência", type: "TRANSFER", icon: "arrow-left-right", color: "#94a3b8", sortOrder: 11 }
+    { id: "cat_taxas_bancarias", name: "Taxas & Tarifas Bancárias", type: "EXPENSE", icon: "receipt", color: "#f97316", sortOrder: 9 },
+    { id: "cat_financeiro", name: "Anuidades & Parcelados", type: "EXPENSE", icon: "credit-card", color: "#78716c", sortOrder: 10 },
+    { id: "cat_outros", name: "Outros (Triagem)", type: "EXPENSE", icon: "help-circle", color: "#a8a29e", sortOrder: 11 },
+    { id: "cat_receitas", name: "Receitas & Salários", type: "INCOME", icon: "wallet", color: "#65a30d", sortOrder: 12 },
+    { id: "cat_transferencia", name: "Pagamento de Fatura / Transferência", type: "TRANSFER", icon: "arrow-left-right", color: "#94a3b8", sortOrder: 13 }
   ],
 
   subcategories: [
@@ -129,11 +131,16 @@ window.INITIAL_SEED_DATA = {
     { id: "sub_maracatu", categoryId: "cat_lazer", name: "Maracatu / IPN", defaultOwnership: "INDIVIDUAL_NUBIA", defaultAccountId: "cc_nubia", defaultMeta: 0.00, isFixed: true, keywords: ["MARACATU", "IPN"] },
     { id: "sub_festa", categoryId: "cat_lazer", name: "Festas & Comemorações", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: ["FESTA", "PRESENTES"] },
 
-    // 9. Financeiro, Parcelados & Outros
-    { id: "sub_sem_categoria", categoryId: "cat_financeiro", name: "Sem Categoria", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: [] },
+    // 9. Taxas & Tarifas Bancárias
+    { id: "sub_tarifas_bancarias", categoryId: "cat_taxas_bancarias", name: "Tarifas & Taxas Bancárias", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["TARIFA PACOTE", "TARIFA DE SERVICO", "TARIFA EXTRATO", "PACOTE DE SERVICOS", "TAXA MANUTENCAO", "TAXA CONTA", "TARIFA MENSALIDADE", "IOF"] },
+
+    // 10. Anuidades & Parcelados
+    { id: "sub_anuidade", categoryId: "cat_financeiro", name: "Anuidade de Cartão", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["ANUIDADE", "ANUIDADE DIFERENCIADA", "PARCELA ANUIDADE"] },
     { id: "sub_parceladas", categoryId: "cat_financeiro", name: "Compras Parceladas", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["PARCELA", "MERCADOLIVRE", "MAGALU", "SHOPEE", "CASAS BAHIA"] },
-    { id: "sub_anuidade", categoryId: "cat_financeiro", name: "Anuidade & Tarifas Cartão", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["ANUIDADE", "TARIFA", "IOF"] },
-    { id: "sub_outros", categoryId: "cat_financeiro", name: "Outros / Diversos", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: [] },
+
+    // 11. Outros (Triagem)
+    { id: "sub_outros", categoryId: "cat_outros", name: "Outros / Diversos (Triar)", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: [] },
+    { id: "sub_sem_categoria", categoryId: "cat_outros", name: "Sem Categoria", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: [] },
 
     // 10. Receitas
     { id: "sub_salario_aoro", categoryId: "cat_receitas", name: "Salário AORO", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: true, keywords: ["AORO", "SALARIO", "PAGAMENTO FOLHA"] },

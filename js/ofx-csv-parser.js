@@ -586,6 +586,12 @@ window.StatementParser = {
       if (matchedSub) matchedBy = "KEYWORD";
     }
 
+    // Fallbacks para tarifas bancárias / pacote de serviços em conta corrente
+    if (!matchedSub && !isCreditCard && Number(amount) < 0 && /\b(TARIFA|PACOTE DE SERVI|TAXA DE MANUTENCAO|TARIFA EXTRATO)\b/i.test(normDesc)) {
+      matchedSub = (subcategories || []).find(s => s.id === "sub_tarifas_bancarias") || null;
+      if (matchedSub) matchedBy = "KEYWORD";
+    }
+
     // 3. Memória automática baseada em transações históricas desse mesmo estabelecimento
     if (!matchedSub && state) {
       const histMatch = this.findHistoricalMerchantMatch(description, state, false);

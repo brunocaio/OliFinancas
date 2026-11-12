@@ -439,6 +439,107 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 10: separa Taxas/Tarifas Bancárias de Anuidades de Cartão
+    // e isola a categoria macro "Outros (Triagem)" para facilitar triagem
+    if ((stateObj.schemaPatch || 0) < 10) {
+      if (!Array.isArray(stateObj.categories)) stateObj.categories = [];
+      if (!Array.isArray(stateObj.subcategories)) stateObj.subcategories = [];
+
+      // 1. Garante existência da categoria macro "Taxas & Tarifas Bancárias"
+      let catTaxas = stateObj.categories.find(c => c.id === "cat_taxas_bancarias");
+      if (!catTaxas) {
+        catTaxas = {
+          id: "cat_taxas_bancarias",
+          name: "Taxas & Tarifas Bancárias",
+          type: "EXPENSE",
+          icon: "receipt",
+          color: "#f97316",
+          sortOrder: 9
+        };
+        stateObj.categories.push(catTaxas);
+        changed = true;
+      }
+
+      // 2. Renomeia cat_financeiro para "Anuidades & Parcelados"
+      const catFin = stateObj.categories.find(c => c.id === "cat_financeiro");
+      if (catFin) {
+        catFin.name = "Anuidades & Parcelados";
+        catFin.sortOrder = 10;
+        changed = true;
+      }
+
+      // 3. Garante categoria macro isolada "Outros (Triagem)"
+      let catOutros = stateObj.categories.find(c => c.id === "cat_outros");
+      if (!catOutros) {
+        catOutros = {
+          id: "cat_outros",
+          name: "Outros (Triagem)",
+          type: "EXPENSE",
+          icon: "help-circle",
+          color: "#a8a29e",
+          sortOrder: 11
+        };
+        stateObj.categories.push(catOutros);
+        changed = true;
+      }
+
+      // 4. Cria subcategoria dedicada "Tarifas & Taxas Bancárias"
+      let subTarifas = stateObj.subcategories.find(s => s.id === "sub_tarifas_bancarias");
+      if (!subTarifas) {
+        subTarifas = {
+          id: "sub_tarifas_bancarias",
+          categoryId: "cat_taxas_bancarias",
+          name: "Tarifas & Taxas Bancárias",
+          defaultOwnership: "INDIVIDUAL_BRUNO",
+          defaultAccountId: null,
+          defaultMeta: 0.00,
+          isFixed: true,
+          keywords: ["TARIFA PACOTE", "TARIFA DE SERVICO", "TARIFA EXTRATO", "PACOTE DE SERVICOS", "TAXA MANUTENCAO", "TAXA CONTA", "TARIFA MENSALIDADE", "IOF", "TARIFA"]
+        };
+        stateObj.subcategories.push(subTarifas);
+        changed = true;
+      }
+
+      // 5. Ajusta sub_anuidade para focar em cartões
+      const subAnuidade = stateObj.subcategories.find(s => s.id === "sub_anuidade");
+      if (subAnuidade) {
+        subAnuidade.name = "Anuidade de Cartão";
+        subAnuidade.categoryId = "cat_financeiro";
+        subAnuidade.keywords = ["ANUIDADE", "ANUIDADE DIFERENCIADA", "PARCELA ANUIDADE"];
+        changed = true;
+      }
+
+      // 6. Move sub_outros e sub_sem_categoria para a categoria isolada cat_outros
+      const subOutros = stateObj.subcategories.find(s => s.id === "sub_outros");
+      if (subOutros) {
+        subOutros.name = "Outros / Diversos (Triar)";
+        subOutros.categoryId = "cat_outros";
+        changed = true;
+      }
+      const subSemCat = stateObj.subcategories.find(s => s.id === "sub_sem_categoria");
+      if (subSemCat) {
+        subSemCat.categoryId = "cat_outros";
+        changed = true;
+      }
+
+      // 7. Migra lançamentos que são taxas/tarifas bancárias de sub_anuidade para sub_tarifas_bancarias
+      if (Array.isArray(stateObj.transactions)) {
+        stateObj.transactions.forEach(tx => {
+          if (!tx) return;
+          const desc = (tx.description || "").toUpperCase();
+          if (tx.subcategoryId === "sub_anuidade") {
+            if (desc.includes("TARIFA") || desc.includes("PACOTE") || desc.includes("SERVIC") || desc.includes("EXTRATO") || desc.includes("IOF")) {
+              tx.subcategoryId = "sub_tarifas_bancarias";
+              changed = true;
+            }
+          }
+        });
+      }
+
+      stateObj.schemaPatch = 10;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -808,7 +909,7 @@ window.App = {
     if (found) return found;
     const defaultSemCat = this.state.subcategories.find(s => s.id === "sub_sem_categoria");
     if (defaultSemCat) return defaultSemCat;
-    return { id: subId || "sub_sem_categoria", name: "Sem Categoria", categoryId: "cat_financeiro" };
+    return { id: subId || "sub_sem_categoria", name: "Sem Categoria", categoryId: "cat_outros" };
   },
 
   getCategory(catId) {
@@ -7205,10 +7306,12 @@ window.App = {
     // Garante que exista a subcategoria oficial 'sub_sem_categoria'
     let orphanSub = this.state.subcategories.find(s => s.id === "sub_sem_categoria");
     if (!orphanSub) {
-      const finCat = (this.state.categories || []).find(c => c.id === "cat_financeiro") || (this.state.categories || [])[0] || { id: "cat_financeiro" };
+      const outrosCat = (this.state.categories || []).find(c => c.id === "cat_outros") ||
+        (this.state.categories || []).find(c => c.id === "cat_financeiro") ||
+        (this.state.categories || [])[0] || { id: "cat_outros" };
       orphanSub = {
         id: "sub_sem_categoria",
-        categoryId: finCat.id,
+        categoryId: outrosCat.id,
         name: "Sem Categoria",
         defaultOwnership: "COLLECTIVE",
         defaultAccountId: null,
