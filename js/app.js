@@ -917,6 +917,14 @@ window.App = {
     return this.state.categories.find(c => c.id === catId) || { id: catId, name: "Outros", color: "#4d7c0f", icon: "folder" };
   },
 
+  getProjectionType(proj) {
+    if (!proj || !proj.subcategoryId) return "EXPENSE";
+    const sub = this.getSubcategory(proj.subcategoryId);
+    if (!sub) return "EXPENSE";
+    const cat = this.getCategory(sub.categoryId);
+    return (cat && cat.type) ? cat.type : "EXPENSE";
+  },
+
   getAccount(accId) {
     return this.state.accounts.find(a => a.id === accId) || { id: accId, name: "Conta", type: "CHECKING", color: "#4d7c0f" };
   },
@@ -998,7 +1006,9 @@ window.App = {
         const accTxs = monthTxs.filter(t => t.type === "EXPENSE" && t.accountId === acc.id);
         const accProjs = monthProjs.filter(p => p.accountId === acc.id);
         const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
-        const plannedSum = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+        const plannedSum = accProjs
+          .filter(p => this.getProjectionType(p) === "EXPENSE")
+          .reduce((s, p) => s + Number(p.plannedAmount), 0);
         let planned = plannedSum;
         let isArbitrated = false;
         if (acc.type === "CREDIT_CARD") {
@@ -1025,7 +1035,7 @@ window.App = {
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const collectivePlanned = filteredProjs
-      .filter(p => p.ownership === "COLLECTIVE")
+      .filter(p => p.ownership === "COLLECTIVE" && this.getProjectionType(p) === "EXPENSE")
       .reduce((acc, p) => acc + Number(p.plannedAmount), 0);
 
     const individualBrunoActual = monthTxs
@@ -1043,7 +1053,7 @@ window.App = {
       : individualBrunoActual + individualNubiaActual;
 
     const individualTotalPlanned = filteredProjs
-      .filter(p => p.ownership !== "COLLECTIVE")
+      .filter(p => p.ownership !== "COLLECTIVE" && this.getProjectionType(p) === "EXPENSE")
       .reduce((acc, p) => acc + Number(p.plannedAmount), 0);
 
     const allCollectiveTxs = monthTxs.filter(t => t.type === "EXPENSE" && t.ownership === "COLLECTIVE");
@@ -2778,20 +2788,52 @@ window.App = {
       const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
       const incomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
       const transferInActual = accTransferTxs.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
-      const meta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-      // Saldo da conta corrente: Entradas (Receitas + Transferências recebidas) - Despesas
-      const netCheckingBalance = (incomeActual + transferInActual) - actual;
-      return { acc, actual, incomeActual, transferActual: transferInActual, meta, netCheckingBalance };
+      const transferOutActual = accTransferTxs.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+
+      const accExpenseProjs = accProjs.filter(p => this.getProjectionType(p) === "EXPENSE");
+      const accIncomeProjs = accProjs.filter(p => this.getProjectionType(p) === "INCOME");
+      const expenseMeta = accExpenseProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+      const incomeMeta = accIncomeProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+      const hasAnyMeta = expenseMeta > 0 || incomeMeta > 0;
+
+      const expenseDiff = expenseMeta - actual;
+      const incomeDiff = incomeActual - incomeMeta;
+      const netCheckingBalance = (incomeActual + transferInActual) - (actual + transferOutActual);
+
+      let diff = 0;
+      if (hasAnyMeta) {
+        if (expenseMeta > 0 && incomeMeta > 0) {
+          diff = expenseDiff + incomeDiff;
+        } else if (expenseMeta > 0) {
+          diff = expenseDiff + incomeActual;
+        } else {
+          diff = incomeDiff - actual;
+        }
+      } else {
+        diff = netCheckingBalance;
+      }
+
+      return {
+        acc,
+        actual,
+        incomeActual,
+        transferActual: transferInActual,
+        expenseMeta,
+        incomeMeta,
+        meta: expenseMeta,
+        diff,
+        netCheckingBalance
+      };
     });
     const totalCheckingSummaryActual = checkingSummaryRows.reduce((s, r) => s + r.actual, 0);
     const totalCheckingSummaryIncome = checkingSummaryRows.reduce((s, r) => s + r.incomeActual, 0);
-    const totalCheckingSummaryMeta = checkingSummaryRows.reduce((s, r) => s + r.meta, 0);
-    const totalCheckingSummaryDiff = totalCheckingSummaryMeta - totalCheckingSummaryActual;
+    const totalCheckingSummaryExpenseMeta = checkingSummaryRows.reduce((s, r) => s + r.expenseMeta, 0);
+    const totalCheckingSummaryIncomeMeta = checkingSummaryRows.reduce((s, r) => s + r.incomeMeta, 0);
+    const totalCheckingSummaryDiff = checkingSummaryRows.reduce((s, r) => s + r.diff, 0);
 
     const checkingSummaryRowsHTML = checkingSummaryRows
       .map(row => {
-        const colors = this.getSpreadsheetCellColor(row.actual, row.meta);
-        const diff = row.meta > 0 ? (row.meta - row.actual) : row.netCheckingBalance;
+        const colors = this.getSpreadsheetCellColor(row.actual, row.expenseMeta);
         const owner = this.getUser(row.acc.ownerId);
         return `
           <tr class="border-b border-stone-200/70 hover:bg-stone-50 transition">
@@ -2825,12 +2867,17 @@ window.App = {
             </td>
             <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
               <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.metaClass}">
-                ${this.formatBRL(row.meta)}
+                ${this.formatBRL(row.expenseMeta)}
               </div>
+              ${
+                row.incomeMeta > 0
+                  ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold mt-0.5 whitespace-nowrap tabular-nums">+${this.formatBRL(row.incomeMeta)}</div>`
+                  : ""
+              }
             </td>
             <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
-              <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
-                ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
+              <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${row.diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+                ${row.diff >= 0 ? "+" : ""}${this.formatBRL(row.diff)}
               </span>
             </td>
           </tr>
@@ -2975,10 +3022,32 @@ window.App = {
         const accIncomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
         const accTransferInActual = accTransferTxs.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
         const accTransferOutActual = accTransferTxs.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
-        const accMeta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-        // Saldo da conta: se meta for definida (> 0), compara meta - actual. Se meta for 0, o saldo é a compensação real: Entradas (Receitas + Transferências Recebidas) - Despesas
+
+        const accExpenseProjs = accProjs.filter(p => this.getProjectionType(p) === "EXPENSE");
+        const accIncomeProjs = accProjs.filter(p => this.getProjectionType(p) === "INCOME");
+        const accExpenseMeta = accExpenseProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+        const accIncomeMeta = accIncomeProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+        const hasAnyMeta = accExpenseMeta > 0 || accIncomeMeta > 0;
+
+        const expenseDiff = accExpenseMeta - accActual;
+        const incomeDiff = accIncomeActual - accIncomeMeta;
         const netAccBalance = (accIncomeActual + accTransferInActual) - (accActual + accTransferOutActual);
-        const accDiff = accMeta > 0 ? (accMeta - accActual) : netAccBalance;
+
+        // Se houver metas estipuladas, o saldo acompanha o status de cada meta (receita vs despesa)
+        // Se não houver nenhuma meta na conta, o saldo é a compensação real financeira (entradas - saídas)
+        let accDiff = 0;
+        if (hasAnyMeta) {
+          if (accExpenseMeta > 0 && accIncomeMeta > 0) {
+            accDiff = expenseDiff + incomeDiff;
+          } else if (accExpenseMeta > 0) {
+            accDiff = expenseDiff + accIncomeActual;
+          } else {
+            accDiff = incomeDiff - accActual;
+          }
+        } else {
+          accDiff = netAccBalance;
+        }
+
         const owner = this.getUser(acc.ownerId);
 
         const activeAccItems = [];
@@ -3119,7 +3188,10 @@ window.App = {
                       ${accIncomeActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeActual)}</div>` : ""}
                       ${accTransferInActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold">⇄ +${this.formatBRL(accTransferInActual)}</div>` : ""}
                     </td>
-                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(accMeta)}</td>
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
+                      <div class="${accExpenseMeta > 0 ? "text-stone-900" : "text-stone-400"}">${this.formatBRL(accExpenseMeta)}</div>
+                      ${accIncomeMeta > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeMeta)}</div>` : ""}
+                    </td>
                     <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${accDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
                       ${accDiff >= 0 ? "+" : ""}${this.formatBRL(accDiff)}
                     </td>
@@ -3270,7 +3342,10 @@ window.App = {
                     <div class="${totalCheckingSummaryActual > 0 ? "text-rose-300" : "text-sky-200"}">${totalCheckingSummaryActual > 0 ? `-${this.formatBRL(totalCheckingSummaryActual)}` : this.formatBRL(0)}</div>
                     ${totalCheckingSummaryIncome > 0 ? `<div class="text-[9px] sm:text-[10px] text-lime-300 font-bold">+${this.formatBRL(totalCheckingSummaryIncome)}</div>` : ""}
                   </td>
-                  <td class="py-3 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalCheckingSummaryMeta)}</td>
+                  <td class="py-3 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">
+                    <div>${this.formatBRL(totalCheckingSummaryExpenseMeta)}</div>
+                    ${totalCheckingSummaryIncomeMeta > 0 ? `<div class="text-[9px] sm:text-[10px] text-lime-300 font-bold">+${this.formatBRL(totalCheckingSummaryIncomeMeta)}</div>` : ""}
+                  </td>
                   <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
                     ${totalCheckingSummaryDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryDiff)}
                   </td>
