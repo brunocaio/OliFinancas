@@ -1790,14 +1790,14 @@ window.App = {
   },
 
   getBudgetScopeAccountIds(accountId) {
-    if (accountId && accountId !== "ALL_ACCOUNTS") {
+    if (accountId && accountId !== "ALL_ACCOUNTS" && accountId !== "ALL_INCOME") {
       return new Set([accountId]);
     }
     return new Set(this.getAccountsForActiveUser().map(a => a.id));
   },
 
   resolveTargetAccountForBudgetAction(accountId, subcategoryId = null) {
-    if (accountId && accountId !== "ALL_ACCOUNTS") {
+    if (accountId && accountId !== "ALL_ACCOUNTS" && accountId !== "ALL_INCOME") {
       return this.getAccount(accountId);
     }
     const userAccs = this.getAccountsForActiveUser();
@@ -1891,9 +1891,10 @@ window.App = {
   selectAllInMacroTree(accountId, categoryId) {
     const monthYear = this.state.settings.activeMonth;
     const scopeIds = this.getBudgetScopeAccountIds(accountId);
+    const txType = accountId === "ALL_INCOME" ? "INCOME" : "EXPENSE";
     const subIds = new Set(this.state.subcategories.filter(s => s.categoryId === categoryId).map(s => s.id));
     const txs = this.state.transactions.filter(
-      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && scopeIds.has(t.accountId) && subIds.has(t.subcategoryId)
+      t => t.competenceMonth === monthYear && t.type === txType && scopeIds.has(t.accountId) && subIds.has(t.subcategoryId)
     );
     if (txs.length === 0) return;
     const ids = txs.map(t => t.id);
@@ -1999,6 +2000,8 @@ window.App = {
 
   quickLaunchInCategory(accountId, subcategoryId) {
     const sub = this.getSubcategory(subcategoryId);
+    const cat = this.getCategory(sub.categoryId);
+    const txType = (cat && cat.type === "INCOME") || accountId === "ALL_INCOME" ? "INCOME" : "EXPENSE";
     const targetAcc = this.resolveTargetAccountForBudgetAction(accountId, subcategoryId);
     const targetAccountId = targetAcc.id;
     const accSelect = document.getElementById("quick-tx-account");
@@ -2008,7 +2011,7 @@ window.App = {
 
     if (this.currentTab !== "dashboard") {
       this.openTransactionModal({
-        type: "EXPENSE",
+        type: txType,
         description: sub.name,
         amount: "",
         accountId: targetAccountId,
@@ -2136,7 +2139,7 @@ window.App = {
                             const rawDesc = (tx.description || "").trim();
                             const hasLongText = rawDesc.length > 36 || Boolean(tx.notes || tx.counterparty || tx.originLabel || tx.destinationLabel);
                             const isDescExpanded = Boolean(this.showAllTreeFullText || this.expandedTreeDescIds[tx.id]);
-                            const txAcc = accountId === "ALL_ACCOUNTS" ? this.getAccount(tx.accountId) : null;
+                            const txAcc = (accountId === "ALL_ACCOUNTS" || accountId === "ALL_INCOME") ? this.getAccount(tx.accountId) : null;
                             const accBadge = txAcc
                               ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-stone-100 border border-stone-200 text-stone-700 text-[10px] font-bold"><span class="w-1.5 h-1.5 rounded-full" style="background:${txAcc.color || "#65a30d"}"></span>${this.escapeHTML(txAcc.name.replace(" (Dia 8)", "").replace(" (Dia 19)", ""))}</span>`
                               : "";
@@ -2367,6 +2370,9 @@ window.App = {
     const monthTxs = this.state.transactions.filter(
       t => t.competenceMonth === monthYear && t.type === "EXPENSE"
     );
+    const monthIncomeTxs = this.state.transactions.filter(
+      t => t.competenceMonth === monthYear && t.type === "INCOME"
+    );
     const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
 
     // Filtra contas correntes e cartões do usuário ativo
@@ -2388,28 +2394,40 @@ window.App = {
     const checkingIds = checkingAccounts.map(a => a.id);
     const allUserAccountIds = [...checkingAccounts, ...creditCards].map(a => a.id);
 
-    // 1A. Resumo dos Cartões de Crédito no topo (Bloco TOTAIS GERAIS)
-    const cardSummaryRows = creditCards.map(card => {
-      const cardTxs = monthTxs.filter(t => t.accountId === card.id);
-      const actual = cardTxs.reduce((s, t) => s + Number(t.amount), 0);
-      const grossPurchases = cardTxs.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
-      const invoiceCredits = cardTxs.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
-      const metaInfo = this.getCardMetaInfo(monthYear, card.id);
-      return {
-        card,
-        actual,
-        grossPurchases,
-        invoiceCredits,
-        meta: metaInfo.effectiveMeta,
-        categoriesSum: metaInfo.categoriesSum,
-        isArbitrated: metaInfo.isArbitrated
-      };
+    // 0. Receitas do Mês (todas as contas do filtro ativo)
+    const incomeSubcategories = this.state.subcategories.filter(s => {
+      const cat = this.getCategory(s.categoryId);
+      return cat && cat.type === "INCOME";
     });
+    const activeIncomeItems = [];
+    const archivedIncomeSubs = [];
+    incomeSubcategories.forEach(sub => {
+      const subTxs = monthIncomeTxs
+        .filter(t => allUserAccountIds.includes(t.accountId) && t.subcategoryId === sub.id)
+        .sort((a, b) => (b.transactionDate || "").localeCompare(a.transactionDate || ""));
+      const subProjs = monthProjs.filter(p => allUserAccountIds.includes(p.accountId) && p.subcategoryId === sub.id);
+      const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+      if (subTxs.length > 0 || meta > 0) {
+        const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id);
+        activeIncomeItems.push({
+          sub,
+          accountId: "ALL_INCOME",
+          actual,
+          meta,
+          txs: subTxs,
+          ownership
+        });
+      } else {
+        archivedIncomeSubs.push(sub);
+      }
+    });
+    activeIncomeItems.sort((a, b) => b.actual - a.actual || b.meta - a.meta);
+    const totalIncomeActual = activeIncomeItems.reduce((s, i) => s + i.actual, 0);
+    const totalIncomeMeta = activeIncomeItems.reduce((s, i) => s + i.meta, 0);
+    const totalIncomeDiff = totalIncomeActual - totalIncomeMeta;
 
-    const totalCardsActual = cardSummaryRows.reduce((s, r) => s + r.actual, 0);
-    const totalCardsMeta = cardSummaryRows.reduce((s, r) => s + r.meta, 0);
-
-    // 1B. Totais Gerais por Categoria (somando todas as formas de pagamento)
+    // 1. Totais Gerais por Categoria (somando todas as formas de pagamento)
     const expenseSubcategories = this.state.subcategories.filter(s => {
       const cat = this.getCategory(s.categoryId);
       return cat && cat.type === "EXPENSE";
@@ -2446,68 +2464,47 @@ window.App = {
     const grandTotalAllMeta = activeConsolidatedItems.reduce((s, i) => s + i.meta, 0);
     const grandTotalDiff = grandTotalAllMeta - grandTotalAllActual;
 
-    // Render das linhas de Cartão no Bloco CONTA CORRENTE
-    const cardsInCheckingHTML = cardSummaryRows
+    // Resumo das Contas Correntes (para o painel resumo antes do detalhamento das contas correntes)
+    const checkingSummaryRows = checkingAccounts.map(acc => {
+      const accTxs = monthTxs.filter(t => t.accountId === acc.id);
+      const accProjs = monthProjs.filter(p => p.accountId === acc.id);
+      const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const meta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+      return { acc, actual, meta };
+    });
+    const totalCheckingSummaryActual = checkingSummaryRows.reduce((s, r) => s + r.actual, 0);
+    const totalCheckingSummaryMeta = checkingSummaryRows.reduce((s, r) => s + r.meta, 0);
+    const totalCheckingSummaryDiff = totalCheckingSummaryMeta - totalCheckingSummaryActual;
+
+    const checkingSummaryRowsHTML = checkingSummaryRows
       .map(row => {
         const colors = this.getSpreadsheetCellColor(row.actual, row.meta);
         const diff = row.meta - row.actual;
+        const owner = this.getUser(row.acc.ownerId);
         return `
           <tr class="border-b border-stone-200/70 hover:bg-stone-50 transition">
             <td class="py-2.5 px-2.5 sm:px-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <a
-                  href="#card-block-${row.card.id}"
-                  class="font-extrabold text-stone-900 hover:text-lime-800 text-xs sm:text-sm uppercase tracking-tight flex flex-wrap items-center gap-1.5"
+                  href="#checking-block-${row.acc.id}"
+                  class="font-extrabold text-stone-900 hover:text-sky-800 text-xs sm:text-sm uppercase tracking-tight flex flex-wrap items-center gap-1.5"
                 >
-                  <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${row.card.color}"></span>
-                  <span class="break-words">${row.card.name.replace(" (Dia 8)", "").replace(" (Dia 19)", "")}</span>
+                  <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${row.acc.color || "#0ea5e9"}"></span>
+                  <span class="break-words">${this.escapeHTML(row.acc.name)}</span>
                   <span class="text-[10px] font-semibold text-stone-400 normal-case">(ver categorias &darr;)</span>
                 </a>
-                ${
-                  row.isArbitrated
-                    ? `
-                      <div class="flex items-center gap-1">
-                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold" title="Soma das categorias: ${this.formatBRL(row.categoriesSum)}">
-                          Arbitrado (Σ ${this.formatBRL(row.categoriesSum)})
-                        </span>
-                        <button
-                          type="button"
-                          onclick="App.resetCardCustomMeta('${row.card.id}')"
-                          class="text-[10px] px-1.5 py-0.5 rounded bg-stone-200 hover:bg-stone-300 text-stone-700 font-bold transition"
-                          title="Voltar para a soma automática das categorias do cartão"
-                        >
-                          ↺ Auto
-                        </button>
-                      </div>
-                    `
-                    : `
-                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 font-semibold">
-                        Σ categorias
-                      </span>
-                    `
-                }
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 font-semibold">${owner.name}</span>
               </div>
             </td>
             <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-32">
               <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
                 ${this.formatBRL(row.actual)}
               </div>
-              ${
-                row.invoiceCredits > 0
-                  ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-semibold mt-0.5 whitespace-nowrap tabular-nums" title="Compras: ${this.formatBRL(row.grossPurchases)} | Estornos/Descontos: -${this.formatBRL(row.invoiceCredits)}">${this.formatBRL(row.grossPurchases)} − ${this.formatBRL(row.invoiceCredits)}</div>`
-                  : ""
-              }
             </td>
             <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
-              <button
-                type="button"
-                onclick="App.promptCardCustomMeta('${row.card.id}')"
-                title="Clique para arbitrar um valor fixo para o cartão ou usar a soma automática das categorias"
-                class="w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right flex items-center justify-between gap-0.5 hover:ring-2 hover:ring-lime-600 transition ${colors.metaClass}"
-              >
-                <i data-lucide="pencil" class="w-2.5 h-2.5 sm:w-3 sm:h-3 opacity-50 shrink-0"></i>
-                <span class="whitespace-nowrap tabular-nums">${this.formatBRL(row.meta)}</span>
-              </button>
+              <div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.metaClass}">
+                ${this.formatBRL(row.meta)}
+              </div>
             </td>
             <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
               <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
@@ -2745,63 +2742,71 @@ window.App = {
       })
       .join("");
 
-    // Retorno Completo: Bloco 1 (TOTAIS GERAIS) + Bloco 2 (CARTÕES E CONTAS CORRENTES POR CATEGORIA)
+    // Retorno Completo: Receitas + Despesas Totais + Cartões + Resumo/Detalhamento Contas Correntes
     return `
       <!-- ================================================================ -->
-      <!-- BLOCO 1: TOTAIS GERAIS (CARTÕES + CATEGORIAS TODAS AS FORMAS)    -->
+      <!-- RECEITAS DO MÊS                                                  -->
       <!-- ================================================================ -->
-      <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-stone-300/80">
-        <div class="px-5 py-4 bg-stone-100/90 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="px-2 py-0.5 rounded-md bg-stone-900 text-white text-[10px] font-extrabold uppercase tracking-wider">1º Bloco</span>
-              <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
-                DESPESAS • ${userLabel} • TOTAIS GERAIS
-              </h3>
-            </div>
-          </div>
-          <div class="text-xs font-semibold text-stone-600">
-            Saída Total: <strong class="text-stone-900 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalAllActual)}</strong>
-            <span class="text-stone-400 whitespace-nowrap tabular-nums"> / Meta ${this.formatBRL(grandTotalAllMeta)}</span>
-          </div>
+      <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-lime-200/90">
+        <div class="px-5 py-4 bg-lime-50/70 border-b border-lime-200/80 flex items-center justify-between gap-2">
+          <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
+            Receitas
+          </h3>
         </div>
 
         <div class="w-full overflow-x-hidden">
           <table class="w-full table-fixed text-left border-collapse">
             <thead>
               <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
-                <th class="py-2.5 px-2 sm:px-4 w-auto">Cartões & Totais Gerais por Categoria</th>
+                <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
                 <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
               </tr>
             </thead>
             <tbody>
-              <!-- 1A. Resumo dos Cartões -->
-              ${cardsInCheckingHTML}
-
-              <!-- SUBTOTAL CARTÕES (TOTAL CARTÃO) -->
-              <tr class="bg-emerald-100/80 border-b-2 border-emerald-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
-                <td class="py-2.5 px-2 sm:px-4 uppercase tracking-wide">TOTAL CARTÃO</td>
-                <td class="py-2.5 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(totalCardsActual)}</td>
-                <td class="py-2.5 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(totalCardsMeta)}</td>
-                <td class="py-2.5 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${(totalCardsMeta - totalCardsActual) >= 0 ? "text-lime-800" : "text-rose-700"}">
-                  ${(totalCardsMeta - totalCardsActual) >= 0 ? "+" : ""}${this.formatBRL(totalCardsMeta - totalCardsActual)}
+              ${this.buildCategoryTreeRowsHTML("ALL_INCOME", this.budgetGroupMode === "MACRO" ? this.groupBudgetItemsByMacro("ALL_INCOME", activeIncomeItems) : activeIncomeItems, monthYear)}
+            </tbody>
+            <tfoot>
+              <tr class="bg-lime-900 text-white font-extrabold text-[10px] sm:text-sm">
+                <td class="py-3 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL RECEITAS</td>
+                <td class="py-3 px-1 sm:px-3 text-right text-lime-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalIncomeActual)}</td>
+                <td class="py-3 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalIncomeMeta)}</td>
+                <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalIncomeDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
+                  ${totalIncomeDiff >= 0 ? "+" : ""}${this.formatBRL(totalIncomeDiff)}
                 </td>
               </tr>
+            </tfoot>
+          </table>
+        </div>
 
-              <!-- Divisor para Totais Gerais por Categoria (Todas as Formas de Pagamento) -->
-              <tr class="bg-stone-50/90 border-b border-stone-200/70">
-                <td colspan="4" class="py-1.5 px-2.5 sm:px-4 text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-stone-500">
-                  Totais Gerais por Categoria (Todas as Formas de Pagamento)
-                </td>
+        ${this.buildArchiveDrawerHTML("archive__ALL_INCOME", "ALL_INCOME", archivedIncomeSubs)}
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- DESPESAS TOTAIS (TODAS AS FORMAS DE PAGAMENTO POR CATEGORIA)     -->
+      <!-- ================================================================ -->
+      <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-stone-300/80">
+        <div class="px-5 py-4 bg-stone-100/90 border-b border-stone-200 flex items-center justify-between gap-2">
+          <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
+            Despesas Totais
+          </h3>
+        </div>
+
+        <div class="w-full overflow-x-hidden">
+          <table class="w-full table-fixed text-left border-collapse">
+            <thead>
+              <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
+                <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria (Todas as Formas de Pagamento)</th>
+                <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
+                <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
+                <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
               </tr>
-
-              <!-- 1B. Categorias Consolidadas (Cartões + Débito + Pix + Dinheiro) -->
+            </thead>
+            <tbody>
               ${this.buildCategoryTreeRowsHTML("ALL_ACCOUNTS", this.budgetGroupMode === "MACRO" ? this.groupBudgetItemsByMacro("ALL_ACCOUNTS", activeConsolidatedItems) : activeConsolidatedItems, monthYear)}
             </tbody>
             <tfoot>
-              <!-- TOTAL DESPESAS GERAL -->
               <tr class="bg-stone-900 text-white font-extrabold text-[10px] sm:text-sm">
                 <td class="py-3.5 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL DESPESAS</td>
                 <td class="py-3.5 px-1 sm:px-3 text-right text-amber-300 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalAllActual)}</td>
@@ -2814,36 +2819,63 @@ window.App = {
           </table>
         </div>
 
-        <!-- Gaveta de Categorias Arquivadas Gerais -->
         ${this.buildArchiveDrawerHTML("archive__ALL_ACCOUNTS", "ALL_ACCOUNTS", archivedConsolidatedSubs)}
       </div>
 
       <!-- ================================================================ -->
-      <!-- BLOCO 2: DETALHAMENTO POR CARTÃO DE CRÉDITO                      -->
+      <!-- DETALHAMENTO POR CARTÃO DE CRÉDITO                               -->
       <!-- ================================================================ -->
       <div class="pt-2 space-y-5">
         <div class="flex items-center justify-between px-1">
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded-md bg-lime-800 text-white text-[10px] font-extrabold uppercase tracking-wider">2º Bloco</span>
-            <h3 class="text-sm sm:text-base font-extrabold text-stone-900 uppercase tracking-tight">
-              Detalhamento dos Cartões de Crédito por Categoria
-            </h3>
-          </div>
+          <h3 class="text-sm sm:text-base font-extrabold text-stone-900 uppercase tracking-tight">
+            Cartões de Crédito
+          </h3>
         </div>
 
         ${creditCardsBlocksHTML}
       </div>
 
       <!-- ================================================================ -->
-      <!-- BLOCO 3: DETALHAMENTO POR CONTA CORRENTE                         -->
+      <!-- RESUMO E DETALHAMENTO POR CONTA CORRENTE                         -->
       <!-- ================================================================ -->
       <div class="pt-2 space-y-5">
         <div class="flex items-center justify-between px-1">
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded-md bg-sky-800 text-white text-[10px] font-extrabold uppercase tracking-wider">3º Bloco</span>
-            <h3 class="text-sm sm:text-base font-extrabold text-stone-900 uppercase tracking-tight">
-              Detalhamento das Contas Correntes por Categoria
+          <h3 class="text-sm sm:text-base font-extrabold text-stone-900 uppercase tracking-tight">
+            Contas Correntes
+          </h3>
+        </div>
+
+        <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-sky-200/90">
+          <div class="px-5 py-4 bg-sky-50/70 border-b border-sky-200/80 flex items-center justify-between gap-2">
+            <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
+              Resumo das Contas Correntes
             </h3>
+          </div>
+
+          <div class="w-full overflow-x-hidden">
+            <table class="w-full table-fixed text-left border-collapse">
+              <thead>
+                <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
+                  <th class="py-2.5 px-2 sm:px-4 w-auto">Conta Corrente</th>
+                  <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
+                  <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
+                  <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${checkingSummaryRowsHTML}
+              </tbody>
+              <tfoot>
+                <tr class="bg-sky-900 text-white font-extrabold text-[10px] sm:text-sm">
+                  <td class="py-3 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL CONTAS CORRENTES</td>
+                  <td class="py-3 px-1 sm:px-3 text-right text-sky-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalCheckingSummaryActual)}</td>
+                  <td class="py-3 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalCheckingSummaryMeta)}</td>
+                  <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
+                    ${totalCheckingSummaryDiff >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryDiff)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
 
@@ -4001,8 +4033,9 @@ window.App = {
   selectAllInTree(accountId, subcategoryId) {
     const monthYear = this.state.settings.activeMonth;
     const scopeIds = this.getBudgetScopeAccountIds(accountId);
+    const txType = accountId === "ALL_INCOME" ? "INCOME" : "EXPENSE";
     const txs = this.state.transactions.filter(
-      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && scopeIds.has(t.accountId) && t.subcategoryId === subcategoryId
+      t => t.competenceMonth === monthYear && t.type === txType && scopeIds.has(t.accountId) && t.subcategoryId === subcategoryId
     );
     if (txs.length === 0) return;
     const ids = txs.map(t => t.id);

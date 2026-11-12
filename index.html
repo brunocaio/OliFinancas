@@ -590,45 +590,6 @@
     <!-- ABA 2: METAS & ORÇAMENTO (CONTA CORRENTE + CARTÕES POR CATEGORIA [+]) -->
     <!-- ================================================================== -->
     <section id="tab-projections" class="tab-section hidden space-y-6">
-      <div class="oli-card rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 class="text-base font-extrabold text-stone-900 flex items-center gap-2">
-            <i data-lucide="target" class="w-5 h-5 text-lime-700"></i>
-            Estrutura de Metas: Conta Corrente & Cartões por Categoria
-          </h2>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <div class="inline-flex bg-stone-100 p-1 rounded-xl text-xs">
-            <button
-              type="button"
-              data-budget-mode="MACRO"
-              onclick="App.setBudgetGroupMode('MACRO')"
-              class="px-3 py-1.5 rounded-lg font-bold transition"
-            >
-              Por Categoria Macro
-            </button>
-            <button
-              type="button"
-              data-budget-mode="SUBCATEGORY"
-              onclick="App.setBudgetGroupMode('SUBCATEGORY')"
-              class="px-3 py-1.5 rounded-lg font-bold transition"
-            >
-              Por Subcategoria
-            </button>
-          </div>
-          <button onclick="App.expandAllTrees(true)" class="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold transition">
-            Expandir Tudo [+]
-          </button>
-          <button onclick="App.expandAllTrees(false)" class="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold transition">
-            Recolher Tudo [-]
-          </button>
-          <button onclick="App.openProjectionModal()" class="px-3.5 py-2 rounded-xl bg-lime-700 hover:bg-lime-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition">
-            <i data-lucide="plus" class="w-4 h-4"></i>
-            Nova Meta
-          </button>
-        </div>
-      </div>
-
       <div id="projections-groups-container" class="space-y-6"></div>
     </section>
 
@@ -1317,10 +1278,10 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=33"></script>
-  <script src="./js/housing-financing.js?v=33"></script>
-  <script src="./js/ofx-csv-parser.js?v=33"></script>
-  <script src="./js/supabase-sync.js?v=33"></script>
-  <script src="./js/app.js?v=33"></script>
+  <script src="./js/data-seed.js?v=34"></script>
+  <script src="./js/housing-financing.js?v=34"></script>
+  <script src="./js/ofx-csv-parser.js?v=34"></script>
+  <script src="./js/supabase-sync.js?v=34"></script>
+  <script src="./js/app.js?v=34"></script>
 </body>
 </html>
