@@ -4705,16 +4705,52 @@ window.App = {
     this.showToast(`🏷️ ${directCount} item(ns) recategorizado(s) para "${newSub.name}"${extraMsg}! (Ctrl+Z p/ desfazer)`, "success");
   },
 
+  cleanMerchantDescription(rawDesc) {
+    if (!rawDesc) return "";
+    let s = String(rawDesc).trim();
+
+    // 1. Remove prefixos Pix / Transferência com datas e horas
+    s = s.replace(/^PIX\s*-\s*(?:ENVIADO|RECEBIDO)\s*-\s*\d{2}\/\d{2}(?:\s*\d{2}:\d{2})?\s*/i, "");
+    s = s.replace(/^TRANSFER[^\s-]*\s+(?:ENVIADA|RECEBIDA)\s+PELO\s+PIX\s*-\s*/i, "");
+    s = s.replace(/^PIX\s+TRANSF(?:\s+RECEBIDO|\s+ENVIADO)?\s*/i, "");
+    s = s.replace(/^(?:DOC|TED|PIX)\s+(?:RECEBIDO|ENVIADO)\s*-\s*/i, "");
+
+    // 2. Remove prefixos de adquirentes / maquininhas
+    s = s.replace(/^(?:IFD|MP|EC|ZP|PB|PAG|PG|FLY|STONE)\s*\*?\s*/i, "");
+
+    // 3. Remove parcelas e sufixos de pagamento no final
+    s = s.replace(/\s*-\s*PARCELA\s*\d+\s*\/\s*\d+/gi, "");
+    s = s.replace(/\s*-?\s*\d{1,2}\s*\/\s*\d{1,2}\s*$/g, "");
+    s = s.replace(/\s*-\s*(?:NUPAY|PAYPAL|MERCADO PAGO)\s*$/gi, "");
+
+    // 4. Se contiver separadores de dados bancários/CNPJ do Pix Nubank/BB (" - CNPJ/CPF - BANCO...")
+    const parts = s.split(/\s+-\s+/);
+    if (parts.length > 1) {
+      if (/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(parts[1]) || /\d{3}\.\d{3}\.\d{3}-\d{2}/.test(parts[1]) || /Ag[êe]ncia:/i.test(parts[1]) || /\b(?:BCO|BANCO|IP LTDA|S\.A\.)\b/i.test(parts[1])) {
+        s = parts[0];
+      }
+    }
+
+    // 5. Remove resíduos de CPF/CNPJ soltos
+    s = s.replace(/\s*\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b.*$/i, "");
+    s = s.replace(/\s*\b\d{3}\.\d{3}\.\d{3}-\d{2}\b.*$/i, "");
+    s = s.replace(/\s*Ag[êe]ncia:\s*\d+.*$/i, "");
+
+    return s.trim().toUpperCase();
+  },
+
   learnKeywordFromTransaction(txId) {
     const tx = this.state.transactions.find(t => t.id === txId);
     if (!tx) return;
     const sub = this.getSubcategory(tx.subcategoryId);
 
-    const cleanSuggested = (tx.description || "")
-      .replace(/\s*-\s*Parcela\s*\d+\s*\/\s*\d+/i, "")
-      .replace(/\s*-\s*NuPay/i, "")
-      .trim()
-      .toUpperCase();
+    // Depuração automática inteligente do nome do lançamento
+    let cleanSuggested = "";
+    if (tx.counterparty && tx.counterparty.trim().length >= 3 && !/^\d{2}\/\d{2}/.test(tx.counterparty.trim())) {
+      cleanSuggested = tx.counterparty.trim().toUpperCase();
+    } else {
+      cleanSuggested = this.cleanMerchantDescription(tx.description);
+    }
 
     const kw = prompt(
       `Regra automática para "${sub.name}":\nQual texto do estabelecimento deve classificar futuros extratos automaticamente nessa categoria?`,
@@ -4728,8 +4764,11 @@ window.App = {
       sub.keywords.push(normKw);
     }
 
-    // Verifica se existem outros lançamentos do mês em "Outros" ou "Parceladas" com a mesma palavra-chave
-    const fallbackIds = new Set(["sub_outros", "sub_parceladas"]);
+    // Grava também na memória explícita de estabelecimentos
+    this.recordMerchantMemory(tx.description, sub.id, tx.ownership);
+
+    // Verifica se existem outros lançamentos do mês em "Outros", "Sem Categoria" ou "Parceladas" com a mesma palavra-chave
+    const fallbackIds = new Set(["sub_outros", "sub_sem_categoria", "sub_parceladas"]);
     const similarTxs = this.state.transactions.filter(t =>
       t.id !== tx.id &&
       t.competenceMonth === tx.competenceMonth &&
