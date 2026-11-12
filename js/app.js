@@ -541,6 +541,78 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 11: separa pagamentos de faturas e transferências entre contas próprias
+    // e remove regra que desconsiderava transferências dos saldos das contas correntes
+    if ((stateObj.schemaPatch || 0) < 11) {
+      if (!Array.isArray(stateObj.categories)) stateObj.categories = [];
+      if (!Array.isArray(stateObj.subcategories)) stateObj.subcategories = [];
+
+      // 1. Atualiza cat_transferencia para ser exclusivamente "Transferência entre Contas Próprias"
+      let catTransf = stateObj.categories.find(c => c.id === "cat_transferencia");
+      if (catTransf) {
+        catTransf.name = "Transferência entre Contas Próprias";
+        catTransf.type = "TRANSFER";
+        catTransf.icon = "arrow-left-right";
+        catTransf.color = "#0284c7";
+        changed = true;
+      } else {
+        stateObj.categories.push({
+          id: "cat_transferencia",
+          name: "Transferência entre Contas Próprias",
+          type: "TRANSFER",
+          icon: "arrow-left-right",
+          color: "#0284c7",
+          sortOrder: 13
+        });
+        changed = true;
+      }
+
+      // 2. Garante existência da categoria macro "Pagamento de Fatura"
+      let catFatura = stateObj.categories.find(c => c.id === "cat_pagamento_fatura");
+      if (!catFatura) {
+        catFatura = {
+          id: "cat_pagamento_fatura",
+          name: "Pagamento de Fatura",
+          type: "EXPENSE",
+          icon: "credit-card",
+          color: "#6366f1",
+          sortOrder: 14
+        };
+        stateObj.categories.push(catFatura);
+        changed = true;
+      }
+
+      // 3. Atualiza sub_pag_fatura para pertencer a cat_pagamento_fatura
+      const subFatura = stateObj.subcategories.find(s => s.id === "sub_pag_fatura");
+      if (subFatura) {
+        subFatura.name = "Pagamento de Fatura Cartão";
+        subFatura.categoryId = "cat_pagamento_fatura";
+        changed = true;
+      }
+
+      // 4. Garante sub_transf_propria sob cat_transferencia
+      const subTransf = stateObj.subcategories.find(s => s.id === "sub_transf_propria");
+      if (subTransf) {
+        subTransf.name = "Transferência entre Contas Próprias";
+        subTransf.categoryId = "cat_transferencia";
+        changed = true;
+      }
+
+      // 5. Atualiza transações existentes de sub_pag_fatura para EXPENSE
+      if (Array.isArray(stateObj.transactions)) {
+        stateObj.transactions.forEach(tx => {
+          if (!tx) return;
+          if (tx.subcategoryId === "sub_pag_fatura") {
+            tx.type = "EXPENSE";
+            changed = true;
+          }
+        });
+      }
+
+      stateObj.schemaPatch = 11;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -923,6 +995,27 @@ window.App = {
     if (!sub) return "EXPENSE";
     const cat = this.getCategory(sub.categoryId);
     return (cat && cat.type) ? cat.type : "EXPENSE";
+  },
+
+  getTransferDirection(tx) {
+    if (!tx) return "OUT";
+    const desc = (tx.description || "").toLowerCase();
+    const orig = (tx.originLabel || "").toLowerCase();
+    const dest = (tx.destinationLabel || "").toLowerCase();
+
+    if (desc.includes("recebid") || desc.includes("crédito") || desc.includes("credito") || desc.includes("resgate")) {
+      return "IN";
+    }
+    if (desc.includes("enviad") || desc.includes("débito") || desc.includes("debito") || desc.includes("pagto") || desc.includes("pagamento")) {
+      return "OUT";
+    }
+    if (tx.accountId === "cc_bruno_1794345904021" && desc.includes("pix transf")) {
+      return "IN";
+    }
+    if (dest && !orig.includes(dest)) {
+      return "OUT";
+    }
+    return "OUT";
   },
 
   getAccount(accId) {
@@ -2108,7 +2201,8 @@ window.App = {
   selectAllInMacroTree(accountId, categoryId) {
     const monthYear = this.state.settings.activeMonth;
     const scopeIds = this.getBudgetScopeAccountIds(accountId);
-    const txType = accountId === "ALL_INCOME" ? "INCOME" : "EXPENSE";
+    const cat = this.getCategory(categoryId);
+    const txType = (cat && cat.type === "TRANSFER") ? "TRANSFER" : (accountId === "ALL_INCOME" || (cat && cat.type === "INCOME") ? "INCOME" : "EXPENSE");
     const subIds = new Set(this.state.subcategories.filter(s => s.categoryId === categoryId).map(s => s.id));
     const txs = this.state.transactions.filter(
       t => t.competenceMonth === monthYear && t.type === txType && scopeIds.has(t.accountId) && subIds.has(t.subcategoryId)
@@ -2140,7 +2234,8 @@ window.App = {
           actual: 0,
           meta: 0,
           txs: [],
-          ownership: item.ownership
+          ownership: item.ownership,
+          isTransfer: Boolean(item.isTransfer) || (cat && cat.type === "TRANSFER")
         });
       }
       const g = map.get(cat.id);
@@ -2338,30 +2433,49 @@ window.App = {
         const isExpanded = blockSearch ? true : Boolean(this.expandedTreeKeys[treeKey]);
         const txCount = item.txs.length;
         const baseColors = this.getSpreadsheetCellColor(item.actual, item.meta);
-        const colors = isTransferCat
-          ? {
-              actualClass: "bg-stone-100/90 text-stone-500 border border-stone-200/80",
-              metaClass: "bg-stone-50 text-stone-400 border border-stone-200/60"
-            }
-          : isIncomeCat
-          ? {
-              actualClass: item.actual > 0 ? "bg-emerald-50/90 text-emerald-800 border border-emerald-200/80" : "bg-stone-50 text-stone-500 border border-stone-200/70",
-              metaClass: "bg-lime-50/70 text-lime-900 border border-lime-200/70"
-            }
-          : isCheckingScope && item.actual > 0
-          ? {
+
+        let colors = baseColors;
+        let diff = isIncomeCat ? (item.actual - item.meta) : (item.meta - item.actual);
+        let actualFormatted = this.formatBRL(item.actual);
+
+        if (isTransferCat) {
+          if (item.actual > 0) {
+            colors = {
+              actualClass: "bg-emerald-50/90 text-emerald-800 border border-emerald-200/80",
+              metaClass: baseColors.metaClass
+            };
+            actualFormatted = `+${this.formatBRL(item.actual)}`;
+            diff = item.actual - item.meta;
+          } else if (item.actual < 0) {
+            colors = {
               actualClass: "bg-rose-50/90 text-rose-700 border border-rose-200/80",
               metaClass: baseColors.metaClass
-            }
-          : baseColors;
-        const diff = isIncomeCat ? (item.actual - item.meta) : (item.meta - item.actual);
-        const actualFormatted = isTransferCat
-          ? this.formatBRL(Math.abs(item.actual))
-          : isIncomeCat
-          ? (item.actual > 0 ? `+${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0))
-          : isCheckingScope
-          ? (item.actual > 0 ? `-${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0))
-          : this.formatBRL(item.actual);
+            };
+            actualFormatted = `-${this.formatBRL(Math.abs(item.actual))}`;
+            diff = item.meta - Math.abs(item.actual);
+          } else {
+            colors = {
+              actualClass: "bg-stone-50 text-stone-500 border border-stone-200/70",
+              metaClass: baseColors.metaClass
+            };
+            actualFormatted = this.formatBRL(0);
+            diff = item.meta;
+          }
+        } else if (isIncomeCat) {
+          colors = {
+            actualClass: item.actual > 0 ? "bg-emerald-50/90 text-emerald-800 border border-emerald-200/80" : "bg-stone-50 text-stone-500 border border-stone-200/70",
+            metaClass: "bg-lime-50/70 text-lime-900 border border-lime-200/70"
+          };
+          actualFormatted = item.actual > 0 ? `+${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0);
+          diff = item.actual - item.meta;
+        } else if (isCheckingScope) {
+          colors = {
+            actualClass: item.actual > 0 ? "bg-rose-50/90 text-rose-700 border border-rose-200/80" : "bg-stone-50 text-stone-500 border border-stone-200/70",
+            metaClass: baseColors.metaClass
+          };
+          actualFormatted = item.actual > 0 ? `-${this.formatBRL(Math.abs(item.actual))}` : this.formatBRL(0);
+          diff = item.meta - item.actual;
+        }
         const selectAllCall = isMacroRow
           ? `App.selectAllInMacroTree('${accountId}', '${item.cat.id}')`
           : `App.selectAllInTree('${accountId}', '${item.sub.id}')`;
@@ -2436,6 +2550,9 @@ window.App = {
                               : "";
                             const isChecked = this.selectedTxIds.includes(tx.id);
                             const isTransferTx = isTransferCat || tx.type === "TRANSFER";
+                            const txDir = isTransferTx ? this.getTransferDirection(tx) : null;
+                            const isTxInflow = tx.type === "INCOME" || (isTransferTx && txDir === "IN");
+                            const isTxOutflow = (isTransferTx && txDir === "OUT") || isCheckingScope || isCredit;
                             const rawDesc = (tx.description || "").trim();
                             const hasLongText = rawDesc.length > 36 || Boolean(tx.notes || tx.counterparty || tx.originLabel || tx.destinationLabel);
                             const isDescExpanded = Boolean(this.showAllTreeFullText || this.expandedTreeDescIds[tx.id]);
@@ -2453,14 +2570,14 @@ window.App = {
                                     class="w-3.5 h-3.5 mt-0.5 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
                                     title="Selecionar para recategorizar ou excluir em lote (Shift + Clique para intervalo)"
                                   />
-                                  <span class="font-mono ${isTransferTx ? "text-stone-400" : "text-lime-700"} font-bold select-none shrink-0">${branchChar}</span>
+                                  <span class="font-mono ${isTransferTx ? "text-sky-700" : "text-lime-700"} font-bold select-none shrink-0">${branchChar}</span>
                                   <span class="text-[11px] text-stone-400 font-semibold w-10 shrink-0">${this.formatDateBR(tx.transactionDate)}</span>
                                   <div class="min-w-0 flex-1">
                                     <div class="flex items-center gap-1.5 min-w-0 ${isDescExpanded ? "flex-wrap" : ""}">
                                       <button
                                         type="button"
                                         onclick="App.toggleTreeTxDesc('${tx.id}')"
-                                        class="font-semibold ${isTransferTx ? "text-stone-400 hover:text-stone-600" : "text-stone-800 hover:text-lime-800"} text-left cursor-pointer ${isDescExpanded ? "whitespace-normal break-words leading-snug" : "truncate block flex-1 min-w-0"}"
+                                        class="font-semibold ${isTransferTx ? "text-stone-800 hover:text-sky-800" : "text-stone-800 hover:text-lime-800"} text-left cursor-pointer ${isDescExpanded ? "whitespace-normal break-words leading-snug" : "truncate block flex-1 min-w-0"}"
                                         title="${isDescExpanded ? "Clique para ocultar o texto completo" : `${this.escapeHTML(rawDesc)} — Clique para ver completo com quebra de linha`}"
                                       >
                                         ${this.escapeHTML(rawDesc)}
@@ -2480,6 +2597,7 @@ window.App = {
                                     </div>
                                     <div class="flex flex-wrap items-center gap-1 mt-1">
                                       ${accBadge}
+                                      ${isTransferTx ? (txDir === "IN" ? `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Entrada / Recebida</span>` : `<span class="px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold">Saída / Enviada</span>`) : ""}
                                       ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
                                       ${isDescExpanded || tx.counterparty ? this.buildPixFlowBadgesHTML(tx.id, tx) : ""}
                                       ${instTag}
@@ -2504,8 +2622,8 @@ window.App = {
                                   >
                                     +Regra
                                   </button>
-                                  <span class="font-extrabold text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${isTransferTx ? "text-stone-400" : tx.type === "INCOME" || isCredit ? "text-emerald-700" : isCheckingScope ? "text-rose-700" : "text-stone-900"}">
-                                    ${isTransferTx ? `⇄ ${this.formatBRL(Math.abs(tx.amount))}` : tx.type === "INCOME" ? `+${this.formatBRL(Math.abs(tx.amount))}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : isCheckingScope ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
+                                  <span class="font-extrabold text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${isTxInflow ? "text-emerald-700" : isTxOutflow ? "text-rose-700" : "text-stone-900"}">
+                                    ${isTransferTx ? (txDir === "IN" ? `+${this.formatBRL(Math.abs(tx.amount))}` : `-${this.formatBRL(Math.abs(tx.amount))}`) : tx.type === "INCOME" ? `+${this.formatBRL(Math.abs(tx.amount))}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : isCheckingScope ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
                                   </span>
                                   <button
                                     type="button"
@@ -2528,7 +2646,7 @@ window.App = {
           : "";
 
         return `
-          <tr class="border-b border-stone-100 ${isTransferCat ? "bg-stone-50/60 hover:bg-stone-100/70" : "hover:bg-stone-50/90"} transition group">
+          <tr class="border-b border-stone-100 hover:bg-stone-50/90 transition group">
             <td class="py-2.5 px-2.5 sm:px-4">
               <div class="flex items-start sm:items-center gap-2 min-w-0">
                 <button
@@ -2548,7 +2666,7 @@ window.App = {
                     <button
                       type="button"
                       onclick="App.toggleTreeRow('${treeKey}')"
-                      class="font-bold ${isTransferCat ? "text-stone-400 hover:text-stone-600" : "text-stone-800 hover:text-lime-800"} text-xs sm:text-sm text-left break-words transition"
+                      class="font-bold text-stone-800 hover:text-lime-800 text-xs sm:text-sm text-left break-words transition"
                     >
                       ${item.sub.name}
                     </button>
@@ -2572,32 +2690,24 @@ window.App = {
 
             <!-- Coluna META (Editável direto na célula) -->
             <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
-              ${
-                isTransferCat
-                  ? `<div class="inline-block w-full px-1 sm:px-2.5 py-1.5 rounded-lg text-right font-bold text-[10px] sm:text-xs text-stone-400 bg-stone-50 border border-stone-200/60">—</div>`
-                  : `<div class="relative flex items-center justify-end">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value="${Number(item.meta).toFixed(2)}"
-                        onchange="${metaChangeCall}"
-                        title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
-                        class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right font-extrabold text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
-                      />
-                    </div>`
-              }
+              <div class="relative flex items-center justify-end">
+                <input
+                  type="number"
+                  step="0.01"
+                  value="${Number(item.meta).toFixed(2)}"
+                  onchange="${metaChangeCall}"
+                  title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
+                  class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right font-extrabold text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
+                />
+              </div>
             </td>
 
             <!-- Coluna SALDO / AÇÃO RÁPIDA -->
             <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
               <div class="flex items-center justify-end gap-0.5 sm:gap-1 flex-nowrap">
-                ${
-                  isTransferCat
-                    ? `<span class="text-[10px] sm:text-xs font-bold whitespace-nowrap text-stone-400">Movim.</span>`
-                    : `<span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
-                        ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
-                      </span>`
-                }
+                <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+                  ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
+                </span>
                 <button
                   type="button"
                   onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
@@ -2783,26 +2893,35 @@ window.App = {
     const checkingSummaryRows = checkingAccounts.map(acc => {
       const accTxs = monthTxs.filter(t => t.accountId === acc.id);
       const accIncomeTxs = monthIncomeTxs.filter(t => t.accountId === acc.id);
+      const accTransferTxs = monthTransferTxs.filter(t => t.accountId === acc.id);
       const accProjs = monthProjs.filter(p => p.accountId === acc.id);
       const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
       const incomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
 
+      const accTransferInActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "IN").reduce((s, t) => s + Number(t.amount), 0);
+      const accTransferOutActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "OUT").reduce((s, t) => s + Number(t.amount), 0);
+
       const accExpenseProjs = accProjs.filter(p => this.getProjectionType(p) === "EXPENSE");
       const accIncomeProjs = accProjs.filter(p => this.getProjectionType(p) === "INCOME");
+      const accTransferProjs = accProjs.filter(p => this.getProjectionType(p) === "TRANSFER");
       const expenseMeta = accExpenseProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
       const incomeMeta = accIncomeProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+      const transferMeta = accTransferProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
 
-      // Somatório consolidado considerando status de despesa (-) ou receita (+), desconsiderando transferências
-      const netActual = incomeActual - actual;
-      const netMeta = incomeMeta - expenseMeta;
+      // Saldo da conta corrente contabilizando receitas, transferências (entradas/saídas) e despesas
+      const netActual = (incomeActual + accTransferInActual) - (actual + accTransferOutActual);
+      const netMeta = incomeMeta - expenseMeta - transferMeta;
       const netDiff = netActual - netMeta;
 
       return {
         acc,
         actual,
         incomeActual,
+        accTransferInActual,
+        accTransferOutActual,
         expenseMeta,
         incomeMeta,
+        transferMeta,
         netActual,
         netMeta,
         netDiff
@@ -2980,17 +3099,19 @@ window.App = {
         const accProjs = monthProjs.filter(p => p.accountId === acc.id);
         const accActual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
         const accIncomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
-        const accTransferInActual = accTransferTxs.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
-        const accTransferOutActual = accTransferTxs.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+        const accTransferInActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "IN").reduce((s, t) => s + Number(t.amount), 0);
+        const accTransferOutActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "OUT").reduce((s, t) => s + Number(t.amount), 0);
 
         const accExpenseProjs = accProjs.filter(p => this.getProjectionType(p) === "EXPENSE");
         const accIncomeProjs = accProjs.filter(p => this.getProjectionType(p) === "INCOME");
+        const accTransferProjs = accProjs.filter(p => this.getProjectionType(p) === "TRANSFER");
         const accExpenseMeta = accExpenseProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
         const accIncomeMeta = accIncomeProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+        const accTransferMeta = accTransferProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
 
-        // Somatório das colunas considerando status de despesa (-) ou receita (+), desconsiderando transferências
-        const netActual = accIncomeActual - accActual;
-        const netMeta = accIncomeMeta - accExpenseMeta;
+        // Somatório considerando receitas, transferências entre contas e despesas
+        const netActual = (accIncomeActual + accTransferInActual) - (accActual + accTransferOutActual);
+        const netMeta = accIncomeMeta - accExpenseMeta - accTransferMeta;
         const netDiff = netActual - netMeta;
 
         const owner = this.getUser(acc.ownerId);
@@ -3039,18 +3160,24 @@ window.App = {
 
         transferSubcategories.forEach(sub => {
           const subTxs = accTransferTxs.filter(t => t.subcategoryId === sub.id);
-          const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
-          if (subTxs.length > 0) {
-            const ownership = (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id, acc.ownerId);
+          const subProjs = accProjs.filter(p => p.subcategoryId === sub.id);
+          const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+          if (subTxs.length > 0 || meta > 0) {
+            const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id, acc.ownerId);
+            const inSum = subTxs.filter(t => this.getTransferDirection(t) === "IN").reduce((s, t) => s + Number(t.amount), 0);
+            const outSum = subTxs.filter(t => this.getTransferDirection(t) === "OUT").reduce((s, t) => s + Number(t.amount), 0);
+            const netTransfer = inSum - outSum;
             activeAccItems.push({
               sub,
               accountId: acc.id,
-              actual,
-              meta: 0,
+              actual: netTransfer,
+              meta,
               txs: subTxs,
               ownership,
               isTransfer: true
             });
+          } else if (sub.defaultAccountId === acc.id || checkingIds.includes(sub.defaultAccountId)) {
+            archivedAccSubs.push(sub);
           }
         });
 
@@ -3059,15 +3186,17 @@ window.App = {
         if (orphanTransferTxs.length > 0) {
           const fallbackSub = transferSubcategories[0] || { id: "sub_transf_propria", categoryId: "cat_transferencia", name: "Transferência entre Contas Próprias" };
           const existingTransferItem = activeAccItems.find(i => i.sub.id === fallbackSub.id);
-          const orphanSum = orphanTransferTxs.reduce((s, t) => s + Number(t.amount), 0);
+          const orphanIn = orphanTransferTxs.filter(t => this.getTransferDirection(t) === "IN").reduce((s, t) => s + Number(t.amount), 0);
+          const orphanOut = orphanTransferTxs.filter(t => this.getTransferDirection(t) === "OUT").reduce((s, t) => s + Number(t.amount), 0);
+          const orphanNet = orphanIn - orphanOut;
           if (existingTransferItem) {
             existingTransferItem.txs.push(...orphanTransferTxs);
-            existingTransferItem.actual += orphanSum;
+            existingTransferItem.actual += orphanNet;
           } else {
             activeAccItems.push({
               sub: fallbackSub,
               accountId: acc.id,
-              actual: orphanSum,
+              actual: orphanNet,
               meta: 0,
               txs: orphanTransferTxs,
               ownership: (orphanTransferTxs[0] && orphanTransferTxs[0].ownership) || this.resolveDefaultOwnership(fallbackSub.id, acc.ownerId),
@@ -4449,7 +4578,9 @@ window.App = {
   selectAllInTree(accountId, subcategoryId) {
     const monthYear = this.state.settings.activeMonth;
     const scopeIds = this.getBudgetScopeAccountIds(accountId);
-    const txType = accountId === "ALL_INCOME" ? "INCOME" : "EXPENSE";
+    const sub = this.getSubcategory(subcategoryId);
+    const cat = sub ? this.getCategory(sub.categoryId) : null;
+    const txType = (cat && cat.type === "TRANSFER") ? "TRANSFER" : (accountId === "ALL_INCOME" || (cat && cat.type === "INCOME") ? "INCOME" : "EXPENSE");
     const txs = this.state.transactions.filter(
       t => t.competenceMonth === monthYear && t.type === txType && scopeIds.has(t.accountId) && t.subcategoryId === subcategoryId
     );
@@ -5360,16 +5491,16 @@ window.App = {
             <td class="py-2.5 px-3">
               <div class="font-bold text-stone-800 flex items-center gap-1.5 flex-wrap">
                 <span>${item.description}</span>
-                ${!item.alreadyExists && item.type !== "TRANSFER" ? this.buildTxNoteBadgeHTML(null, item.notes, idx) : ""}
+                ${!item.alreadyExists ? this.buildTxNoteBadgeHTML(null, item.notes, idx) : ""}
                 ${!item.alreadyExists ? this.buildPixFlowBadgesHTML(null, item, idx) : ""}
                 ${sameStagedBtnHTML}
               </div>
-              ${item.memoryMatched && !item.alreadyExists && item.type !== "TRANSFER" ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
+              ${item.memoryMatched && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
               ${isIncome && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5 mr-1">↓ Entrada</span>` : ""}
               ${!isIncome && isCheckingImport && item.type === "EXPENSE" && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-bold mt-0.5 mr-1">↑ Saída</span>` : ""}
               ${isCredit ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
-              ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">${item.subcategoryId === "sub_transf_propria" ? "⇄ Movimentação entre contas próprias (excluída dos gastos)" : "Pagamento de fatura ignorado p/ não duplicar"}</span>` : ""}
+              ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">⇄ Transferência entre contas próprias</span>` : ""}
             </td>
             <td class="py-2.5 px-3">
               <select

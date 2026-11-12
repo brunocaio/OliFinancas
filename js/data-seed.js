@@ -65,7 +65,8 @@ window.INITIAL_SEED_DATA = {
     { id: "cat_financeiro", name: "Anuidades & Parcelados", type: "EXPENSE", icon: "credit-card", color: "#78716c", sortOrder: 10 },
     { id: "cat_outros", name: "Outros (Triagem)", type: "EXPENSE", icon: "help-circle", color: "#a8a29e", sortOrder: 11 },
     { id: "cat_receitas", name: "Receitas & Salários", type: "INCOME", icon: "wallet", color: "#65a30d", sortOrder: 12 },
-    { id: "cat_transferencia", name: "Pagamento de Fatura / Transferência", type: "TRANSFER", icon: "arrow-left-right", color: "#94a3b8", sortOrder: 13 }
+    { id: "cat_transferencia", name: "Transferência entre Contas Próprias", type: "TRANSFER", icon: "arrow-left-right", color: "#0284c7", sortOrder: 13 },
+    { id: "cat_pagamento_fatura", name: "Pagamento de Fatura", type: "EXPENSE", icon: "credit-card", color: "#6366f1", sortOrder: 14 }
   ],
 
   subcategories: [
@@ -148,9 +149,11 @@ window.INITIAL_SEED_DATA = {
     { id: "sub_salario_unisuam", categoryId: "cat_receitas", name: "Salário UNISUAM", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_nubia", defaultMeta: 0.00, isFixed: true, keywords: ["UNISUAM"] },
     { id: "sub_rt_rendimentos", categoryId: "cat_receitas", name: "RT / Rendimentos / Caixinha", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["RENDIMENTO", "DIVIDENDO", "RT "] },
 
-    // 11. Transferência / Movimentação entre Contas
+    // 12. Transferência entre Contas Próprias
     { id: "sub_transf_propria", categoryId: "cat_transferencia", name: "Transferência entre Contas Próprias", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["MESMA TITULARIDADE", "ENTRE CONTAS", "TRANSFERENCIA PROPRIA", "PIX PROPRIO", "RESGATE", "APLICACAO", "DINHEIRO GUARDADO", "CAIXINHA"] },
-    { id: "sub_pag_fatura", categoryId: "cat_transferencia", name: "Pagamento de Fatura Cartão", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["PAGAMENTO DE FATURA", "PAGTO FATURA", "FATURA CARTAO"] }
+
+    // 13. Pagamento de Fatura
+    { id: "sub_pag_fatura", categoryId: "cat_pagamento_fatura", name: "Pagamento de Fatura Cartão", defaultOwnership: "COLLECTIVE", defaultAccountId: "cc_bruno", defaultMeta: 0.00, isFixed: false, keywords: ["PAGAMENTO DE FATURA", "PAGTO FATURA", "FATURA CARTAO", "DEBITO AUTOMATICO FATURA"] }
   ],
 
   projections: [],

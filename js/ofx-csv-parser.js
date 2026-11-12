@@ -505,7 +505,7 @@ window.StatementParser = {
     for (const kw of faturaKeywords) {
       if (normDesc.includes(kw)) {
         return {
-          type: "TRANSFER",
+          type: "EXPENSE",
           subcategoryId: "sub_pag_fatura",
           ownership: "COLLECTIVE",
           projectionId: null,
@@ -762,7 +762,7 @@ window.StatementParser = {
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists && finalType !== "TRANSFER",
+        selected: !alreadyExists,
         alreadyExists,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
@@ -960,7 +960,7 @@ window.StatementParser = {
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists && finalType !== "TRANSFER",
+        selected: !alreadyExists,
         alreadyExists,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
@@ -1418,7 +1418,7 @@ VERSION:102
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists && finalType !== "TRANSFER",
+        selected: !alreadyExists,
         alreadyExists,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
