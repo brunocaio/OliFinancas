@@ -1789,19 +1789,43 @@ window.App = {
     this.renderAll();
   },
 
+  getBudgetScopeAccountIds(accountId) {
+    if (accountId && accountId !== "ALL_ACCOUNTS") {
+      return new Set([accountId]);
+    }
+    return new Set(this.getAccountsForActiveUser().map(a => a.id));
+  },
+
+  resolveTargetAccountForBudgetAction(accountId, subcategoryId = null) {
+    if (accountId && accountId !== "ALL_ACCOUNTS") {
+      return this.getAccount(accountId);
+    }
+    const userAccs = this.getAccountsForActiveUser();
+    if (subcategoryId) {
+      const sub = this.getSubcategory(subcategoryId);
+      const defAcc = userAccs.find(a => a.id === sub.defaultAccountId);
+      if (defAcc) return defAcc;
+    }
+    return userAccs.find(a => a.type === "CHECKING") || userAccs[0] || this.getAccount("cc_bruno");
+  },
+
   expandAllTrees(expand = true, accountPrefix = null) {
     const monthYear = this.state.settings.activeMonth;
     const isMacro = this.budgetGroupMode === "MACRO";
-    this.state.accounts.forEach(acc => {
-      if (accountPrefix && acc.id !== accountPrefix) return;
+    const targets = accountPrefix
+      ? [accountPrefix]
+      : ["ALL_ACCOUNTS", ...this.state.accounts.map(a => a.id)];
+
+    targets.forEach(accKey => {
+      const scopeIds = this.getBudgetScopeAccountIds(accKey);
       if (isMacro) {
         this.state.categories.forEach(cat => {
           if (cat.type !== "EXPENSE") return;
-          const key = `${acc.id}__macro__${cat.id}`;
+          const key = `${accKey}__macro__${cat.id}`;
           if (expand) {
             const subIds = new Set(this.state.subcategories.filter(s => s.categoryId === cat.id).map(s => s.id));
             const hasTx = this.state.transactions.some(
-              t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === acc.id && subIds.has(t.subcategoryId)
+              t => t.competenceMonth === monthYear && t.type === "EXPENSE" && scopeIds.has(t.accountId) && subIds.has(t.subcategoryId)
             );
             if (hasTx) this.expandedTreeKeys[key] = true;
           } else {
@@ -1810,10 +1834,10 @@ window.App = {
         });
       } else {
         this.state.subcategories.forEach(sub => {
-          const key = `${acc.id}__${sub.id}`;
+          const key = `${accKey}__${sub.id}`;
           if (expand) {
             const hasTx = this.state.transactions.some(
-              t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === acc.id && t.subcategoryId === sub.id
+              t => t.competenceMonth === monthYear && t.type === "EXPENSE" && scopeIds.has(t.accountId) && t.subcategoryId === sub.id
             );
             if (hasTx) this.expandedTreeKeys[key] = true;
           } else {
@@ -1829,13 +1853,13 @@ window.App = {
     const monthYear = this.state.settings.activeMonth;
     const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
     const cat = this.getCategory(categoryId);
-    const acc = this.getAccount(accountId);
     const childSubs = this.state.subcategories.filter(s => s.categoryId === categoryId);
     if (childSubs.length === 0) return;
 
+    const scopeIds = this.getBudgetScopeAccountIds(accountId);
     const childSubIds = new Set(childSubs.map(s => s.id));
     const existingProjs = this.state.projections.filter(
-      p => p.monthYear === monthYear && p.accountId === accountId && childSubIds.has(p.subcategoryId)
+      p => p.monthYear === monthYear && scopeIds.has(p.accountId) && childSubIds.has(p.subcategoryId)
     );
 
     if (existingProjs.length > 0) {
@@ -1845,13 +1869,14 @@ window.App = {
       }
     } else if (val > 0) {
       const targetSub = childSubs[0];
+      const acc = this.resolveTargetAccountForBudgetAction(accountId, targetSub.id);
       this.state.projections.push({
         id: "proj_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
         monthYear,
         subcategoryId: targetSub.id,
         title: cat.name,
         plannedAmount: val,
-        accountId,
+        accountId: acc.id,
         ownership: this.resolveDefaultOwnership(targetSub.id, acc.ownerId),
         isFixed: false,
         dueDay: acc.dueDay || 10
@@ -1865,9 +1890,10 @@ window.App = {
 
   selectAllInMacroTree(accountId, categoryId) {
     const monthYear = this.state.settings.activeMonth;
+    const scopeIds = this.getBudgetScopeAccountIds(accountId);
     const subIds = new Set(this.state.subcategories.filter(s => s.categoryId === categoryId).map(s => s.id));
     const txs = this.state.transactions.filter(
-      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === accountId && subIds.has(t.subcategoryId)
+      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && scopeIds.has(t.accountId) && subIds.has(t.subcategoryId)
     );
     if (txs.length === 0) return;
     const ids = txs.map(t => t.id);
@@ -1921,10 +1947,10 @@ window.App = {
     const monthYear = this.state.settings.activeMonth;
     const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
     const sub = this.getSubcategory(subcategoryId);
-    const acc = this.getAccount(accountId);
+    const scopeIds = this.getBudgetScopeAccountIds(accountId);
 
     const existingProjs = this.state.projections.filter(
-      p => p.monthYear === monthYear && p.accountId === accountId && p.subcategoryId === subcategoryId
+      p => p.monthYear === monthYear && scopeIds.has(p.accountId) && p.subcategoryId === subcategoryId
     );
 
     if (existingProjs.length > 0) {
@@ -1933,13 +1959,14 @@ window.App = {
         existingProjs[i].plannedAmount = 0;
       }
     } else if (val > 0) {
+      const acc = this.resolveTargetAccountForBudgetAction(accountId, subcategoryId);
       this.state.projections.push({
         id: "proj_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
         monthYear,
         subcategoryId,
         title: sub.name,
         plannedAmount: val,
-        accountId,
+        accountId: acc.id,
         ownership: this.resolveDefaultOwnership(subcategoryId, acc.ownerId),
         isFixed: Boolean(sub.isFixed),
         dueDay: acc.dueDay || 10
@@ -1957,9 +1984,10 @@ window.App = {
 
   promptActivateArchivedCategory(accountId, subcategoryId) {
     const sub = this.getSubcategory(subcategoryId);
-    const acc = this.getAccount(accountId);
+    const acc = this.resolveTargetAccountForBudgetAction(accountId, subcategoryId);
+    const scopeLabel = accountId === "ALL_ACCOUNTS" ? "Geral" : acc.name;
     const defaultVal = sub.defaultMeta > 0 ? String(sub.defaultMeta) : "100";
-    const raw = prompt(`Definir meta mensal para "${sub.name}" em ${acc.name} (R$):`, defaultVal);
+    const raw = prompt(`Definir meta mensal para "${sub.name}" em ${scopeLabel} (R$):`, defaultVal);
     if (raw === null) return;
     const val = parseFloat(raw.replace(",", "."));
     if (isNaN(val) || val <= 0) {
@@ -1971,6 +1999,8 @@ window.App = {
 
   quickLaunchInCategory(accountId, subcategoryId) {
     const sub = this.getSubcategory(subcategoryId);
+    const targetAcc = this.resolveTargetAccountForBudgetAction(accountId, subcategoryId);
+    const targetAccountId = targetAcc.id;
     const accSelect = document.getElementById("quick-tx-account");
     const subSelect = document.getElementById("quick-tx-subcategory");
     const descInput = document.getElementById("quick-tx-desc");
@@ -1981,15 +2011,15 @@ window.App = {
         type: "EXPENSE",
         description: sub.name,
         amount: "",
-        accountId,
+        accountId: targetAccountId,
         subcategoryId,
-        ownership: this.resolveDefaultOwnership(subcategoryId, this.getAccount(accountId).ownerId)
+        ownership: this.resolveDefaultOwnership(subcategoryId, targetAcc.ownerId)
       });
       return;
     }
 
     this.setDashboardEntryMode("QUICK");
-    if (accSelect) accSelect.value = accountId;
+    if (accSelect) accSelect.value = targetAccountId;
     if (subSelect) subSelect.value = subcategoryId;
     this.onQuickSubcategoryChange(subcategoryId);
     if (descInput && !descInput.value) descInput.value = sub.name.split("(")[0].trim();
@@ -2106,6 +2136,10 @@ window.App = {
                             const rawDesc = (tx.description || "").trim();
                             const hasLongText = rawDesc.length > 36 || Boolean(tx.notes || tx.counterparty || tx.originLabel || tx.destinationLabel);
                             const isDescExpanded = Boolean(this.showAllTreeFullText || this.expandedTreeDescIds[tx.id]);
+                            const txAcc = accountId === "ALL_ACCOUNTS" ? this.getAccount(tx.accountId) : null;
+                            const accBadge = txAcc
+                              ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-stone-100 border border-stone-200 text-stone-700 text-[10px] font-bold"><span class="w-1.5 h-1.5 rounded-full" style="background:${txAcc.color || "#65a30d"}"></span>${this.escapeHTML(txAcc.name.replace(" (Dia 8)", "").replace(" (Dia 19)", ""))}</span>`
+                              : "";
                             return `
                               <div class="flex flex-wrap items-start justify-between gap-2 py-1.5 text-xs ${isChecked ? "bg-lime-100/70" : "hover:bg-white/80"} rounded-lg px-2 transition w-full min-w-0">
                                 <div class="flex items-start gap-2 min-w-0 flex-1 basis-[230px] max-w-full">
@@ -2142,6 +2176,7 @@ window.App = {
                                       }
                                     </div>
                                     <div class="flex flex-wrap items-center gap-1 mt-1">
+                                      ${accBadge}
                                       ${this.buildTxNoteBadgeHTML(tx.id, tx.notes)}
                                       ${isDescExpanded || tx.counterparty ? this.buildPixFlowBadgesHTML(tx.id, tx) : ""}
                                       ${instTag}
@@ -2351,8 +2386,9 @@ window.App = {
 
     const primaryCheckingId = checkingAccounts[0] ? checkingAccounts[0].id : "cc_bruno";
     const checkingIds = checkingAccounts.map(a => a.id);
+    const allUserAccountIds = [...checkingAccounts, ...creditCards].map(a => a.id);
 
-    // 1A. Resumo dos Cartões de Crédito no topo (Bloco CONTA CORRENTE)
+    // 1A. Resumo dos Cartões de Crédito no topo (Bloco TOTAIS GERAIS)
     const cardSummaryRows = creditCards.map(card => {
       const cardTxs = monthTxs.filter(t => t.accountId === card.id);
       const actual = cardTxs.reduce((s, t) => s + Number(t.amount), 0);
@@ -2373,43 +2409,42 @@ window.App = {
     const totalCardsActual = cardSummaryRows.reduce((s, r) => s + r.actual, 0);
     const totalCardsMeta = cardSummaryRows.reduce((s, r) => s + r.meta, 0);
 
-    // 1B. Categorias da Conta Corrente (Débito / Pix)
+    // 1B. Totais Gerais por Categoria (somando todas as formas de pagamento)
     const expenseSubcategories = this.state.subcategories.filter(s => {
       const cat = this.getCategory(s.categoryId);
       return cat && cat.type === "EXPENSE";
     });
 
-    const activeCheckingItems = [];
-    const archivedCheckingSubs = [];
+    const activeConsolidatedItems = [];
+    const archivedConsolidatedSubs = [];
 
     expenseSubcategories.forEach(sub => {
-      const subTxs = monthTxs.filter(t => checkingIds.includes(t.accountId) && t.subcategoryId === sub.id);
-      const subProjs = monthProjs.filter(p => checkingIds.includes(p.accountId) && p.subcategoryId === sub.id);
+      const subTxs = monthTxs.filter(t => allUserAccountIds.includes(t.accountId) && t.subcategoryId === sub.id)
+        .sort((a, b) => (b.transactionDate || "").localeCompare(a.transactionDate || ""));
+      const subProjs = monthProjs.filter(p => allUserAccountIds.includes(p.accountId) && p.subcategoryId === sub.id);
       const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
       const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
 
-      if (actual > 0 || meta > 0) {
-        const targetAccId = (subProjs[0] && subProjs[0].accountId) || (subTxs[0] && subTxs[0].accountId) || primaryCheckingId;
+      if (subTxs.length > 0 || meta > 0) {
         const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id);
-        activeCheckingItems.push({
+        activeConsolidatedItems.push({
           sub,
-          accountId: targetAccId,
+          accountId: "ALL_ACCOUNTS",
           actual,
           meta,
           txs: subTxs,
           ownership
         });
-      } else if (checkingIds.includes(sub.defaultAccountId)) {
-        archivedCheckingSubs.push(sub);
+      } else {
+        archivedConsolidatedSubs.push(sub);
       }
     });
 
-    const totalCheckingDebitActual = activeCheckingItems.reduce((s, i) => s + i.actual, 0);
-    const totalCheckingDebitMeta = activeCheckingItems.reduce((s, i) => s + i.meta, 0);
+    activeConsolidatedItems.sort((a, b) => b.actual - a.actual || b.meta - a.meta);
 
-    const grandTotalCheckingActual = totalCardsActual + totalCheckingDebitActual;
-    const grandTotalCheckingMeta = totalCardsMeta + totalCheckingDebitMeta;
-    const grandTotalDiff = grandTotalCheckingMeta - grandTotalCheckingActual;
+    const grandTotalAllActual = activeConsolidatedItems.reduce((s, i) => s + i.actual, 0);
+    const grandTotalAllMeta = activeConsolidatedItems.reduce((s, i) => s + i.meta, 0);
+    const grandTotalDiff = grandTotalAllMeta - grandTotalAllActual;
 
     // Render das linhas de Cartão no Bloco CONTA CORRENTE
     const cardsInCheckingHTML = cardSummaryRows
@@ -2609,10 +2644,111 @@ window.App = {
       })
       .join("");
 
-    // Retorno Completo: Bloco 1 (CONTA CORRENTE) + Bloco 2 (CARTÕES POR CATEGORIA)
+    // 3. Blocos de Contas Correntes Separados por Conta e Categoria
+    const checkingAccountsBlocksHTML = checkingAccounts
+      .map(acc => {
+        const accTxs = monthTxs.filter(t => t.accountId === acc.id);
+        const accProjs = monthProjs.filter(p => p.accountId === acc.id);
+        const accActual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
+        const accMeta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+        const accDiff = accMeta - accActual;
+        const owner = this.getUser(acc.ownerId);
+
+        const activeAccItems = [];
+        const archivedAccSubs = [];
+
+        expenseSubcategories.forEach(sub => {
+          const subTxs = accTxs.filter(t => t.subcategoryId === sub.id);
+          const subProjs = accProjs.filter(p => p.subcategoryId === sub.id);
+          const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
+          const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
+
+          if (subTxs.length > 0 || meta > 0) {
+            const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id, acc.ownerId);
+            activeAccItems.push({
+              sub,
+              accountId: acc.id,
+              actual,
+              meta,
+              txs: subTxs,
+              ownership
+            });
+          } else if (sub.defaultAccountId === acc.id || checkingIds.includes(sub.defaultAccountId)) {
+            archivedAccSubs.push(sub);
+          }
+        });
+
+        const displayAccItems = this.budgetGroupMode === "MACRO"
+          ? this.groupBudgetItemsByMacro(acc.id, activeAccItems)
+          : activeAccItems;
+
+        return `
+          <div id="checking-block-${acc.id}" class="oli-card rounded-3xl overflow-hidden shadow-xs">
+            <div class="px-5 py-4 bg-stone-50/90 border-b border-stone-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <span class="w-3.5 h-3.5 rounded-full shrink-0" style="background:${acc.color || "#0ea5e9"}"></span>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">${this.escapeHTML(acc.name)}</h3>
+                  <span class="text-[11px] px-2 py-0.5 rounded-full bg-stone-200/75 text-stone-700 font-bold">
+                    Conta Corrente • ${owner.name}
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 self-start sm:self-center">
+                <button
+                  type="button"
+                  onclick="App.expandAllTrees(true, '${acc.id}')"
+                  class="px-2.5 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 text-[11px] font-bold transition"
+                >
+                  Expandir [+]
+                </button>
+                <button
+                  type="button"
+                  onclick="App.expandAllTrees(false, '${acc.id}')"
+                  class="px-2.5 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 text-[11px] font-bold transition"
+                >
+                  Recolher [-]
+                </button>
+              </div>
+            </div>
+
+            <div class="w-full overflow-x-hidden">
+              <table class="w-full table-fixed text-left border-collapse">
+                <thead>
+                  <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
+                    <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria da Conta Corrente</th>
+                    <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
+                    <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
+                    <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${this.buildCategoryTreeRowsHTML(acc.id, displayAccItems, monthYear)}
+                </tbody>
+                <tfoot>
+                  <tr class="bg-sky-100/70 border-t-2 border-sky-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
+                    <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">TOTAL ${this.escapeHTML(acc.name)}</td>
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(accActual)}</td>
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(accMeta)}</td>
+                    <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${accDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
+                      ${accDiff >= 0 ? "+" : ""}${this.formatBRL(accDiff)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            ${this.buildArchiveDrawerHTML(`archive__${acc.id}`, acc.id, archivedAccSubs)}
+          </div>
+        `;
+      })
+      .join("");
+
+    // Retorno Completo: Bloco 1 (TOTAIS GERAIS) + Bloco 2 (CARTÕES E CONTAS CORRENTES POR CATEGORIA)
     return `
       <!-- ================================================================ -->
-      <!-- BLOCO 1: RESUMO GERAL DO QUE SAI DA CONTA CORRENTE (CARTÕES + DÉBITO) -->
+      <!-- BLOCO 1: TOTAIS GERAIS (CARTÕES + CATEGORIAS TODAS AS FORMAS)    -->
       <!-- ================================================================ -->
       <div class="oli-card rounded-3xl overflow-hidden shadow-xs border-stone-300/80">
         <div class="px-5 py-4 bg-stone-100/90 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -2620,13 +2756,13 @@ window.App = {
             <div class="flex items-center gap-2">
               <span class="px-2 py-0.5 rounded-md bg-stone-900 text-white text-[10px] font-extrabold uppercase tracking-wider">1º Bloco</span>
               <h3 class="font-extrabold text-stone-900 text-sm sm:text-base uppercase tracking-tight">
-                DESPESAS • ${userLabel} • CONTA CORRENTE
+                DESPESAS • ${userLabel} • TOTAIS GERAIS
               </h3>
             </div>
           </div>
           <div class="text-xs font-semibold text-stone-600">
-            Saída Total: <strong class="text-stone-900">${this.formatBRL(grandTotalCheckingActual)}</strong>
-            <span class="text-stone-400"> / Meta ${this.formatBRL(grandTotalCheckingMeta)}</span>
+            Saída Total: <strong class="text-stone-900 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalAllActual)}</strong>
+            <span class="text-stone-400 whitespace-nowrap tabular-nums"> / Meta ${this.formatBRL(grandTotalAllMeta)}</span>
           </div>
         </div>
 
@@ -2634,14 +2770,14 @@ window.App = {
           <table class="w-full table-fixed text-left border-collapse">
             <thead>
               <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
-                <th class="py-2.5 px-2 sm:px-4 w-auto">Conta Corrente (Faturas + Débito)</th>
+                <th class="py-2.5 px-2 sm:px-4 w-auto">Cartões & Totais Gerais por Categoria</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[74px] sm:w-32 whitespace-nowrap">Meta</th>
                 <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
               </tr>
             </thead>
             <tbody>
-              <!-- 1A. Faturas dos Cartões -->
+              <!-- 1A. Resumo dos Cartões -->
               ${cardsInCheckingHTML}
 
               <!-- SUBTOTAL CARTÕES (TOTAL CARTÃO) -->
@@ -2654,22 +2790,22 @@ window.App = {
                 </td>
               </tr>
 
-              <!-- Divisor sutil para Contas da Casa em Débito -->
+              <!-- Divisor para Totais Gerais por Categoria (Todas as Formas de Pagamento) -->
               <tr class="bg-stone-50/90 border-b border-stone-200/70">
                 <td colspan="4" class="py-1.5 px-2.5 sm:px-4 text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-stone-500">
-                  Contas do Mês em Débito / Pix
+                  Totais Gerais por Categoria (Todas as Formas de Pagamento)
                 </td>
               </tr>
 
-              <!-- 1B. Categorias em Débito na Conta Corrente -->
-              ${this.buildCategoryTreeRowsHTML(primaryCheckingId, this.budgetGroupMode === "MACRO" ? this.groupBudgetItemsByMacro(primaryCheckingId, activeCheckingItems) : activeCheckingItems, monthYear)}
+              <!-- 1B. Categorias Consolidadas (Cartões + Débito + Pix + Dinheiro) -->
+              ${this.buildCategoryTreeRowsHTML("ALL_ACCOUNTS", this.budgetGroupMode === "MACRO" ? this.groupBudgetItemsByMacro("ALL_ACCOUNTS", activeConsolidatedItems) : activeConsolidatedItems, monthYear)}
             </tbody>
             <tfoot>
-              <!-- TOTAL DESPESAS (CONTA CORRENTE) -->
+              <!-- TOTAL DESPESAS GERAL -->
               <tr class="bg-stone-900 text-white font-extrabold text-[10px] sm:text-sm">
                 <td class="py-3.5 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL DESPESAS</td>
-                <td class="py-3.5 px-1 sm:px-3 text-right text-amber-300 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalCheckingActual)}</td>
-                <td class="py-3.5 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalCheckingMeta)}</td>
+                <td class="py-3.5 px-1 sm:px-3 text-right text-amber-300 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalAllActual)}</td>
+                <td class="py-3.5 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalAllMeta)}</td>
                 <td class="py-3.5 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${grandTotalDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
                   ${grandTotalDiff >= 0 ? "+" : ""}${this.formatBRL(grandTotalDiff)}
                 </td>
@@ -2678,12 +2814,12 @@ window.App = {
           </table>
         </div>
 
-        <!-- Gaveta de Categorias Arquivadas da Conta Corrente (ex: Análise 0/0, Feira CC 0/0, Creche 0/0) -->
-        ${this.buildArchiveDrawerHTML("archive__checking", primaryCheckingId, archivedCheckingSubs)}
+        <!-- Gaveta de Categorias Arquivadas Gerais -->
+        ${this.buildArchiveDrawerHTML("archive__ALL_ACCOUNTS", "ALL_ACCOUNTS", archivedConsolidatedSubs)}
       </div>
 
       <!-- ================================================================ -->
-      <!-- BLOCO 2: CARTÕES DE CRÉDITO SEPARADOS POR CARTÃO E CATEGORIA -->
+      <!-- BLOCO 2: DETALHAMENTO POR CARTÃO DE CRÉDITO                      -->
       <!-- ================================================================ -->
       <div class="pt-2 space-y-5">
         <div class="flex items-center justify-between px-1">
@@ -2696,6 +2832,22 @@ window.App = {
         </div>
 
         ${creditCardsBlocksHTML}
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- BLOCO 3: DETALHAMENTO POR CONTA CORRENTE                         -->
+      <!-- ================================================================ -->
+      <div class="pt-2 space-y-5">
+        <div class="flex items-center justify-between px-1">
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded-md bg-sky-800 text-white text-[10px] font-extrabold uppercase tracking-wider">3º Bloco</span>
+            <h3 class="text-sm sm:text-base font-extrabold text-stone-900 uppercase tracking-tight">
+              Detalhamento das Contas Correntes por Categoria
+            </h3>
+          </div>
+        </div>
+
+        ${checkingAccountsBlocksHTML}
       </div>
     `;
   },
@@ -3848,8 +4000,9 @@ window.App = {
 
   selectAllInTree(accountId, subcategoryId) {
     const monthYear = this.state.settings.activeMonth;
+    const scopeIds = this.getBudgetScopeAccountIds(accountId);
     const txs = this.state.transactions.filter(
-      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && t.accountId === accountId && t.subcategoryId === subcategoryId
+      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && scopeIds.has(t.accountId) && t.subcategoryId === subcategoryId
     );
     if (txs.length === 0) return;
     const ids = txs.map(t => t.id);
