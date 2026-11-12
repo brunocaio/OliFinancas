@@ -65,7 +65,7 @@ window.INITIAL_SEED_DATA = {
     { id: "cat_financeiro", name: "Anuidades & Parcelados", type: "EXPENSE", icon: "credit-card", color: "#78716c", sortOrder: 10 },
     { id: "cat_outros", name: "Outros (Triagem)", type: "EXPENSE", icon: "help-circle", color: "#a8a29e", sortOrder: 11 },
     { id: "cat_receitas", name: "Receitas & Salários", type: "INCOME", icon: "wallet", color: "#65a30d", sortOrder: 12 },
-    { id: "cat_transferencia", name: "Transferência entre Contas Próprias", type: "TRANSFER", icon: "arrow-left-right", color: "#0284c7", sortOrder: 13 },
+    { id: "cat_transferencia", name: "Transferência entre Contas Próprias", type: "TRANSFER", icon: "arrow-left-right", color: "#94a3b8", sortOrder: 13 },
     { id: "cat_pagamento_fatura", name: "Pagamento de Fatura", type: "EXPENSE", icon: "credit-card", color: "#6366f1", sortOrder: 14 }
   ],
 

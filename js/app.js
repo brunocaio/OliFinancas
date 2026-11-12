@@ -613,6 +613,19 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 12: suaviza o tom visual da categoria macro de Transferência entre Contas Próprias
+    if ((stateObj.schemaPatch || 0) < 12) {
+      if (Array.isArray(stateObj.categories)) {
+        const catTransf = stateObj.categories.find(c => c.id === "cat_transferencia");
+        if (catTransf) {
+          catTransf.color = "#94a3b8";
+          changed = true;
+        }
+      }
+      stateObj.schemaPatch = 12;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -2441,22 +2454,22 @@ window.App = {
         if (isTransferCat) {
           if (item.actual > 0) {
             colors = {
-              actualClass: "bg-emerald-50/90 text-emerald-800 border border-emerald-200/80",
-              metaClass: baseColors.metaClass
+              actualClass: "bg-slate-100/90 text-slate-600 border border-slate-200/90 font-medium",
+              metaClass: "bg-stone-50 text-stone-400 border border-stone-200/60 font-medium"
             };
             actualFormatted = `+${this.formatBRL(item.actual)}`;
             diff = item.actual - item.meta;
           } else if (item.actual < 0) {
             colors = {
-              actualClass: "bg-rose-50/90 text-rose-700 border border-rose-200/80",
-              metaClass: baseColors.metaClass
+              actualClass: "bg-stone-100/90 text-stone-500 border border-stone-200/90 font-medium",
+              metaClass: "bg-stone-50 text-stone-400 border border-stone-200/60 font-medium"
             };
             actualFormatted = `-${this.formatBRL(Math.abs(item.actual))}`;
             diff = item.meta - Math.abs(item.actual);
           } else {
             colors = {
-              actualClass: "bg-stone-50 text-stone-500 border border-stone-200/70",
-              metaClass: baseColors.metaClass
+              actualClass: "bg-stone-50 text-stone-400 border border-stone-200/50 font-medium",
+              metaClass: "bg-stone-50 text-stone-400 border border-stone-200/50 font-medium"
             };
             actualFormatted = this.formatBRL(0);
             diff = item.meta;
@@ -2485,10 +2498,10 @@ window.App = {
 
         const treeChildrenHTML = isExpanded
           ? `
-            <tr class="bg-[#f8faf5] border-b border-stone-200/70">
+            <tr class="${isTransferCat ? "bg-[#fafaf9] border-b border-stone-200/60" : "bg-[#f8faf5] border-b border-stone-200/70"}">
               <td colspan="4" class="px-2.5 sm:px-5 py-3 w-full max-w-0">
-                <div class="pl-2.5 sm:pl-4 border-l-2 border-lime-600/40 space-y-1.5 min-w-0 max-w-full">
-                  <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-stone-500 pb-1.5 border-b border-stone-200/60">
+                <div class="pl-2.5 sm:pl-4 border-l-2 ${isTransferCat ? "border-stone-300" : "border-lime-600/40"} space-y-1.5 min-w-0 max-w-full">
+                  <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold ${isTransferCat ? "text-stone-400" : "text-stone-500"} pb-1.5 border-b border-stone-200/60">
                     <span>Árvore de Lançamentos • ${item.sub.name} (${txCount})</span>
                     <div class="flex flex-wrap items-center gap-1.5">
                       ${
@@ -2610,7 +2623,7 @@ window.App = {
                                   <select
                                     onchange="App.recategorizeTransaction('${tx.id}', this.value)"
                                     title="Recategorizar este lançamento para outra categoria"
-                                    class="oli-input rounded-lg px-2 py-0.5 text-[11px] font-semibold text-stone-700 bg-white max-w-[140px] sm:max-w-[165px] cursor-pointer"
+                                    class="oli-input rounded-lg px-2 py-0.5 text-[11px] ${isTransferTx ? "text-stone-500 font-medium" : "font-semibold text-stone-700"} bg-white max-w-[140px] sm:max-w-[165px] cursor-pointer"
                                   >
                                     ${this.buildSubcategorySelectOptionsHTML(tx.subcategoryId, false)}
                                   </select>
@@ -2622,7 +2635,7 @@ window.App = {
                                   >
                                     +Regra
                                   </button>
-                                  <span class="font-extrabold text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${isTxInflow ? "text-emerald-700" : isTxOutflow ? "text-rose-700" : "text-stone-900"}">
+                                  <span class="text-[11px] sm:text-xs whitespace-nowrap tabular-nums text-right ${isTransferTx ? (txDir === "IN" ? "text-slate-600 font-semibold" : "text-stone-500 font-semibold") : isTxInflow ? "text-emerald-700 font-extrabold" : isTxOutflow ? "text-rose-700 font-extrabold" : "text-stone-900 font-extrabold"}">
                                     ${isTransferTx ? (txDir === "IN" ? `+${this.formatBRL(Math.abs(tx.amount))}` : `-${this.formatBRL(Math.abs(tx.amount))}`) : tx.type === "INCOME" ? `+${this.formatBRL(Math.abs(tx.amount))}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : isCheckingScope ? `-${this.formatBRL(Math.abs(tx.amount))}` : this.formatBRL(tx.amount)}
                                   </span>
                                   <button
@@ -2646,7 +2659,7 @@ window.App = {
           : "";
 
         return `
-          <tr class="border-b border-stone-100 hover:bg-stone-50/90 transition group">
+          <tr class="border-b border-stone-100 ${isTransferCat ? "bg-stone-50/50 hover:bg-stone-100/60 opacity-80" : "hover:bg-stone-50/90"} transition group">
             <td class="py-2.5 px-2.5 sm:px-4">
               <div class="flex items-start sm:items-center gap-2 min-w-0">
                 <button
@@ -2654,8 +2667,8 @@ window.App = {
                   onclick="App.toggleTreeRow('${treeKey}')"
                   class="w-6 h-6 rounded-lg flex items-center justify-center font-extrabold text-xs border transition shrink-0 ${
                     isExpanded
-                      ? "bg-lime-700 text-white border-lime-700 shadow-2xs"
-                      : "bg-white hover:bg-lime-50 text-stone-700 border-stone-300"
+                      ? (isTransferCat ? "bg-stone-400 text-white border-stone-400" : "bg-lime-700 text-white border-lime-700 shadow-2xs")
+                      : (isTransferCat ? "bg-stone-50 text-stone-400 border-stone-200" : "bg-white hover:bg-lime-50 text-stone-700 border-stone-300")
                   }"
                   title="${isExpanded ? "Recolher lançamentos" : "Abrir árvore com cada lançamento"}"
                 >
@@ -2666,14 +2679,14 @@ window.App = {
                     <button
                       type="button"
                       onclick="App.toggleTreeRow('${treeKey}')"
-                      class="font-bold text-stone-800 hover:text-lime-800 text-xs sm:text-sm text-left break-words transition"
+                      class="${isTransferCat ? "font-semibold text-stone-500 hover:text-stone-700" : "font-bold text-stone-800 hover:text-lime-800"} text-xs sm:text-sm text-left break-words transition"
                     >
                       ${item.sub.name}
                     </button>
                     ${this.getOwnershipBadge(item.ownership)}
                     ${
                       txCount > 0
-                        ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-500">${txCount} ${txCount === 1 ? "item" : "itens"}</span>`
+                        ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full ${isTransferCat ? "bg-stone-100/70 text-stone-400" : "bg-stone-100 text-stone-500"}">${txCount} ${txCount === 1 ? "item" : "itens"}</span>`
                         : `<span class="text-[10px] font-medium text-stone-400">0 itens</span>`
                     }
                   </div>
@@ -2683,7 +2696,7 @@ window.App = {
 
             <!-- Coluna REALIZADO (Estilo Planilha) -->
             <td class="py-2 px-0.5 sm:px-3 text-right w-[78px] sm:w-36">
-              <div class="inline-block min-w-full px-1 sm:px-2.5 py-1.5 rounded-lg font-extrabold text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
+              <div class="inline-block min-w-full px-1 sm:px-2.5 py-1.5 rounded-lg ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.actualClass}">
                 ${actualFormatted}
               </div>
             </td>
@@ -2697,7 +2710,7 @@ window.App = {
                   value="${Number(item.meta).toFixed(2)}"
                   onchange="${metaChangeCall}"
                   title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
-                  class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right font-extrabold text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
+                  class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
                 />
               </div>
             </td>
@@ -2705,13 +2718,13 @@ window.App = {
             <!-- Coluna SALDO / AÇÃO RÁPIDA -->
             <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
               <div class="flex items-center justify-end gap-0.5 sm:gap-1 flex-nowrap">
-                <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${diff >= 0 ? "text-lime-700" : "text-rose-600"}">
+                <span class="text-[10px] sm:text-xs font-bold whitespace-nowrap tabular-nums ${isTransferCat ? "text-stone-500" : (diff >= 0 ? "text-lime-700" : "text-rose-600")}">
                   ${diff >= 0 ? "+" : ""}${this.formatBRL(diff)}
                 </span>
                 <button
                   type="button"
                   onclick="App.quickLaunchInCategory('${accountId}', '${item.sub.id}')"
-                  class="opacity-70 group-hover:opacity-100 p-0.5 rounded-lg hover:bg-lime-100 text-lime-800 transition shrink-0"
+                  class="opacity-70 group-hover:opacity-100 p-0.5 rounded-lg hover:bg-lime-100 ${isTransferCat ? "text-stone-400 hover:text-stone-600" : "text-lime-800"} transition shrink-0"
                   title="Adicionar lançamento nesta categoria"
                 >
                   <i data-lucide="plus-circle" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
