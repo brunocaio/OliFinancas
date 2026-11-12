@@ -204,9 +204,6 @@
           <h1 id="home-greeting-title" class="text-xl sm:text-2xl font-extrabold text-stone-900 tracking-tight">
             Olá, Bruno 🫒
           </h1>
-          <p id="oli-humorous-banner-text" onclick="App.nextQuote()" class="text-xs text-stone-500 cursor-pointer hover:text-lime-700 transition mt-0.5" title="Clique para outra dica">
-            Importe seus arquivos OFX dos bancos ou lance saques em espécie e ajustes rápidos.
-          </p>
         </div>
 
         <!-- Pílulas discretas de contexto do mês -->
@@ -411,7 +408,6 @@
               <i data-lucide="check-circle-2" class="w-4 h-4 text-lime-700"></i>
               Revisão de Lançamentos do Arquivo (.OFX / .CSV)
             </h3>
-            <p class="text-xs text-stone-500">Confira a categoria e a divisão padrão antes de confirmar a entrada no histórico</p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <span id="import-selected-count" class="text-xs font-bold text-lime-800"></span>
@@ -488,9 +484,6 @@
               Histórico de Lançamentos
               <span id="history-count-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-stone-200/70 text-stone-600"></span>
             </h3>
-            <p class="text-xs text-stone-500 mt-0.5">
-              Marque vários itens (ou use <strong>Shift + Clique</strong>) para recategorizar ou excluir em lote. Use <strong>Ctrl + Z</strong> para desfazer qualquer ação.
-            </p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
@@ -603,9 +596,6 @@
             <i data-lucide="target" class="w-5 h-5 text-lime-700"></i>
             Estrutura de Metas: Conta Corrente & Cartões por Categoria
           </h2>
-          <p class="text-xs text-stone-500 mt-0.5">
-            Clique em <strong>[+]</strong> para abrir a árvore de lançamentos de cada categoria ou clique sobre qualquer <strong>Meta</strong> para ajustá-la. Categorias sem meta e sem gastos ficam arquivadas no rodapé.
-          </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <div class="inline-flex bg-stone-100 p-1 rounded-xl text-xs">
@@ -652,9 +642,6 @@
             <i data-lucide="layers" class="w-5 h-5 text-lime-700"></i>
             Controle de Contas Parceladas
           </h2>
-          <p class="text-xs text-stone-500 mt-0.5">
-            Acompanhe quantas parcelas já foram pagas, quantas faltam vencer e recategorize itens facilmente.
-          </p>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
@@ -715,11 +702,8 @@
         <div>
           <h2 class="text-base font-extrabold text-stone-900 flex items-center gap-2">
             <i data-lucide="credit-card" class="w-5 h-5 text-lime-700"></i>
-            Cadastro de Contas de Cartão por Usuário (Físicos & Virtuais na Mesma Conta)
+            Cadastro de Contas de Cartão por Usuário
           </h2>
-          <p class="text-xs text-stone-500 mt-0.5">
-            Cadastre cada conta de cartão informando o <strong>Dia da Virada</strong> e se a competência da fatura vai para o <strong>Mês da virada</strong> ou <strong>Mês anterior</strong>. Cartões virtuais pertencem à mesma conta e somam na mesma fatura.
-          </p>
         </div>
         <button
           type="button"
@@ -745,9 +729,6 @@
             <i data-lucide="pie-chart" class="w-5 h-5 text-lime-700"></i>
             Diagnóstico Completo & Acerto do Casal
           </h2>
-          <p class="text-xs text-stone-500 mt-0.5">
-            Análise detalhada da divisão entre Bruno e Núbia, proporção de gastos coletivos vs. individuais e comparativo por categoria.
-          </p>
         </div>
       </div>
 
@@ -761,7 +742,6 @@
       <div class="oli-card rounded-2xl p-5">
         <div class="mb-4">
           <h3 class="font-extrabold text-stone-900 text-sm">Previsto (Meta) vs. Realizado por Categoria</h3>
-          <p class="text-xs text-stone-500">Comparativo visual de todas as categorias de despesa do mês</p>
         </div>
         <div class="relative h-[320px]">
           <canvas id="chart-previsto-realizado"></canvas>
@@ -776,11 +756,10 @@
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <!-- CARD: CRIAR CATEGORIA MACRO -->
         <div class="lg:col-span-5 oli-card rounded-2xl p-5 border-lime-600/25">
-          <h3 class="font-extrabold text-stone-900 text-sm mb-1 flex items-center gap-2">
+          <h3 class="font-extrabold text-stone-900 text-sm mb-4 flex items-center gap-2">
             <i data-lucide="folder-plus" class="w-4 h-4 text-lime-700"></i>
             Nova Categoria Macro
           </h3>
-          <p class="text-xs text-stone-500 mb-4">Crie grandes grupos (ex: Viagens, Reforma, Educação) para organizar suas subcategorias e metas</p>
           <form onsubmit="App.handleNewMacroCategory(event)" class="space-y-3 text-xs">
             <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
               <div class="sm:col-span-7">
@@ -814,11 +793,10 @@
 
         <!-- CARD: NOVA SUBCATEGORIA & REGRA AUTOMÁTICA -->
         <div class="lg:col-span-7 oli-card rounded-2xl p-5">
-          <h3 class="font-extrabold text-stone-900 text-sm mb-1 flex items-center gap-2">
+          <h3 class="font-extrabold text-stone-900 text-sm mb-4 flex items-center gap-2">
             <i data-lucide="tag" class="w-4 h-4 text-lime-700"></i>
             Nova Subcategoria & Regra Automática
           </h3>
-          <p class="text-xs text-stone-500 mb-4">Cadastre subcategorias dentro de uma categoria macro e palavras-chave para reconhecimento automático</p>
           <form onsubmit="App.handleNewSubcategory(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
             <select id="new-sub-category-id" class="lg:col-span-2 oli-input rounded-xl px-3 py-2 text-xs font-semibold"></select>
             <input id="new-sub-name" type="text" required placeholder="Nome (Ex: Farmácia)" class="lg:col-span-2 oli-input rounded-xl px-3 py-2 text-xs" />
@@ -852,7 +830,6 @@
           </div>
           <div>
             <h2 class="text-base font-extrabold text-stone-900">Sincronização em Nuvem (Supabase)</h2>
-            <p class="text-xs text-stone-500">Seus dados sincronizados entre computador e celulares</p>
           </div>
         </div>
 
@@ -1113,7 +1090,6 @@
             placeholder="Ex: Luminária sala, Torneira banheiro, Presente..."
             class="w-full oli-input rounded-xl px-3 py-2.5 text-sm font-semibold text-stone-900"
           />
-          <p class="text-[11px] text-stone-400 mt-1">O texto original do banco continua preservado para regras e duplicidade.</p>
         </div>
 
         <div id="note-modal-pix-fields" class="space-y-2.5 rounded-xl bg-sky-50/70 border border-sky-200/80 p-3">
@@ -1175,7 +1151,6 @@
       <div class="flex items-center justify-between border-b border-stone-100 pb-3">
         <div>
           <h3 id="stmt-modal-title" class="text-base font-extrabold text-stone-900">Alterar Importação de Extrato</h3>
-          <p class="text-[11px] text-stone-400">Edite competência, cobertura parcial/fechada ou identifique o extrato cadastrado.</p>
         </div>
         <button type="button" onclick="App.closeStatementImportModal()" class="text-stone-400 hover:text-stone-800 font-bold text-lg">&times;</button>
       </div>
@@ -1253,7 +1228,6 @@
       <div class="flex items-center justify-between border-b border-stone-100 pb-3">
         <div>
           <h3 class="text-base font-extrabold text-stone-900">Excluir Importação de Extrato</h3>
-          <p class="text-[11px] text-stone-400">Escolha se deseja apagar também os lançamentos desse lote.</p>
         </div>
         <button type="button" onclick="App.closeDeleteStatementModal()" class="text-stone-400 hover:text-stone-800 font-bold text-lg">&times;</button>
       </div>
@@ -1333,10 +1307,10 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=30"></script>
-  <script src="./js/housing-financing.js?v=30"></script>
-  <script src="./js/ofx-csv-parser.js?v=30"></script>
-  <script src="./js/supabase-sync.js?v=30"></script>
-  <script src="./js/app.js?v=30"></script>
+  <script src="./js/data-seed.js?v=31"></script>
+  <script src="./js/housing-financing.js?v=31"></script>
+  <script src="./js/ofx-csv-parser.js?v=31"></script>
+  <script src="./js/supabase-sync.js?v=31"></script>
+  <script src="./js/app.js?v=31"></script>
 </body>
 </html>

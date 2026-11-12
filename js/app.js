@@ -1495,9 +1495,6 @@ window.App = {
                 <i data-lucide="user" class="w-4 h-4 text-lime-700"></i>
                 Visão Individual: ${activeUserName}
               </h3>
-              <p class="text-xs text-stone-500 mt-0.5">
-                Os indicadores e gráficos abaixo mostram apenas os dados de <strong>${activeUserName}</strong>. O acerto e os dados conjuntos do casal aparecem ao selecionar <strong>Ambos</strong>.
-              </p>
             </div>
             <button
               type="button"
@@ -1531,7 +1528,6 @@ window.App = {
                 <span>Divisão do Casal • Gastos Coletivos da Casa:</span>
                 <span class="whitespace-nowrap tabular-nums">${this.formatBRL(cs.totalHouseholdCollective)}</span>
               </h3>
-              <p class="text-xs text-stone-500 mt-0.5">Comparativo de quanto cada um pagou pelas despesas coletivas e cálculo de equilíbrio</p>
             </div>
             <div class="inline-flex bg-stone-100 p-1 rounded-xl self-start">
               <button onclick="App.setSplitMode('PROPORTIONAL')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition ${isProp ? "bg-white text-stone-900 shadow-xs" : "text-stone-500 hover:text-stone-900"}">
@@ -2532,9 +2528,6 @@ window.App = {
                     </span>
                     ${vCardsCount > 0 ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-lime-100 text-lime-800 font-semibold" title="${(card.virtualCards || []).join(", ")}">${vCardsCount} cartões na conta</span>` : ""}
                   </div>
-                  <p class="text-xs text-stone-500 mt-0.5">
-                    Clique em <strong>[+]</strong> para abrir os lançamentos de cada categoria ou <button type="button" onclick="App.switchTab('cards')" class="text-lime-700 hover:underline font-bold">ajustar virada e cartões virtuais</button>.
-                  </p>
                 </div>
               </div>
 
@@ -2618,9 +2611,6 @@ window.App = {
                 DESPESAS • ${userLabel} • CONTA CORRENTE
               </h3>
             </div>
-            <p class="text-xs text-stone-500 mt-0.5">
-              Dinâmica do mês: pagamento das faturas dos cartões + contas da casa no débito/Pix.
-            </p>
           </div>
           <div class="text-xs font-semibold text-stone-600">
             Saída Total: <strong class="text-stone-900">${this.formatBRL(grandTotalCheckingActual)}</strong>
@@ -2655,7 +2645,7 @@ window.App = {
               <!-- Divisor sutil para Contas da Casa em Débito -->
               <tr class="bg-stone-50/90 border-b border-stone-200/70">
                 <td colspan="4" class="py-1.5 px-2.5 sm:px-4 text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-stone-500">
-                  Contas do Mês em Débito / Pix na Conta Corrente (clique em [+] para abrir os lançamentos)
+                  Contas do Mês em Débito / Pix
                 </td>
               </tr>
 
@@ -2691,7 +2681,6 @@ window.App = {
               Detalhamento dos Cartões de Crédito por Categoria
             </h3>
           </div>
-          <span class="text-xs text-stone-500 hidden sm:inline">Clique em <strong>[+]</strong> em qualquer categoria para ver cada compra</span>
         </div>
 
         ${creditCardsBlocksHTML}
@@ -5787,10 +5776,8 @@ window.App = {
             <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 text-[11px] font-extrabold">✅ ${completeCount} fechados</span>
             ${partialCount > 0 ? `<span class="px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-900 text-[11px] font-extrabold">🌗 ${partialCount} parciais</span>` : ""}
             ${pendingCount > 0 ? `<span class="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-900 text-[11px] font-extrabold">⏳ ${pendingCount} pendentes</span>` : ""}
+            <span class="px-2 py-0.5 rounded-full bg-stone-200/80 text-stone-700 text-[11px] font-bold">${overallCoveragePct}%</span>
           </div>
-          <p class="text-xs text-stone-500 mt-0.5">
-            ${userScopeLabel} devem ter extrato no mês (cobertura atual: <strong>${overallCoveragePct}%</strong>).${this.activeUserFilter === "ALL" ? "" : ` Selecione <strong>Ambos</strong> no topo para ver os extratos conjuntos do casal.`}
-          </p>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
@@ -6015,9 +6002,8 @@ window.App = {
                     <div class="pt-1">
                       <div class="flex items-center justify-between mb-1.5">
                         <span class="text-[11px] font-bold text-stone-600">
-                          Cartões Físicos & Virtuais pertencentes a esta conta (${vCards.length})
+                          Cartões Físicos & Virtuais (${vCards.length})
                         </span>
-                        <span class="text-[10px] text-stone-400">Mesma fatura e mesma virada</span>
                       </div>
 
                       <div class="flex flex-wrap items-center gap-1.5 mb-2.5">
