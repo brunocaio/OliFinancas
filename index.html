@@ -590,6 +590,36 @@
     <!-- ABA 2: METAS & ORÇAMENTO (CONTA CORRENTE + CARTÕES POR CATEGORIA [+]) -->
     <!-- ================================================================== -->
     <section id="tab-projections" class="tab-section hidden space-y-6">
+      <div class="oli-card rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-extrabold text-stone-900 flex items-center gap-2">
+            <i data-lucide="target" class="w-5 h-5 text-lime-700"></i>
+            Metas &amp; Orçamento Mensal
+          </h2>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="inline-flex bg-stone-100 p-1 rounded-xl text-xs">
+            <button
+              type="button"
+              data-budget-mode="MACRO"
+              onclick="App.setBudgetGroupMode('MACRO')"
+              class="px-3 py-1.5 rounded-lg font-bold transition"
+            >
+              Categoria Macro
+            </button>
+            <button
+              type="button"
+              data-budget-mode="SUBCATEGORY"
+              onclick="App.setBudgetGroupMode('SUBCATEGORY')"
+              class="px-3 py-1.5 rounded-lg font-bold transition"
+            >
+              Subcategoria
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div id="projections-groups-container" class="space-y-6"></div>
     </section>
 
@@ -1278,10 +1308,10 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=48"></script>
-  <script src="./js/housing-financing.js?v=48"></script>
-  <script src="./js/ofx-csv-parser.js?v=48"></script>
-  <script src="./js/supabase-sync.js?v=48"></script>
-  <script src="./js/app.js?v=48"></script>
+  <script src="./js/data-seed.js?v=49"></script>
+  <script src="./js/housing-financing.js?v=49"></script>
+  <script src="./js/ofx-csv-parser.js?v=49"></script>
+  <script src="./js/supabase-sync.js?v=49"></script>
+  <script src="./js/app.js?v=49"></script>
 </body>
 </html>
