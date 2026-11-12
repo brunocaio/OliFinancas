@@ -526,12 +526,12 @@ window.StatementParser = {
       "APLICACAO RDB"
     ];
     const ownerSelfTokens = ownerId === "nubia"
-      ? ["NUBIA "]
-      : ["BRUNO CAIO", "BRUNO CAIO DE OLIVEIRA"];
+      ? ["NUBIA ", "NUBIA F"]
+      : ["BRUNO CAIO", "BRUNO CAIO DE OLIVEIRA", "BRUNO C"];
     const looksLikeSelfTransfer =
       ownTransferKeywords.some(kw => normDesc.includes(kw)) ||
       (!isCreditCard &&
-        ownerSelfTokens.some(tok => normDesc.includes(tok)) &&
+        (ownerSelfTokens.some(tok => normDesc.includes(tok)) || normDesc.includes("PIX TRANSF BRUNO") || normDesc.includes("PIX TRANSF NUBIA")) &&
         (normDesc.includes("PIX") || normDesc.includes("TRANSF") || normDesc.includes("TED") || normDesc.includes("DOC")));
     if (looksLikeSelfTransfer) {
       return {

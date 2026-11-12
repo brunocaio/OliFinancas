@@ -399,6 +399,46 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 9: adiciona subcategoria oficial "Sem Categoria" para orfãos
+    // e garante que créditos/inflow em conta corrente (como Itaú) sejam classificados como TRANSFER/INCOME e nunca EXPENSE
+    if ((stateObj.schemaPatch || 0) < 9) {
+      if (Array.isArray(stateObj.subcategories)) {
+        if (!stateObj.subcategories.some(s => s.id === "sub_sem_categoria")) {
+          const finCat = (stateObj.categories || []).find(c => c.id === "cat_financeiro") || (stateObj.categories || [])[0] || { id: "cat_financeiro" };
+          stateObj.subcategories.push({
+            id: "sub_sem_categoria",
+            categoryId: finCat.id,
+            name: "Sem Categoria",
+            defaultOwnership: "COLLECTIVE",
+            defaultAccountId: null,
+            defaultMeta: 0.00,
+            isFixed: false,
+            keywords: []
+          });
+          changed = true;
+        }
+      }
+
+      // Corrige lançamentos de crédito no Itaú que haviam sido categorizados como EXPENSE
+      if (Array.isArray(stateObj.transactions)) {
+        stateObj.transactions.forEach(tx => {
+          if (!tx) return;
+          const desc = (tx.description || "").toUpperCase();
+          if (tx.accountId === "cc_bruno_1794345904021" || desc.includes("PIX TRANSF")) {
+            if (desc.includes("PIX TRANSF") && tx.type === "EXPENSE" && tx.amount > 0) {
+              tx.type = "TRANSFER";
+              tx.subcategoryId = "sub_transf_propria";
+              tx.projectionId = null;
+              changed = true;
+            }
+          }
+        });
+      }
+
+      stateObj.schemaPatch = 9;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -764,7 +804,11 @@ window.App = {
   },
 
   getSubcategory(subId) {
-    return this.state.subcategories.find(s => s.id === subId) || { id: subId, name: "Sem Categoria", categoryId: "cat_financeiro" };
+    const found = this.state.subcategories.find(s => s.id === subId);
+    if (found) return found;
+    const defaultSemCat = this.state.subcategories.find(s => s.id === "sub_sem_categoria");
+    if (defaultSemCat) return defaultSemCat;
+    return { id: subId || "sub_sem_categoria", name: "Sem Categoria", categoryId: "cat_financeiro" };
   },
 
   getCategory(catId) {
@@ -2521,9 +2565,11 @@ window.App = {
       const accProjs = monthProjs.filter(p => p.accountId === acc.id);
       const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
       const incomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
-      const transferActual = accTransferTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const transferInActual = accTransferTxs.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
       const meta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-      return { acc, actual, incomeActual, transferActual, meta };
+      // Saldo da conta corrente: Entradas (Receitas + Transferências recebidas) - Despesas
+      const netCheckingBalance = (incomeActual + transferInActual) - actual;
+      return { acc, actual, incomeActual, transferActual: transferInActual, meta, netCheckingBalance };
     });
     const totalCheckingSummaryActual = checkingSummaryRows.reduce((s, r) => s + r.actual, 0);
     const totalCheckingSummaryIncome = checkingSummaryRows.reduce((s, r) => s + r.incomeActual, 0);
@@ -2533,7 +2579,7 @@ window.App = {
     const checkingSummaryRowsHTML = checkingSummaryRows
       .map(row => {
         const colors = this.getSpreadsheetCellColor(row.actual, row.meta);
-        const diff = row.meta - row.actual;
+        const diff = row.meta > 0 ? (row.meta - row.actual) : row.netCheckingBalance;
         const owner = this.getUser(row.acc.ownerId);
         return `
           <tr class="border-b border-stone-200/70 hover:bg-stone-50 transition">
@@ -2561,7 +2607,7 @@ window.App = {
               }
               ${
                 row.transferActual > 0
-                  ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold mt-0.5 whitespace-nowrap tabular-nums">⇄ ${this.formatBRL(row.transferActual)}</div>`
+                  ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold mt-0.5 whitespace-nowrap tabular-nums">⇄ +${this.formatBRL(row.transferActual)}</div>`
                   : ""
               }
             </td>
@@ -2714,9 +2760,12 @@ window.App = {
         const accProjs = monthProjs.filter(p => p.accountId === acc.id);
         const accActual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
         const accIncomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
-        const accTransferActual = accTransferTxs.reduce((s, t) => s + Number(t.amount), 0);
+        const accTransferInActual = accTransferTxs.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
+        const accTransferOutActual = accTransferTxs.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
         const accMeta = accProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
-        const accDiff = accMeta - accActual;
+        // Saldo da conta: se meta for definida (> 0), compara meta - actual. Se meta for 0, o saldo é a compensação real: Entradas (Receitas + Transferências Recebidas) - Despesas
+        const netAccBalance = (accIncomeActual + accTransferInActual) - (accActual + accTransferOutActual);
+        const accDiff = accMeta > 0 ? (accMeta - accActual) : netAccBalance;
         const owner = this.getUser(acc.ownerId);
 
         const activeAccItems = [];
@@ -2854,7 +2903,7 @@ window.App = {
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">
                       <div class="${accActual > 0 ? "text-rose-700" : ""}">${accActual > 0 ? `-${this.formatBRL(accActual)}` : this.formatBRL(0)}</div>
                       ${accIncomeActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-emerald-700 font-bold">+${this.formatBRL(accIncomeActual)}</div>` : ""}
-                      ${accTransferActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold">⇄ ${this.formatBRL(accTransferActual)}</div>` : ""}
+                      ${accTransferInActual > 0 ? `<div class="text-[9px] sm:text-[10px] text-stone-400 font-bold">⇄ +${this.formatBRL(accTransferInActual)}</div>` : ""}
                     </td>
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(accMeta)}</td>
                     <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${accDiff >= 0 ? "text-lime-800" : "text-rose-700"}">
@@ -6992,6 +7041,14 @@ window.App = {
                             <button onclick="App.addKeywordPrompt('${s.id}')" class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-700 font-bold transition">
                               + Regra
                             </button>
+                            <button
+                              type="button"
+                              onclick="App.deleteSubcategory('${s.id}')"
+                              class="p-1 rounded-lg text-stone-300 hover:text-rose-600 hover:bg-rose-50 transition"
+                              title="Excluir subcategoria (lançamentos órfãos vão para 'Sem Categoria')"
+                            >
+                              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
                           </div>
                         </div>
                       `)
@@ -7098,6 +7155,61 @@ window.App = {
     this.saveState(true);
     this.renderAll();
     this.showToast(`Categoria macro "${cat.name}" removida (Ctrl+Z para desfazer).`, "info");
+  },
+
+  deleteSubcategory(subId) {
+    if (subId === "sub_sem_categoria") {
+      this.showToast("A subcategoria 'Sem Categoria' é padrão do sistema e não pode ser excluída.", "warning");
+      return;
+    }
+    const sub = this.state.subcategories.find(s => s.id === subId);
+    if (!sub) return;
+
+    // Garante que exista a subcategoria oficial 'sub_sem_categoria'
+    let orphanSub = this.state.subcategories.find(s => s.id === "sub_sem_categoria");
+    if (!orphanSub) {
+      const finCat = (this.state.categories || []).find(c => c.id === "cat_financeiro") || (this.state.categories || [])[0] || { id: "cat_financeiro" };
+      orphanSub = {
+        id: "sub_sem_categoria",
+        categoryId: finCat.id,
+        name: "Sem Categoria",
+        defaultOwnership: "COLLECTIVE",
+        defaultAccountId: null,
+        defaultMeta: 0.00,
+        isFixed: false,
+        keywords: []
+      };
+      this.state.subcategories.push(orphanSub);
+    }
+
+    const orphanTxs = (this.state.transactions || []).filter(t => t.subcategoryId === subId);
+    const orphanProjs = (this.state.projections || []).filter(p => p.subcategoryId === subId);
+
+    const msg = orphanTxs.length > 0
+      ? `Deseja realmente excluir a subcategoria "${sub.name}"?\n\nExistem ${orphanTxs.length} lançamento(s) vinculados a ela que serão movidos para "Sem Categoria".`
+      : `Deseja realmente excluir a subcategoria "${sub.name}"?`;
+
+    if (!confirm(msg)) return;
+
+    // Move lançamentos órfãos para "Sem Categoria"
+    orphanTxs.forEach(t => {
+      t.subcategoryId = "sub_sem_categoria";
+    });
+
+    // Remove metas / projeções vinculadas à subcategoria excluída
+    this.state.projections = (this.state.projections || []).filter(p => p.subcategoryId !== subId);
+
+    // Remove a subcategoria
+    this.state.subcategories = (this.state.subcategories || []).filter(s => s.id !== subId);
+
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(
+      orphanTxs.length > 0
+        ? `🗑️ Subcategoria "${sub.name}" excluída. ${orphanTxs.length} lançamento(s) movidos para "Sem Categoria"!`
+        : `🗑️ Subcategoria "${sub.name}" excluída!`,
+      "info"
+    );
   },
 
   prefillNewSubcategory(catId) {

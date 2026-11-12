@@ -130,6 +130,7 @@ window.INITIAL_SEED_DATA = {
     { id: "sub_festa", categoryId: "cat_lazer", name: "Festas & Comemorações", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: ["FESTA", "PRESENTES"] },
 
     // 9. Financeiro, Parcelados & Outros
+    { id: "sub_sem_categoria", categoryId: "cat_financeiro", name: "Sem Categoria", defaultOwnership: "COLLECTIVE", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: [] },
     { id: "sub_parceladas", categoryId: "cat_financeiro", name: "Compras Parceladas", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["PARCELA", "MERCADOLIVRE", "MAGALU", "SHOPEE", "CASAS BAHIA"] },
     { id: "sub_anuidade", categoryId: "cat_financeiro", name: "Anuidade & Tarifas Cartão", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: true, keywords: ["ANUIDADE", "TARIFA", "IOF"] },
     { id: "sub_outros", categoryId: "cat_financeiro", name: "Outros / Diversos", defaultOwnership: "INDIVIDUAL_BRUNO", defaultAccountId: null, defaultMeta: 0.00, isFixed: false, keywords: [] },
