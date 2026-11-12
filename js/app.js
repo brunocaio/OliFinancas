@@ -6967,9 +6967,20 @@ window.App = {
     container.innerHTML = this.state.categories
       .map(cat => {
         const subs = this.state.subcategories.filter(s => s.categoryId === cat.id);
-        const typeBadge = cat.type === "INCOME"
-          ? `<span class="px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold">Receita</span>`
-          : `<span class="px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 text-[10px] font-bold">Despesa</span>`;
+        const typeSelectHTML = `
+          <select
+            onchange="App.updateMacroCategory('${cat.id}', 'type', this.value)"
+            class="px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wide cursor-pointer border transition ${
+              cat.type === "INCOME"
+                ? "bg-lime-100 text-lime-800 border-lime-300 hover:bg-lime-200"
+                : "bg-stone-100 text-stone-700 border-stone-300 hover:bg-stone-200"
+            }"
+            title="Alterar tipo da categoria (Despesa ou Receita)"
+          >
+            <option value="EXPENSE" ${cat.type === "EXPENSE" ? "selected" : ""}>Despesa</option>
+            <option value="INCOME" ${cat.type === "INCOME" ? "selected" : ""}>Receita</option>
+          </select>
+        `;
 
         return `
           <div class="oli-card rounded-2xl p-5">
@@ -6989,7 +7000,7 @@ window.App = {
                   class="font-extrabold text-stone-900 text-sm bg-transparent border-b border-transparent hover:border-stone-300 focus:border-lime-600 focus:outline-none py-0.5 min-w-0 flex-1"
                   title="Clique para editar o nome da categoria macro"
                 />
-                ${typeBadge}
+                ${typeSelectHTML}
               </div>
               <div class="flex items-center gap-1.5 shrink-0">
                 <span class="text-[11px] text-stone-400 font-semibold">${subs.length} sub</span>
@@ -7129,6 +7140,32 @@ window.App = {
       cat.name = clean;
     } else if (field === "color") {
       cat.color = value || "#4d7c0f";
+    } else if (field === "type") {
+      const newType = value === "INCOME" ? "INCOME" : "EXPENSE";
+      if (cat.type !== newType) {
+        cat.type = newType;
+        // Atualiza o tipo (INCOME ou EXPENSE) das transações vinculadas às subcategorias desta categoria macro
+        const childSubIds = new Set(
+          (this.state.subcategories || []).filter(s => s.categoryId === catId).map(s => s.id)
+        );
+        let updatedTxCount = 0;
+        (this.state.transactions || []).forEach(tx => {
+          if (childSubIds.has(tx.subcategoryId)) {
+            tx.type = newType;
+            updatedTxCount++;
+          }
+        });
+        this.saveState(true);
+        this.renderAll();
+        const typeLabel = newType === "INCOME" ? "Receita" : "Despesa";
+        this.showToast(
+          updatedTxCount > 0
+            ? `Tipo de "${cat.name}" alterado para ${typeLabel} (${updatedTxCount} lançamento(s) atualizados)!`
+            : `Tipo de "${cat.name}" alterado para ${typeLabel}!`,
+          "success"
+        );
+        return;
+      }
     }
     this.saveState(true);
     this.renderAll();
