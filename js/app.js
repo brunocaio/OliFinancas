@@ -2441,6 +2441,7 @@ window.App = {
         const catObj = item.cat || this.getCategory(item.sub.categoryId);
         const isTransferCat = Boolean(item.isTransfer) || (catObj && catObj.type === "TRANSFER");
         const isIncomeCat = !isTransferCat && (accountId === "ALL_INCOME" || (catObj && catObj.type === "INCOME"));
+        const isMetaEditable = accountId === "ALL_INCOME" || accountId === "ALL_ACCOUNTS";
         const treeKey = item.treeKey || `${accountId}__${item.sub.id}`;
         // Se houver busca ativa no bloco, expande automaticamente as categorias que contêm resultados
         const isExpanded = blockSearch ? true : Boolean(this.expandedTreeKeys[treeKey]);
@@ -2701,18 +2702,24 @@ window.App = {
               </div>
             </td>
 
-            <!-- Coluna META (Editável direto na célula) -->
+            <!-- Coluna META (Preenchível apenas para receitas totais e despesas totais) -->
             <td class="py-2 px-0.5 sm:px-3 text-right w-[74px] sm:w-32">
-              <div class="relative flex items-center justify-end">
-                <input
-                  type="number"
-                  step="0.01"
-                  value="${Number(item.meta).toFixed(2)}"
-                  onchange="${metaChangeCall}"
-                  title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
-                  class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
-                />
-              </div>
+              ${
+                isMetaEditable
+                  ? `<div class="relative flex items-center justify-end">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value="${Number(item.meta).toFixed(2)}"
+                        onchange="${metaChangeCall}"
+                        title="Clique para editar a Meta desta categoria (0 para arquivar se não houver gastos)"
+                        class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-lime-600 transition ${colors.metaClass}"
+                      />
+                    </div>`
+                  : `<div class="inline-block min-w-full px-1 sm:px-2.5 py-1.5 rounded-lg ${isTransferCat ? "font-bold" : "font-extrabold"} text-[10px] sm:text-sm text-right whitespace-nowrap tabular-nums ${colors.metaClass}">
+                      ${this.formatBRL(item.meta)}
+                    </div>`
+              }
             </td>
 
             <!-- Coluna SALDO / AÇÃO RÁPIDA -->
@@ -2741,6 +2748,7 @@ window.App = {
   buildArchiveDrawerHTML(drawerKey, accountId, archivedSubs) {
     if (!archivedSubs || archivedSubs.length === 0) return "";
     const isOpen = Boolean(this.expandedArchiveKeys[drawerKey]);
+    const isMetaEditable = accountId === "ALL_INCOME" || accountId === "ALL_ACCOUNTS";
 
     return `
       <div class="border-t border-stone-200/70 bg-stone-50/70 px-4 py-2.5">
@@ -2765,14 +2773,18 @@ window.App = {
                       <div class="inline-flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs text-stone-600 shadow-2xs">
                         <span class="font-semibold text-stone-700">${sub.name}</span>
                         <span class="text-[10px] text-stone-400">(0,00 / 0,00)</span>
-                        <button
-                          type="button"
-                          onclick="App.promptActivateArchivedCategory('${accountId}', '${sub.id}')"
-                          class="ml-1 px-2 py-0.5 rounded-lg bg-lime-50 hover:bg-lime-100 text-lime-800 font-bold text-[11px] transition"
-                          title="Definir uma meta para desarquivar"
-                        >
-                          + Meta
-                        </button>
+                        ${
+                          isMetaEditable
+                            ? `<button
+                                type="button"
+                                onclick="App.promptActivateArchivedCategory('${accountId}', '${sub.id}')"
+                                class="ml-1 px-2 py-0.5 rounded-lg bg-lime-50 hover:bg-lime-100 text-lime-800 font-bold text-[11px] transition"
+                                title="Definir uma meta para desarquivar"
+                              >
+                                + Meta
+                              </button>`
+                            : ""
+                        }
                         <button
                           type="button"
                           onclick="App.quickLaunchInCategory('${accountId}', '${sub.id}')"
@@ -3051,13 +3063,6 @@ window.App = {
                   class="px-2.5 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 text-[11px] font-bold transition"
                 >
                   Recolher [-]
-                </button>
-                <button
-                  type="button"
-                  onclick="App.promptCardCustomMeta('${card.id}')"
-                  class="px-2.5 py-1 rounded-lg bg-lime-700/10 hover:bg-lime-700/20 text-lime-900 text-[11px] font-bold transition"
-                >
-                  ${metaInfo.isArbitrated ? `Meta Arbitrada: ${this.formatBRL(metaInfo.effectiveMeta)}` : "Arbitrar Teto do Cartão"}
                 </button>
               </div>
             </div>
