@@ -7038,8 +7038,8 @@ window.App = {
                   <div class="h-full bg-emerald-600 rounded-full" style="width:100%"></div>
                 </div>
               `;
-              metaLine = `${liveCount} lançamento(s) • Ciclo ${this.formatDateBR(expected.periodStart)} → ${this.formatDateBR(expected.closeDate)} • Arquivo: ${this.escapeHTML(summary.primaryBatch?.fileName || "Extrato")}`;
-              actionsHTML = `
+              metaLine = `Ciclo: ${this.formatDateBR(expected.periodStart)} → ${this.formatDateBR(expected.closeDate)} • Arquivo: ${this.escapeHTML(summary.primaryBatch?.fileName || "Extrato")}`;
+            actionsHTML = `
                 <button type="button" onclick="App.triggerAccountStatementUpload('${account.id}', '${targetMonth}')" class="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-[11px] font-bold transition" title="Importar arquivo complementar ou atualizado">🔄 Nova import.</button>
                 <button type="button" onclick="App.toggleStatementBatchStatus('${summary.primaryBatch.id}')" class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[11px] font-bold transition" title="Reabrir como parcial">🌗 Parcial</button>
                 <button type="button" onclick="App.openStatementImportModal('${summary.primaryBatch.id}')" class="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-[11px] font-bold transition">✏️ Alterar</button>
@@ -7052,8 +7052,8 @@ window.App = {
                   <div class="h-full bg-gradient-to-r from-sky-500 to-lime-500 rounded-l-full transition-all" style="width:${pct}%"></div>
                 </div>
               `;
-              metaLine = `${liveCount} lançamento(s) • Coberto ${this.formatDateBR(summary.periodStart)} → <strong>${this.formatDateBR(summary.cutoffDate)}</strong> (fecha em ${this.formatDateBR(expected.closeDate)} • faltam ${summary.coverage.missingDays}d)`;
-              actionsHTML = `
+              metaLine = `Fecha em ${this.formatDateBR(expected.closeDate)}${summary.primaryBatch?.fileName ? ` • Arquivo: ${this.escapeHTML(summary.primaryBatch.fileName)}` : ""}`;
+            actionsHTML = `
                 <button type="button" onclick="App.triggerAccountStatementUpload('${account.id}', '${targetMonth}')" class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-extrabold transition" title="Enviar extrato mais recente para completar o mês">🔄 Atualizar</button>
                 <button type="button" onclick="App.toggleStatementBatchStatus('${summary.primaryBatch.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-[11px] font-bold transition" title="Marcar este extrato como fechado/completo">✓ Fechar</button>
                 <button type="button" onclick="App.openStatementImportModal('${summary.primaryBatch.id}')" class="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-[11px] font-bold transition">✏️ Alterar</button>
@@ -7064,8 +7064,8 @@ window.App = {
               barHTML = `
                 <div class="w-full h-2 rounded-full bg-rose-50 border border-dashed border-rose-200 mt-1.5"></div>
               `;
-              metaLine = `Nenhum extrato cadastrado para ${this.getMonthLabel(targetMonth)} • Ciclo previsto: ${this.formatDateBR(expected.periodStart)} → ${this.formatDateBR(expected.closeDate)}`;
-              actionsHTML = `
+              metaLine = `Ciclo previsto: ${this.formatDateBR(expected.periodStart)} → ${this.formatDateBR(expected.closeDate)}`;
+            actionsHTML = `
                 <button type="button" onclick="App.triggerAccountStatementUpload('${account.id}', '${targetMonth}')" class="px-3 py-1.5 rounded-lg bg-lime-700 hover:bg-lime-800 text-white text-[11px] font-extrabold transition">📤 Importar Extrato</button>
                 <button type="button" onclick="App.openStatementImportModal(null, '${account.id}', '${targetMonth}')" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-600 text-[11px] font-bold transition" title="Cadastrar manualmente ou marcar sem movimentação no mês">+ Sem mov.</button>
               `;
@@ -7077,8 +7077,8 @@ window.App = {
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${account.color || "#84cc16"}"></span>
                     <span class="font-extrabold text-stone-900 text-xs sm:text-sm">${this.escapeHTML(account.name)}</span>
-                    <span class="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-[10px] font-bold">${owner.name}</span>
-                    <span class="text-[10px] font-semibold text-stone-400">${isCard ? `Cartão • Vira dia ${account.closingDay || 9}` : "Conta Corrente"}</span>
+                    ${this.activeUserFilter === "ALL" ? `<span class="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-[10px] font-bold">${owner.name}</span>` : ""}
+                    ${isCard ? `<span class="text-[10px] font-semibold text-stone-400">Vira dia ${account.closingDay || 9}</span>` : ""}
                     ${badgeHTML}
                   </div>
                   ${barHTML}
