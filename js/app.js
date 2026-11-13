@@ -53,6 +53,7 @@ window.App = {
   activeCategoryPickerTarget: null,
   categoryPickerQuery: "",
   categoryPickerSelectedIndex: 0,
+  importCategoriesSelection: new Set(),
   undoStack: [],
   lastSavedSnapshot: null,
   charts: {},
@@ -2143,15 +2144,18 @@ window.App = {
   },
 
   importCategoriesFromPreviousMonth() {
+    this.openImportCategoriesModal();
+  },
+
+  getPreviousMonthCandidates() {
     const currentMonth = this.state.settings.activeMonth;
     const prevMonth = this.getPreviousMonth(currentMonth);
-    const prevMonthLabel = this.getMonthLabel(prevMonth);
 
-    const prevTxs = this.state.transactions.filter(t => t.competenceMonth === prevMonth);
-    const prevProjs = this.state.projections.filter(p => p.monthYear === prevMonth);
+    const prevTxs = (this.state.transactions || []).filter(t => t.competenceMonth === prevMonth);
+    const prevProjs = (this.state.projections || []).filter(p => p.monthYear === prevMonth);
 
-    const macroIds = new Set();
     const subIds = new Set();
+    const macroIds = new Set();
 
     prevTxs.forEach(t => {
       if (t.subcategoryId) {
@@ -2174,23 +2178,258 @@ window.App = {
     prevSavedMacro.forEach(id => macroIds.add(id));
     prevSavedSub.forEach(id => subIds.add(id));
 
-    if (macroIds.size === 0) {
-      this.state.categories.forEach(c => {
-        macroIds.add(c.id);
-        const child = this.state.subcategories.find(s => s.categoryId === c.id);
-        if (child) subIds.add(child.id);
+    // Se o mês anterior não tiver nada registrado, oferece todas as cadastradas no sistema
+    if (subIds.size === 0) {
+      (this.state.subcategories || []).forEach(s => {
+        subIds.add(s.id);
+        macroIds.add(s.categoryId);
+      });
+    }
+
+    const groups = [];
+    (this.state.categories || []).forEach(cat => {
+      const childSubs = (this.state.subcategories || []).filter(s => s.categoryId === cat.id && subIds.has(s.id));
+      if (childSubs.length === 0) return;
+
+      const subsData = childSubs.map(sub => {
+        const txs = prevTxs.filter(t => t.subcategoryId === sub.id);
+        const proj = prevProjs.find(p => p.subcategoryId === sub.id);
+        const alreadyActive = this.isCategoryExplicitlyActive(currentMonth, cat.id, sub.id) ||
+          (this.state.transactions || []).some(t => t.competenceMonth === currentMonth && t.subcategoryId === sub.id) ||
+          (this.state.projections || []).some(p => p.monthYear === currentMonth && p.subcategoryId === sub.id);
+
+        return {
+          sub,
+          txCount: txs.length,
+          txTotal: txs.reduce((sum, t) => sum + Number(t.amount || 0), 0),
+          prevMeta: proj ? Number(proj.meta || 0) : Number(sub.defaultMeta || 0),
+          alreadyActive
+        };
+      });
+
+      groups.push({
+        cat,
+        subs: subsData
+      });
+    });
+
+    return {
+      currentMonth,
+      prevMonth,
+      currentMonthLabel: this.getMonthLabel(currentMonth),
+      prevMonthLabel: this.getMonthLabel(prevMonth),
+      groups
+    };
+  },
+
+  openImportCategoriesModal() {
+    const data = this.getPreviousMonthCandidates();
+    const modal = document.getElementById("modal-import-categories");
+    if (!modal) return;
+
+    this.importCategoriesData = data;
+    this.importCategoriesSelection = new Set();
+
+    // Por padrão seleciona todas as subcategorias candidatas
+    data.groups.forEach(g => {
+      g.subs.forEach(item => {
+        this.importCategoriesSelection.add(item.sub.id);
+      });
+    });
+
+    const titleEl = document.getElementById("import-cat-modal-title");
+    const subEl = document.getElementById("import-cat-modal-subtitle");
+    if (titleEl) {
+      titleEl.innerHTML = `<i data-lucide="copy-plus" class="w-4 h-4 text-lime-700 shrink-0"></i><span>Trazer Categorias de ${data.prevMonthLabel}</span>`;
+    }
+    if (subEl) {
+      subEl.textContent = `Escolha quais categorias de ${data.prevMonthLabel} você deseja ativar em ${data.currentMonthLabel}:`;
+    }
+
+    const filterInput = document.getElementById("import-cat-filter-input");
+    if (filterInput) filterInput.value = "";
+
+    this.renderImportCategoriesList("");
+    this.updateImportCategoriesModalUI();
+
+    modal.classList.remove("hidden");
+    setTimeout(() => {
+      if (filterInput) filterInput.focus();
+      if (window.lucide) window.lucide.createIcons();
+    }, 50);
+  },
+
+  closeImportCategoriesModal() {
+    const modal = document.getElementById("modal-import-categories");
+    if (modal) modal.classList.add("hidden");
+  },
+
+  renderImportCategoriesList(filterQuery = "") {
+    const container = document.getElementById("import-cat-list");
+    if (!container || !this.importCategoriesData) return;
+
+    const clean = (filterQuery || "").trim().toLowerCase();
+    const groups = this.importCategoriesData.groups;
+
+    let totalVisible = 0;
+    const html = groups.map(g => {
+      const cat = g.cat;
+      const filteredSubs = g.subs.filter(item => {
+        if (!clean) return true;
+        const subName = (item.sub.name || "").toLowerCase();
+        const catName = (cat.name || "").toLowerCase();
+        return subName.includes(clean) || catName.includes(clean);
+      });
+
+      if (filteredSubs.length === 0) return "";
+      totalVisible += filteredSubs.length;
+
+      const allCheckedInGroup = filteredSubs.every(item => this.importCategoriesSelection.has(item.sub.id));
+
+      const subsHTML = filteredSubs.map(item => {
+        const sub = item.sub;
+        const isChecked = this.importCategoriesSelection.has(sub.id);
+        const metaStr = item.prevMeta > 0 ? `Meta ${this.formatBRL(item.prevMeta)}` : "";
+        const txStr = item.txCount > 0 ? `${item.txCount} lanç. (${this.formatBRL(Math.abs(item.txTotal))})` : "Sem lançamentos";
+        const details = [txStr, metaStr].filter(Boolean).join(" • ");
+
+        return `
+          <label class="flex items-center justify-between gap-2.5 p-2 rounded-xl border transition cursor-pointer hover:bg-stone-50/90 ${
+            isChecked ? "bg-lime-50/50 border-lime-300" : "bg-white border-stone-200/70"
+          }">
+            <div class="flex items-center gap-2.5 min-w-0 flex-1">
+              <input
+                type="checkbox"
+                data-import-sub="${sub.id}"
+                ${isChecked ? "checked" : ""}
+                onchange="App.toggleSingleImportCategory('${sub.id}', this.checked)"
+                class="w-4 h-4 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="text-xs font-bold text-stone-800 truncate">${this.escapeHTML(sub.name)}</span>
+                  ${item.alreadyActive ? `<span class="px-1.5 py-0.2 rounded bg-stone-100 text-stone-500 text-[10px] font-semibold shrink-0">Já ativa no mês</span>` : ""}
+                </div>
+                <div class="text-[10px] text-stone-400 mt-0.5 truncate">${this.escapeHTML(details)}</div>
+              </div>
+            </div>
+            <div class="shrink-0 flex items-center gap-1">
+              ${this.getOwnershipBadge(sub.defaultOwnership)}
+            </div>
+          </label>
+        `;
+      }).join("");
+
+      return `
+        <div class="rounded-2xl border border-stone-200 bg-white overflow-hidden shadow-2xs">
+          <div class="px-3 py-2 bg-stone-50 border-b border-stone-200/80 flex items-center justify-between gap-2">
+            <label class="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+              <input
+                type="checkbox"
+                data-import-macro="${cat.id}"
+                ${allCheckedInGroup ? "checked" : ""}
+                class="w-3.5 h-3.5 rounded border-stone-300 text-lime-700 cursor-pointer shrink-0"
+                onchange="App.toggleMacroGroupImportCategories('${cat.id}', this.checked)"
+              />
+              <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${cat.color || '#84cc16'}"></span>
+              <span class="text-xs font-extrabold text-stone-800 uppercase tracking-wide truncate">${this.escapeHTML(cat.name)}</span>
+              <span class="text-[10px] text-stone-400 font-normal">(${cat.type === "INCOME" ? "Receita" : "Despesa"})</span>
+            </label>
+            <span class="text-[10px] font-bold text-stone-400 shrink-0">${filteredSubs.length} sub</span>
+          </div>
+          <div class="p-2 space-y-1.5">
+            ${subsHTML}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    if (totalVisible === 0) {
+      container.innerHTML = `
+        <div class="py-8 text-center text-xs text-stone-400 space-y-1">
+          <div>Nenhuma categoria encontrada para "<strong>${this.escapeHTML(clean)}</strong>".</div>
+        </div>
+      `;
+    } else {
+      container.innerHTML = html;
+    }
+  },
+
+  filterImportCategoriesModal(query) {
+    this.renderImportCategoriesList(query);
+  },
+
+  toggleAllImportCategories(selectAll) {
+    if (!this.importCategoriesData) return;
+    if (selectAll) {
+      this.importCategoriesData.groups.forEach(g => {
+        g.subs.forEach(item => this.importCategoriesSelection.add(item.sub.id));
       });
     } else {
-      macroIds.forEach(catId => {
-        const hasSub = Array.from(subIds).some(sId => {
-          const s = this.getSubcategory(sId);
-          return s && s.categoryId === catId;
-        });
-        if (!hasSub) {
-          const firstChild = this.state.subcategories.find(s => s.categoryId === catId);
-          if (firstChild) subIds.add(firstChild.id);
+      this.importCategoriesSelection.clear();
+    }
+    const filterInput = document.getElementById("import-cat-filter-input");
+    this.renderImportCategoriesList(filterInput ? filterInput.value : "");
+    this.updateImportCategoriesModalUI();
+  },
+
+  toggleMacroGroupImportCategories(catId, select) {
+    if (!this.importCategoriesData) return;
+    const group = this.importCategoriesData.groups.find(g => g.cat.id === catId);
+    if (!group) return;
+
+    group.subs.forEach(item => {
+      if (select) this.importCategoriesSelection.add(item.sub.id);
+      else this.importCategoriesSelection.delete(item.sub.id);
+    });
+
+    const filterInput = document.getElementById("import-cat-filter-input");
+    this.renderImportCategoriesList(filterInput ? filterInput.value : "");
+    this.updateImportCategoriesModalUI();
+  },
+
+  toggleSingleImportCategory(subId, isChecked) {
+    if (isChecked) this.importCategoriesSelection.add(subId);
+    else this.importCategoriesSelection.delete(subId);
+
+    // Atualiza checkbox mestre da macro
+    const sub = this.getSubcategory(subId);
+    if (sub && sub.categoryId) {
+      const macroCheckbox = document.querySelector(`input[data-import-macro="${sub.categoryId}"]`);
+      if (macroCheckbox && this.importCategoriesData) {
+        const group = this.importCategoriesData.groups.find(g => g.cat.id === sub.categoryId);
+        if (group) {
+          const all = group.subs.every(item => this.importCategoriesSelection.has(item.sub.id));
+          macroCheckbox.checked = all;
         }
-      });
+      }
+    }
+
+    this.updateImportCategoriesModalUI();
+  },
+
+  updateImportCategoriesModalUI() {
+    const count = this.importCategoriesSelection.size;
+    const countBadge = document.getElementById("import-cat-selected-count");
+    if (countBadge) {
+      countBadge.textContent = `${count} ${count === 1 ? "selecionada" : "selecionadas"}`;
+    }
+
+    const confirmLabel = document.getElementById("import-cat-confirm-label");
+    if (confirmLabel) {
+      confirmLabel.textContent = `Confirmar e Trazer (${count})`;
+    }
+  },
+
+  confirmImportCategoriesFromPreviousMonth() {
+    const currentMonth = this.state.settings.activeMonth;
+    const prevMonth = this.getPreviousMonth(currentMonth);
+    const copyMetas = document.getElementById("import-cat-copy-metas")?.checked ?? false;
+
+    const selectedSubIds = Array.from(this.importCategoriesSelection || []);
+    if (selectedSubIds.length === 0) {
+      this.showToast("Selecione pelo menos uma categoria para trazer.", "warning");
+      return;
     }
 
     if (!this.state.settings.activeCategoryIdsByMonth) {
@@ -2202,15 +2441,47 @@ window.App = {
 
     const currentMacro = new Set(this.state.settings.activeCategoryIdsByMonth[currentMonth] || []);
     const currentSub = new Set(this.state.settings.activeSubcategoryIdsByMonth[currentMonth] || []);
-    macroIds.forEach(id => currentMacro.add(id));
-    subIds.forEach(id => currentSub.add(id));
+
+    const prevProjs = (this.state.projections || []).filter(p => p.monthYear === prevMonth);
+
+    selectedSubIds.forEach(subId => {
+      currentSub.add(subId);
+      const sub = this.getSubcategory(subId);
+      if (sub && sub.categoryId) {
+        currentMacro.add(sub.categoryId);
+      }
+
+      if (copyMetas) {
+        const existingProj = (this.state.projections || []).find(
+          p => p.monthYear === currentMonth && p.subcategoryId === subId
+        );
+        const prevProj = prevProjs.find(p => p.subcategoryId === subId);
+        const metaValue = prevProj ? Number(prevProj.meta || 0) : (sub ? Number(sub.defaultMeta || 0) : 0);
+
+        if (existingProj) {
+          existingProj.meta = metaValue;
+        } else if (metaValue > 0) {
+          const defaultAcc = (sub && sub.defaultAccountId) ? sub.defaultAccountId : "cc_bruno";
+          this.state.projections.push({
+            id: "proj_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+            title: sub ? sub.name : "Meta",
+            subcategoryId: subId,
+            accountId: defaultAcc,
+            meta: metaValue,
+            monthYear: currentMonth
+          });
+        }
+      }
+    });
 
     this.state.settings.activeCategoryIdsByMonth[currentMonth] = Array.from(currentMacro);
     this.state.settings.activeSubcategoryIdsByMonth[currentMonth] = Array.from(currentSub);
 
+    this.closeImportCategoriesModal();
     this.saveState(true);
     this.renderAll();
-    this.showToast(`✨ ${macroIds.size} categorias macro trazidas de ${prevMonthLabel} com valores zerados!`, "success");
+    const prevLabel = this.getMonthLabel(prevMonth);
+    this.showToast(`✨ ${selectedSubIds.length} subcategoria(s) trazidas de ${prevLabel}!`, "success");
   },
 
   copyActualToMeta(accountId, targetId, isMacro) {
@@ -8667,6 +8938,7 @@ window.App = {
 
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        this.closeImportCategoriesModal();
         this.closeCategoryPicker();
         this.closeTxNoteModal();
         return;

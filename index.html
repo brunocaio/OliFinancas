@@ -1281,6 +1281,106 @@
     </div>
   </div>
 
+  <!-- MODAL: ESCOLHER CATEGORIAS DO MÊS ANTERIOR -->
+  <div
+    id="modal-import-categories"
+    onclick="if(event.target === this) App.closeImportCategoriesModal()"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-900/60 backdrop-blur-xs transition-opacity"
+  >
+    <div class="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <!-- Header -->
+      <div class="px-5 py-3.5 bg-stone-50 border-b border-stone-200 flex items-center justify-between shrink-0">
+        <div class="min-w-0 pr-2">
+          <h3 id="import-cat-modal-title" class="font-bold text-sm text-stone-900 flex items-center gap-1.5 truncate">
+            <i data-lucide="copy-plus" class="w-4 h-4 text-lime-700 shrink-0"></i>
+            <span>Trazer Categorias do Mês Anterior</span>
+          </h3>
+          <p id="import-cat-modal-subtitle" class="text-[11px] text-stone-500 truncate mt-0.5">
+            Selecione quais categorias deseja ativar no mês atual
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick="App.closeImportCategoriesModal()"
+          class="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition cursor-pointer text-sm font-bold"
+          title="Fechar (Esc)"
+        >
+          ✕
+        </button>
+      </div>
+
+      <!-- Barra de Controle & Filtro -->
+      <div class="p-3 border-b border-stone-100 bg-stone-50/50 space-y-2 shrink-0">
+        <div class="flex items-center gap-2">
+          <div class="relative flex-1">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5"></i>
+            <input
+              id="import-cat-filter-input"
+              type="text"
+              placeholder="Filtrar por nome ou macro..."
+              oninput="App.filterImportCategoriesModal(this.value)"
+              class="w-full pl-8 pr-3 py-1.5 text-xs border border-stone-300 rounded-xl bg-white focus:outline-none focus:border-lime-600 focus:ring-1 focus:ring-lime-600 font-medium"
+              autocomplete="off"
+            />
+          </div>
+          <button
+            type="button"
+            onclick="App.toggleAllImportCategories(true)"
+            class="px-2.5 py-1.5 rounded-xl bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-[11px] font-bold transition cursor-pointer shrink-0"
+          >
+            Todas
+          </button>
+          <button
+            type="button"
+            onclick="App.toggleAllImportCategories(false)"
+            class="px-2.5 py-1.5 rounded-xl bg-white hover:bg-stone-100 border border-stone-200 text-stone-500 text-[11px] font-semibold transition cursor-pointer shrink-0"
+          >
+            Nenhuma
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-stone-200/60">
+          <label class="flex items-center gap-2 cursor-pointer text-[11px] font-semibold text-stone-700 select-none">
+            <input
+              id="import-cat-copy-metas"
+              type="checkbox"
+              class="w-3.5 h-3.5 rounded border-stone-300 text-lime-700 cursor-pointer"
+            />
+            <span>Copiar também valores das metas do mês anterior</span>
+          </label>
+          <span id="import-cat-selected-count" class="text-[11px] font-extrabold text-lime-800">
+            0 selecionadas
+          </span>
+        </div>
+      </div>
+
+      <!-- Lista de Categorias Agrupadas -->
+      <div id="import-cat-list" class="overflow-y-auto p-3 space-y-3 flex-1">
+        <!-- Renderizado dinamicamente -->
+      </div>
+
+      <!-- Rodapé -->
+      <div class="px-5 py-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between gap-2 shrink-0">
+        <button
+          type="button"
+          onclick="App.closeImportCategoriesModal()"
+          class="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 font-semibold text-xs transition cursor-pointer"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          id="import-cat-confirm-btn"
+          onclick="App.confirmImportCategoriesFromPreviousMonth()"
+          class="px-5 py-2 rounded-xl bg-lime-700 hover:bg-lime-800 text-white font-extrabold text-xs shadow-xs transition cursor-pointer flex items-center gap-1.5"
+        >
+          <i data-lucide="check" class="w-3.5 h-3.5"></i>
+          <span id="import-cat-confirm-label">Confirmar e Trazer</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL / DROPDOWN DE BUSCA DE CATEGORIAS -->
   <div
     id="category-search-picker"
@@ -1413,11 +1513,11 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=59"></script>
-  <script src="./js/housing-financing.js?v=59"></script>
-  <script src="./js/ofx-csv-parser.js?v=59"></script>
-  <script src="./js/supabase-sync.js?v=59"></script>
-  <script src="./js/app.js?v=59"></script>
+  <script src="./js/data-seed.js?v=60"></script>
+  <script src="./js/housing-financing.js?v=60"></script>
+  <script src="./js/ofx-csv-parser.js?v=60"></script>
+  <script src="./js/supabase-sync.js?v=60"></script>
+  <script src="./js/app.js?v=60"></script>
 
   <!-- Registro de Service Worker para PWA / APK -->
   <script>
