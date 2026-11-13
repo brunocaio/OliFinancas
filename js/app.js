@@ -1087,6 +1087,18 @@ window.App = {
     return "";
   },
 
+  getNextOwnership(current) {
+    if (current === "COLLECTIVE") return "INDIVIDUAL_BRUNO";
+    if (current === "INDIVIDUAL_BRUNO") return "INDIVIDUAL_NUBIA";
+    return "COLLECTIVE";
+  },
+
+  getOwnershipLabel(ownership) {
+    if (ownership === "INDIVIDUAL_BRUNO") return "Bruno";
+    if (ownership === "INDIVIDUAL_NUBIA") return "Núbia";
+    return "Coletivo";
+  },
+
   // ==========================================================================
   // CÁLCULO DE INDICADORES (COM FOCO NO USUÁRIO SELECIONADO OU CASAL)
   // ==========================================================================
@@ -1379,22 +1391,18 @@ window.App = {
   // ==========================================================================
   resolveDefaultOwnership(subcategoryId, userId = null) {
     const sub = this.getSubcategory(subcategoryId);
+    const rule = (sub && sub.defaultOwnership) || "COLLECTIVE";
+    if (rule === "COLLECTIVE") return "COLLECTIVE";
+    if (rule === "INDIVIDUAL_BRUNO") return "INDIVIDUAL_BRUNO";
+    if (rule === "INDIVIDUAL_NUBIA") return "INDIVIDUAL_NUBIA";
     const activeUser = userId || (this.activeUserFilter === "nubia" ? "nubia" : this.loggedUser || "bruno");
-    const rule = sub.defaultOwnership || "COLLECTIVE";
-
-    if (rule === "COLLECTIVE") {
-      return "COLLECTIVE";
-    }
-    // Se a subcategoria é especificamente da Núbia (ex: Fisioterapia, Maracatu) e ninguém forçou outro usuário
-    if (rule === "INDIVIDUAL_NUBIA" && !userId && this.activeUserFilter === "ALL") {
-      return "INDIVIDUAL_NUBIA";
-    }
     return activeUser === "nubia" ? "INDIVIDUAL_NUBIA" : "INDIVIDUAL_BRUNO";
   },
 
   formatSubOptionLabel(sub) {
-    const isCollective = (sub.defaultOwnership || "COLLECTIVE") === "COLLECTIVE";
-    return `${sub.name} (${isCollective ? "Coletivo" : "Individual"})`;
+    const own = (sub && sub.defaultOwnership) || "COLLECTIVE";
+    const label = this.getOwnershipLabel(own);
+    return `${sub.name} (${label})`;
   },
 
   flashAutoOwnershipTag(tagElementId) {
@@ -1585,8 +1593,8 @@ window.App = {
       const subSelect = document.getElementById("quick-tx-subcategory");
       if (subSelect) subSelect.value = matchedSub.id;
       this.onQuickSubcategoryChange(matchedSub.id);
-      const isCollective = (matchedSub.defaultOwnership || "COLLECTIVE") === "COLLECTIVE";
-      if (hint) hint.textContent = `• ${matchedSub.name} (${isCollective ? "Coletivo" : "Individual"})`;
+      const own = (matchedSub && matchedSub.defaultOwnership) || "COLLECTIVE";
+      if (hint) hint.textContent = `• ${matchedSub.name} (${this.getOwnershipLabel(own)})`;
     } else if (hint) {
       hint.textContent = "";
     }
@@ -2254,6 +2262,79 @@ window.App = {
     }
   },
 
+  toggleCategoryItemOwnership(accountId, targetId, isMacro) {
+    const monthYear = this.state.settings.activeMonth;
+    const scopeIds = this.getBudgetScopeAccountIds(accountId);
+
+    if (isMacro) {
+      const cat = this.getCategory(targetId);
+      const subs = (this.state.subcategories || []).filter(s => s.categoryId === targetId);
+      const subIds = new Set(subs.map(s => s.id));
+
+      const projs = this.state.projections.filter(p => p.monthYear === monthYear && scopeIds.has(p.accountId) && subIds.has(p.subcategoryId));
+      const txs = this.state.transactions.filter(t => t.competenceMonth === monthYear && scopeIds.has(t.accountId) && subIds.has(t.subcategoryId));
+      const currentOwn = (projs[0] && projs[0].ownership) || (txs[0] && txs[0].ownership) || (subs[0] && subs[0].defaultOwnership) || "COLLECTIVE";
+      const nextOwn = this.getNextOwnership(currentOwn);
+
+      projs.forEach(p => { p.ownership = nextOwn; });
+      txs.forEach(t => { t.ownership = nextOwn; });
+      subs.forEach(s => { s.defaultOwnership = nextOwn; });
+
+      this.saveState(true);
+      this.renderAll();
+      const label = this.getOwnershipLabel(nextOwn);
+      this.showToast(`🫒 Divisão de "${cat ? cat.name : "Categoria"}" alterada para ${label}!`, "info");
+    } else {
+      const sub = this.getSubcategory(targetId);
+      const projs = this.state.projections.filter(p => p.monthYear === monthYear && scopeIds.has(p.accountId) && p.subcategoryId === targetId);
+      const txs = this.state.transactions.filter(t => t.competenceMonth === monthYear && scopeIds.has(t.accountId) && t.subcategoryId === targetId);
+      const currentOwn = (projs[0] && projs[0].ownership) || (txs[0] && txs[0].ownership) || (sub && sub.defaultOwnership) || "COLLECTIVE";
+      const nextOwn = this.getNextOwnership(currentOwn);
+
+      projs.forEach(p => { p.ownership = nextOwn; });
+      txs.forEach(t => { t.ownership = nextOwn; });
+      if (sub) sub.defaultOwnership = nextOwn;
+
+      this.saveState(true);
+      this.renderAll();
+      const label = this.getOwnershipLabel(nextOwn);
+      this.showToast(`🫒 Divisão de "${sub ? sub.name : "Subcategoria"}" alterada para ${label}!`, "info");
+    }
+  },
+
+  toggleTransactionOwnership(txId) {
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx) return;
+    const nextOwn = this.getNextOwnership(tx.ownership || "COLLECTIVE");
+    if (tx.installmentTotal > 1) {
+      const baseDesc = (tx.description || "").replace(/\s*\(\d+\/\d+\)\s*$/i, "").trim().toLowerCase();
+      this.state.transactions.forEach(t => {
+        if (t.accountId === tx.accountId && t.installmentTotal === tx.installmentTotal) {
+          const tBase = (t.description || "").replace(/\s*\(\d+\/\d+\)\s*$/i, "").trim().toLowerCase();
+          if (tBase === baseDesc) {
+            t.ownership = nextOwn;
+          }
+        }
+      });
+    } else {
+      tx.ownership = nextOwn;
+    }
+    this.saveState(true);
+    this.renderAll();
+    const label = this.getOwnershipLabel(nextOwn);
+    this.showToast(`🫒 Divisão alterada para ${label}!`, "info");
+  },
+
+  toggleFinancingOwnership(finId) {
+    const fin = (this.state.housingFinancing || []).find(f => f.id === finId);
+    if (!fin) return;
+    fin.ownership = this.getNextOwnership(fin.ownership || "COLLECTIVE");
+    this.saveState(true);
+    this.renderAll();
+    const label = this.getOwnershipLabel(fin.ownership);
+    this.showToast(`🫒 Financiamento alterado para ${label}!`, "info");
+  },
+
   setMacroCategoryMeta(accountId, categoryId, rawValue) {
     const monthYear = this.state.settings.activeMonth;
     const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
@@ -2798,7 +2879,14 @@ window.App = {
                                       ${isDescExpanded || tx.counterparty ? this.buildPixFlowBadgesHTML(tx.id, tx) : ""}
                                       ${instTag}
                                       ${creditTag}
-                                      ${this.getOwnershipBadge(tx.ownership)}
+                                      <button
+                                        type="button"
+                                        onclick="App.toggleTransactionOwnership('${tx.id}')"
+                                        title="Clique para alternar divisão: Coletivo, Bruno ou Núbia"
+                                        class="cursor-pointer hover:opacity-80 transition inline-flex items-center"
+                                      >
+                                        ${this.getOwnershipBadge(tx.ownership)}
+                                      </button>
                                     </div>
                                   </div>
                                 </div>
@@ -2866,7 +2954,14 @@ window.App = {
                     >
                       ${item.sub.name}
                     </button>
-                    ${this.getOwnershipBadge(item.ownership)}
+                    <button
+                      type="button"
+                      onclick="App.toggleCategoryItemOwnership('${accountId}', '${item.isMacro ? item.cat.id : item.sub.id}', ${Boolean(item.isMacro)})"
+                      title="Clique para alternar divisão: Coletivo, Bruno ou Núbia"
+                      class="cursor-pointer hover:opacity-80 transition inline-flex items-center"
+                    >
+                      ${this.getOwnershipBadge(item.ownership)}
+                    </button>
                     ${
                       txCount > 0
                         ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full ${isTransferCat ? "bg-stone-100/70 text-stone-400" : "bg-stone-100 text-stone-500"}">${txCount} ${txCount === 1 ? "item" : "itens"}</span>`
@@ -3883,7 +3978,14 @@ window.App = {
                 ${s.paidCount}/${s.total}
               </span>
               ${statusBadge}
-              ${this.getOwnershipBadge(s.displayTx.ownership)}
+              <button
+                type="button"
+                onclick="App.toggleTransactionOwnership('${s.displayTx.id}')"
+                title="Clique para alternar divisão: Coletivo, Bruno ou Núbia"
+                class="cursor-pointer hover:opacity-80 transition inline-flex items-center"
+              >
+                ${this.getOwnershipBadge(s.displayTx.ownership)}
+              </button>
             </div>
             <div class="flex items-center gap-2 flex-wrap text-[11px] text-stone-400 mt-1">
               <span class="inline-flex items-center gap-1 font-semibold text-stone-600">
@@ -4533,7 +4635,14 @@ window.App = {
                   <span class="px-2 py-0.5 rounded-full bg-white border border-orange-200 text-orange-900 text-[10px] font-bold">
                     ${acc ? acc.name : `Ag. ${fin.agency} / Cc. ${fin.accountNumber}`}
                   </span>
-                  <span class="px-2 py-0.5 rounded-full bg-lime-100 text-lime-900 text-[10px] font-bold">Coletivo</span>
+                  <button
+                    type="button"
+                    onclick="App.toggleFinancingOwnership('${fin.id}')"
+                    title="Clique para alternar divisão: Coletivo, Bruno ou Núbia"
+                    class="cursor-pointer hover:opacity-80 transition inline-flex items-center"
+                  >
+                    ${this.getOwnershipBadge(fin.ownership || "COLLECTIVE")}
+                  </button>
                   ${
                     skippedCount > 0
                       ? `<span class="px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-extrabold flex items-center gap-1" title="Parcela(s) pulada(s) pelo recurso Pula Parcela do Itaú">
@@ -4804,7 +4913,7 @@ window.App = {
       );
     }
 
-    txs.sort((a, b) => b.transactionDate.localeCompare(a.transactionDate));
+    txs.sort((a, b) => (b.transactionDate || "").localeCompare(a.transactionDate || ""));
 
     const badgeEl = document.getElementById("history-count-badge");
     if (badgeEl) {
@@ -4922,7 +5031,16 @@ window.App = {
               <span class="text-xs font-semibold text-stone-700">${acc.name}</span>
               <div class="text-[11px] text-stone-400">${user.name}</div>
             </td>
-            <td class="py-3 px-4">${this.getOwnershipBadge(tx.ownership)}</td>
+            <td class="py-3 px-4">
+              <button
+                type="button"
+                onclick="App.toggleTransactionOwnership('${tx.id}')"
+                title="Clique para alternar divisão: Coletivo, Bruno ou Núbia"
+                class="cursor-pointer hover:opacity-80 transition inline-flex items-center"
+              >
+                ${this.getOwnershipBadge(tx.ownership)}
+              </button>
+            </td>
             <td class="py-3 px-4 text-right font-extrabold whitespace-nowrap tabular-nums text-xs sm:text-sm ${
               tx.type === "TRANSFER" ? "text-sky-700" : tx.type === "INCOME" ? "text-lime-700" : isCredit ? "text-emerald-700" : "text-stone-900"
             }">
@@ -7833,7 +7951,7 @@ window.App = {
                               ${s.name}
                               <button
                                 onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')"
-                                title="Clique para alternar o padrão entre Coletivo e Individual"
+                                title="Clique para alternar o padrão: Coletivo, Bruno ou Núbia"
                                 class="cursor-pointer hover:opacity-80 transition"
                               >
                                 ${this.getOwnershipBadge(s.defaultOwnership)}
@@ -8063,10 +8181,10 @@ window.App = {
   toggleSubcategoryDefaultOwnership(subId) {
     const sub = this.state.subcategories.find(s => s.id === subId);
     if (!sub) return;
-    sub.defaultOwnership = sub.defaultOwnership === "COLLECTIVE" ? "INDIVIDUAL_BRUNO" : "COLLECTIVE";
+    sub.defaultOwnership = this.getNextOwnership(sub.defaultOwnership || "COLLECTIVE");
     this.saveState(true);
     this.renderAll();
-    const label = sub.defaultOwnership === "COLLECTIVE" ? "Coletivo" : "Individual (Pessoal)";
+    const label = this.getOwnershipLabel(sub.defaultOwnership);
     this.showToast(`🫒 Padrão de "${sub.name}" alterado para ${label}!`, "info");
   },
 
