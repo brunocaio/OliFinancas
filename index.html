@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>OliFinanças 🫒 • Gestão Financeira</title>
   <link rel="manifest" href="./manifest.json?v=55" />
   <link rel="shortcut icon" href="./favicon.ico?v=55" />
@@ -1385,65 +1388,60 @@
   <div
     id="category-search-picker"
     onclick="if(event.target === this) App.closeCategoryPicker()"
-    class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-900/60 backdrop-blur-xs transition-opacity"
+    class="hidden fixed inset-0 z-50 bg-stone-900/30 backdrop-blur-2xs transition-opacity"
   >
-    <div class="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-      <!-- Header -->
-      <div class="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between shrink-0">
-        <div class="min-w-0 pr-2">
-          <h3 id="cat-picker-title" class="font-bold text-sm text-stone-800 truncate">Categorizar Lançamento</h3>
-          <p id="cat-picker-subtitle" class="text-[11px] text-stone-500 truncate">Selecione ou busque uma subcategoria</p>
-        </div>
-        <button
-          type="button"
-          onclick="App.closeCategoryPicker()"
-          class="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition cursor-pointer text-sm font-bold"
-          title="Fechar (Esc)"
-        >
-          ✕
-        </button>
-      </div>
-
-      <!-- Campo de Busca -->
-      <div class="p-3 border-b border-stone-100 bg-white shrink-0">
-        <div class="relative">
-          <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-2.5"></i>
+    <div
+      id="cat-picker-box"
+      class="fixed bg-white rounded-2xl shadow-2xl border border-stone-300 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50"
+    >
+      <!-- Header com Campo de Busca e Botão Fechar -->
+      <div class="p-2.5 bg-stone-50 border-b border-stone-200 flex items-center gap-2 shrink-0">
+        <div class="relative flex-1">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-stone-400 absolute left-2.5 top-2.5"></i>
           <input
             id="cat-picker-search"
             type="text"
-            placeholder="Buscar categoria ou regra (ex: Mercado, Uber, Farmácia)..."
+            placeholder="Buscar categoria ou regra (ex: Luz, Mercado, Uber)..."
             oninput="App.filterCategoryPicker(this.value)"
             onkeydown="App.handleCategoryPickerKeyDown(event)"
-            class="w-full pl-9 pr-8 py-2 text-xs border border-stone-300 rounded-xl bg-white focus:outline-none focus:border-lime-600 focus:ring-1 focus:ring-lime-600 font-medium"
+            class="w-full pl-8 pr-7 py-1.5 text-xs border border-stone-300 rounded-xl bg-white focus:outline-none focus:border-lime-600 focus:ring-1 focus:ring-lime-600 font-medium"
             autocomplete="off"
           />
           <button
             type="button"
             id="cat-picker-search-clear"
             onclick="App.clearCategoryPickerSearch()"
-            class="hidden absolute right-2.5 top-2 text-stone-400 hover:text-stone-700 text-xs w-5 h-5 rounded-full hover:bg-stone-100 items-center justify-center font-bold"
+            class="hidden absolute right-2 top-1.5 text-stone-400 hover:text-stone-700 text-xs w-5 h-5 rounded-full hover:bg-stone-200 flex items-center justify-center font-bold"
             title="Limpar busca"
           >
             ✕
           </button>
         </div>
-      </div>
-
-      <!-- Lista de Categorias / Subcategorias -->
-      <div id="cat-picker-list" class="overflow-y-auto p-2 space-y-3 flex-1 divide-y divide-stone-100">
-        <!-- Inserido dinamicamente por App.renderCategoryPickerList() -->
-      </div>
-
-      <!-- Rodapé -->
-      <div class="px-4 py-2 bg-stone-50 border-t border-stone-200 flex items-center justify-between text-[11px] text-stone-400 shrink-0">
-        <span>Use <kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono text-[10px]">↑</kbd> <kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono text-[10px]">↓</kbd> para navegar e <kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono text-[10px]">Enter</kbd></span>
         <button
           type="button"
           onclick="App.closeCategoryPicker()"
-          class="text-stone-500 hover:text-stone-800 font-semibold px-2 py-1 rounded hover:bg-stone-200/50 transition cursor-pointer"
+          class="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition cursor-pointer text-xs font-bold shrink-0"
+          title="Fechar (Esc)"
         >
-          Cancelar
+          ✕
         </button>
+      </div>
+
+      <!-- Contexto do Item Sendo Categorizado -->
+      <div id="cat-picker-context" class="px-3 py-1.5 bg-lime-50/60 border-b border-lime-100/80 flex items-center justify-between text-[11px] text-lime-900 shrink-0">
+        <span id="cat-picker-title" class="font-bold truncate">Categorizar Lançamento</span>
+        <span id="cat-picker-subtitle" class="text-stone-500 font-semibold truncate ml-2"></span>
+      </div>
+
+      <!-- Lista de Categorias / Subcategorias -->
+      <div id="cat-picker-list" class="overflow-y-auto p-1.5 space-y-2 flex-1 divide-y divide-stone-100">
+        <!-- Inserido dinamicamente por App.renderCategoryPickerList() -->
+      </div>
+
+      <!-- Rodapé Compacto -->
+      <div class="px-3 py-1.5 bg-stone-50 border-t border-stone-200 flex items-center justify-between text-[10px] text-stone-400 shrink-0 select-none">
+        <span><kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono">↑</kbd> <kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono">↓</kbd> navegar • <kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono">Enter</kbd> escolher</span>
+        <span class="text-stone-400">Esc fecha</span>
       </div>
     </div>
   </div>
@@ -1513,11 +1511,11 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=60"></script>
-  <script src="./js/housing-financing.js?v=60"></script>
-  <script src="./js/ofx-csv-parser.js?v=60"></script>
-  <script src="./js/supabase-sync.js?v=60"></script>
-  <script src="./js/app.js?v=60"></script>
+  <script src="./js/data-seed.js?v=61"></script>
+  <script src="./js/housing-financing.js?v=61"></script>
+  <script src="./js/ofx-csv-parser.js?v=61"></script>
+  <script src="./js/supabase-sync.js?v=61"></script>
+  <script src="./js/app.js?v=61"></script>
 
   <!-- Registro de Service Worker para PWA / APK -->
   <script>

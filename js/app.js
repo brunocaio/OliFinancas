@@ -8511,7 +8511,8 @@ window.App = {
     this.categoryPickerSelectedIndex = 0;
 
     const modal = document.getElementById("category-search-picker");
-    if (!modal) return;
+    const pickerBox = document.getElementById("cat-picker-box");
+    if (!modal || !pickerBox) return;
 
     const titleEl = document.getElementById("cat-picker-title");
     const subEl = document.getElementById("cat-picker-subtitle");
@@ -8520,29 +8521,29 @@ window.App = {
     if (target.txId) {
       const tx = this.state.transactions.find(t => t.id === target.txId);
       if (tx) {
-        if (titleEl) titleEl.textContent = "Recategorizar Lançamento";
-        if (subEl) subEl.textContent = `${tx.description} • ${this.formatBRL(Math.abs(tx.amount))}`;
+        if (titleEl) titleEl.textContent = tx.description;
+        if (subEl) subEl.textContent = this.formatBRL(Math.abs(tx.amount));
       }
     } else if (target.isBulk) {
       const count = (this.selectedTxIds || []).length;
       if (titleEl) titleEl.textContent = "Recategorizar em Lote";
-      if (subEl) subEl.textContent = `${count} lançamento(s) selecionado(s)`;
+      if (subEl) subEl.textContent = `${count} selecionado(s)`;
     } else if (target.stagedIdx !== undefined) {
       const item = this.stagedImports && this.stagedImports[target.stagedIdx];
       if (item) {
-        if (titleEl) titleEl.textContent = "Categorizar Extrato";
-        if (subEl) subEl.textContent = `${item.description} • ${this.formatBRL(Math.abs(item.amount))}`;
+        if (titleEl) titleEl.textContent = item.description;
+        if (subEl) subEl.textContent = this.formatBRL(Math.abs(item.amount));
       }
     } else if (target.installmentTxIds) {
-      if (titleEl) titleEl.textContent = "Recategorizar Compra Parcelada";
-      if (subEl) subEl.textContent = "Aplica a todas as parcelas desta compra";
+      if (titleEl) titleEl.textContent = "Compra Parcelada";
+      if (subEl) subEl.textContent = "Todas as parcelas";
     } else if (target.isStagedBulk) {
       const count = (this.stagedImports || []).filter(i => i.selected).length;
-      if (titleEl) titleEl.textContent = "Recategorizar Marcados no Extrato";
-      if (subEl) subEl.textContent = `${count} item(ns) da importação`;
+      if (titleEl) titleEl.textContent = "Marcados no Extrato";
+      if (subEl) subEl.textContent = `${count} selecionado(s)`;
     } else {
-      if (titleEl) titleEl.textContent = "Selecionar Categoria";
-      if (subEl) subEl.textContent = "Selecione uma subcategoria";
+      if (titleEl) titleEl.textContent = "Categorizar";
+      if (subEl) subEl.textContent = "";
     }
 
     if (searchInput) {
@@ -8554,13 +8555,52 @@ window.App = {
     this.renderCategoryPickerList("");
     modal.classList.remove("hidden");
 
+    // Posicionamento inteligente (ancorado ao botão clicado no desktop, centralizado no mobile)
+    const trigger = (event && event.currentTarget) ? event.currentTarget : null;
+    const isMobile = window.innerWidth < 640;
+
+    if (trigger && !isMobile && !target.isBulk && !target.isStagedBulk) {
+      const rect = trigger.getBoundingClientRect();
+      const width = Math.min(320, window.innerWidth - 24);
+      pickerBox.style.width = `${width}px`;
+      pickerBox.style.maxWidth = `${width}px`;
+      pickerBox.style.maxHeight = "min(460px, 75vh)";
+      pickerBox.style.transform = "none";
+
+      // Alinhamento horizontal: alinha pela direita do botão se couber, senão pela esquerda
+      let left = rect.right - width;
+      if (left < 10) left = Math.max(10, rect.left);
+      if (left + width > window.innerWidth - 10) left = window.innerWidth - width - 10;
+      pickerBox.style.left = `${Math.round(left)}px`;
+
+      // Alinhamento vertical: abaixo do botão, ou acima se faltar espaço embaixo
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      if (spaceBelow < 320 && spaceAbove > spaceBelow) {
+        pickerBox.style.top = "auto";
+        pickerBox.style.bottom = `${Math.round(window.innerHeight - rect.top + 4)}px`;
+      } else {
+        pickerBox.style.bottom = "auto";
+        pickerBox.style.top = `${Math.round(rect.bottom + 4)}px`;
+      }
+    } else {
+      // Centralizado em mobile ou para ações em lote
+      pickerBox.style.top = "50%";
+      pickerBox.style.left = "50%";
+      pickerBox.style.bottom = "auto";
+      pickerBox.style.transform = "translate(-50%, -50%)";
+      pickerBox.style.width = "calc(100vw - 28px)";
+      pickerBox.style.maxWidth = "380px";
+      pickerBox.style.maxHeight = "80vh";
+    }
+
     setTimeout(() => {
       if (searchInput) {
         searchInput.focus();
         searchInput.select();
       }
       if (window.lucide) window.lucide.createIcons();
-    }, 50);
+    }, 40);
   },
 
   closeCategoryPicker() {
