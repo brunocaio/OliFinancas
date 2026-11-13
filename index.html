@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>OliFinanças 🫒 • Gestão Financeira</title>
   <link rel="manifest" href="./manifest.json" />
-  <meta name="theme-color" content="#f7f8f4" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <meta name="theme-color" content="#4d7c0f" />
 
   <!-- Tailwind CSS via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -1323,5 +1325,14 @@
   <script src="./js/ofx-csv-parser.js?v=54"></script>
   <script src="./js/supabase-sync.js?v=54"></script>
   <script src="./js/app.js?v=54"></script>
+
+  <!-- Registro de Service Worker para PWA / APK -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>
