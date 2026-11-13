@@ -1745,53 +1745,10 @@ window.App = {
         : `Últimos Lançamentos (${userLabel})`;
     }
 
-    // Pílulas discretas e minimalistas no topo da Home (sem poluir a página inicial)
+    // Topo da Home enxuto e limpo (sem pílulas poluindo o cabeçalho)
     const kpiContainer = document.getElementById("dashboard-kpis");
     if (kpiContainer) {
-      const panelMonth = this.statementsPanelMonth || monthYear;
-      const regAccounts = this.getRegisteredAccountsForStatements();
-      let completeAccs = 0;
-      let partialAccs = 0;
-      let pendingAccs = 0;
-      regAccounts.forEach(acc => {
-        const st = this.getAccountStatementSummary(acc, panelMonth);
-        if (st.status === "COMPLETE") completeAccs++;
-        else if (st.status === "PARTIAL") partialAccs++;
-        else pendingAccs++;
-      });
-      const stmtPillColor = pendingAccs > 0
-        ? "bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-900"
-        : partialAccs > 0
-        ? "bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-900"
-        : "bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-900";
-
-      kpiContainer.innerHTML = `
-        <div class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-[11px] sm:text-xs shadow-2xs">
-          <span class="text-stone-400 font-semibold">Saídas (${userLabel}):</span>
-          <strong class="text-stone-900 font-extrabold whitespace-nowrap tabular-nums">${this.formatBRL(summary.totalActualExpenses)}</strong>
-        </div>
-        <div class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white border border-stone-200/80 text-[11px] sm:text-xs shadow-2xs">
-          <span class="text-stone-400 font-semibold">Meta:</span>
-          <strong class="text-stone-700 font-bold whitespace-nowrap tabular-nums">${this.formatBRL(summary.totalPlannedExpenses)}</strong>
-        </div>
-        <button
-          type="button"
-          onclick="App.scrollToStatementsPanel()"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-2xs ${stmtPillColor}"
-          title="Ver painel de extratos pendentes, parciais e completos de todas as contas"
-        >
-          <span>📑</span>
-          <span>Extratos: ${completeAccs}/${regAccounts.length} fechados${partialAccs > 0 ? ` • ${partialAccs} parcial` : ""}${pendingAccs > 0 ? ` • ${pendingAccs} pend.` : ""}</span>
-        </button>
-        <button
-          type="button"
-          onclick="App.switchTab('projections')"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-lime-700/10 hover:bg-lime-700/20 text-lime-900 font-bold text-xs transition"
-        >
-          <i data-lucide="target" class="w-3.5 h-3.5 text-lime-700"></i>
-          <span>Ver Metas &rarr;</span>
-        </button>
-      `;
+      kpiContainer.innerHTML = "";
     }
   },
 
@@ -7194,16 +7151,10 @@ window.App = {
     panel.innerHTML = `
       <div class="px-5 py-4 bg-stone-50/80 border-b border-stone-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <div class="flex flex-wrap items-center gap-2">
-            <h3 class="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
-              <i data-lucide="folder-check" class="w-4 h-4 text-lime-700"></i>
-              Controle de Extratos & Importações
-            </h3>
-            <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 text-[11px] font-extrabold">✅ ${completeCount} fechados</span>
-            ${partialCount > 0 ? `<span class="px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-900 text-[11px] font-extrabold">🌗 ${partialCount} parciais</span>` : ""}
-            ${pendingCount > 0 ? `<span class="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-900 text-[11px] font-extrabold">⏳ ${pendingCount} pendentes</span>` : ""}
-            <span class="px-2 py-0.5 rounded-full bg-stone-200/80 text-stone-700 text-[11px] font-bold">${overallCoveragePct}%</span>
-          </div>
+          <h3 class="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
+            <i data-lucide="folder-check" class="w-4 h-4 text-lime-700"></i>
+            Controle de Extratos & Importações
+          </h3>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
