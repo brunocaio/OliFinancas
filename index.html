@@ -409,6 +409,16 @@
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <span id="import-selected-count" class="text-xs font-bold text-lime-800"></span>
+            <button
+              id="import-bulk-recategorize-btn"
+              type="button"
+              onclick="App.openCategoryPicker(event, { isStagedBulk: true })"
+              class="bg-white hover:bg-lime-50 border border-lime-300 text-lime-900 text-xs font-bold px-2.5 py-1.5 rounded-xl cursor-pointer inline-flex items-center gap-1.5 transition"
+              title="Alterar a subcategoria dos selecionados com busca rápida"
+            >
+              <span>🏷️ Recategorizar...</span>
+              <i data-lucide="search" class="w-3.5 h-3.5 text-lime-700"></i>
+            </button>
             <select
               id="import-bulk-recategorize"
               onchange="if(this.value){ App.recategorizeSelectedStagedImports(this.value); this.value=''; }"
@@ -486,6 +496,16 @@
 
           <div class="flex flex-wrap items-center gap-2">
             <!-- Recategorizar Selecionados em Lote -->
+            <button
+              id="history-bulk-recategorize-btn"
+              type="button"
+              onclick="App.openCategoryPicker(event, { isBulk: true })"
+              class="hidden bg-lime-700 hover:bg-lime-800 text-white text-xs font-extrabold px-3 py-1.5 rounded-xl shadow-xs transition cursor-pointer items-center gap-1.5"
+              title="Recategorizar lançamentos selecionados com busca rápida"
+            >
+              <span id="history-bulk-recategorize-label">🏷️ Recategorizar...</span>
+              <i data-lucide="search" class="w-3.5 h-3.5 text-lime-200"></i>
+            </button>
             <select
               id="history-bulk-recategorize"
               onchange="if(this.value){ App.recategorizeSelectedTransactions(this.value); this.value=''; }"
@@ -1261,6 +1281,73 @@
     </div>
   </div>
 
+  <!-- MODAL / DROPDOWN DE BUSCA DE CATEGORIAS -->
+  <div
+    id="category-search-picker"
+    onclick="if(event.target === this) App.closeCategoryPicker()"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-900/60 backdrop-blur-xs transition-opacity"
+  >
+    <div class="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <!-- Header -->
+      <div class="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between shrink-0">
+        <div class="min-w-0 pr-2">
+          <h3 id="cat-picker-title" class="font-bold text-sm text-stone-800 truncate">Categorizar Lançamento</h3>
+          <p id="cat-picker-subtitle" class="text-[11px] text-stone-500 truncate">Selecione ou busque uma subcategoria</p>
+        </div>
+        <button
+          type="button"
+          onclick="App.closeCategoryPicker()"
+          class="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition cursor-pointer text-sm font-bold"
+          title="Fechar (Esc)"
+        >
+          ✕
+        </button>
+      </div>
+
+      <!-- Campo de Busca -->
+      <div class="p-3 border-b border-stone-100 bg-white shrink-0">
+        <div class="relative">
+          <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-2.5"></i>
+          <input
+            id="cat-picker-search"
+            type="text"
+            placeholder="Buscar categoria ou regra (ex: Mercado, Uber, Farmácia)..."
+            oninput="App.filterCategoryPicker(this.value)"
+            onkeydown="App.handleCategoryPickerKeyDown(event)"
+            class="w-full pl-9 pr-8 py-2 text-xs border border-stone-300 rounded-xl bg-white focus:outline-none focus:border-lime-600 focus:ring-1 focus:ring-lime-600 font-medium"
+            autocomplete="off"
+          />
+          <button
+            type="button"
+            id="cat-picker-search-clear"
+            onclick="App.clearCategoryPickerSearch()"
+            class="hidden absolute right-2.5 top-2 text-stone-400 hover:text-stone-700 text-xs w-5 h-5 rounded-full hover:bg-stone-100 items-center justify-center font-bold"
+            title="Limpar busca"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Lista de Categorias / Subcategorias -->
+      <div id="cat-picker-list" class="overflow-y-auto p-2 space-y-3 flex-1 divide-y divide-stone-100">
+        <!-- Inserido dinamicamente por App.renderCategoryPickerList() -->
+      </div>
+
+      <!-- Rodapé -->
+      <div class="px-4 py-2 bg-stone-50 border-t border-stone-200 flex items-center justify-between text-[11px] text-stone-400 shrink-0">
+        <span>Use <kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono text-[10px]">↑</kbd> <kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono text-[10px]">↓</kbd> para navegar e <kbd class="px-1 py-0.5 bg-white border border-stone-200 rounded font-mono text-[10px]">Enter</kbd></span>
+        <button
+          type="button"
+          onclick="App.closeCategoryPicker()"
+          class="text-stone-500 hover:text-stone-800 font-semibold px-2 py-1 rounded hover:bg-stone-200/50 transition cursor-pointer"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- BARRA FLUTUANTE DE SELEÇÃO EM LOTE -->
   <div
     id="floating-bulk-bar"
@@ -1276,6 +1363,16 @@
     >
       <span>≡</span>
       <span id="floating-bulk-same-origin-label">+ Mesma origem</span>
+    </button>
+    <button
+      id="floating-bulk-recategorize-btn"
+      type="button"
+      onclick="App.openCategoryPicker(event, { isBulk: true })"
+      class="bg-stone-800 hover:bg-lime-800 hover:text-white text-stone-100 border border-stone-600 font-bold px-2.5 py-1.5 rounded-xl text-xs cursor-pointer inline-flex items-center gap-1.5 transition"
+      title="Recategorizar itens selecionados com busca rápida"
+    >
+      <span>🏷️ Recategorizar...</span>
+      <i data-lucide="search" class="w-3.5 h-3.5 text-stone-300"></i>
     </button>
     <select
       id="floating-bulk-recategorize"
@@ -1316,11 +1413,11 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=58"></script>
-  <script src="./js/housing-financing.js?v=58"></script>
-  <script src="./js/ofx-csv-parser.js?v=58"></script>
-  <script src="./js/supabase-sync.js?v=58"></script>
-  <script src="./js/app.js?v=58"></script>
+  <script src="./js/data-seed.js?v=59"></script>
+  <script src="./js/housing-financing.js?v=59"></script>
+  <script src="./js/ofx-csv-parser.js?v=59"></script>
+  <script src="./js/supabase-sync.js?v=59"></script>
+  <script src="./js/app.js?v=59"></script>
 
   <!-- Registro de Service Worker para PWA / APK -->
   <script>

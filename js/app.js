@@ -50,6 +50,9 @@ window.App = {
   selectedTxIds: [],
   lastClickedTxId: null,
   lastClickedStagedIdx: null,
+  activeCategoryPickerTarget: null,
+  categoryPickerQuery: "",
+  categoryPickerSelectedIndex: 0,
   undoStack: [],
   lastSavedSnapshot: null,
   charts: {},
@@ -754,6 +757,7 @@ window.App = {
     const histBulkBtn = document.getElementById("history-bulk-delete-btn");
     const histBulkLabel = document.getElementById("history-bulk-delete-label");
     const histBulkRecat = document.getElementById("history-bulk-recategorize");
+    const histBulkRecatBtn = document.getElementById("history-bulk-recategorize-btn");
     if (histBulkBtn) {
       histBulkBtn.classList.toggle("hidden", selCount === 0);
       histBulkBtn.classList.toggle("inline-flex", selCount > 0);
@@ -768,10 +772,17 @@ window.App = {
         histBulkRecat.innerHTML = `<option value="">🏷️ Recategorizar (${selCount}) p/...</option>` + this.buildSubcategorySelectOptionsHTML("", false);
       }
     }
+    if (histBulkRecatBtn) {
+      histBulkRecatBtn.classList.toggle("hidden", selCount === 0);
+      histBulkRecatBtn.classList.toggle("inline-flex", selCount > 0);
+      const lbl = document.getElementById("history-bulk-recategorize-label");
+      if (lbl) lbl.textContent = `🏷️ Recategorizar (${selCount})...`;
+    }
 
     const floatBar = document.getElementById("floating-bulk-bar");
     const floatCount = document.getElementById("floating-bulk-count");
     const floatRecat = document.getElementById("floating-bulk-recategorize");
+    const floatRecatBtn = document.getElementById("floating-bulk-recategorize-btn");
     if (floatBar) {
       floatBar.classList.toggle("hidden", selCount === 0);
       floatBar.classList.toggle("flex", selCount > 0);
@@ -780,6 +791,10 @@ window.App = {
       }
       if (floatRecat && selCount > 0) {
         floatRecat.innerHTML = `<option value="">🏷️ Recategorizar p/...</option>` + this.buildSubcategorySelectOptionsHTML("", false);
+      }
+      if (floatRecatBtn) {
+        floatRecatBtn.classList.toggle("hidden", selCount === 0);
+        floatRecatBtn.classList.toggle("inline-flex", selCount > 0);
       }
 
       const sameOriginBtn = document.getElementById("floating-bulk-same-origin-btn");
@@ -2848,13 +2863,15 @@ window.App = {
                                   </div>
                                 </div>
                                 <div class="flex flex-wrap items-center justify-end gap-1.5 shrink-0 ml-auto max-w-full">
-                                  <select
-                                    onchange="App.recategorizeTransaction('${tx.id}', this.value)"
-                                    title="Recategorizar este lançamento para outra categoria"
-                                    class="oli-input rounded-lg px-2 py-0.5 text-[11px] ${isTransferTx ? "text-stone-500 font-medium" : "font-semibold text-stone-700"} bg-white max-w-[140px] sm:max-w-[165px] cursor-pointer"
+                                  <button
+                                    type="button"
+                                    onclick="App.openCategoryPicker(event, { txId: '${tx.id}' })"
+                                    title="Recategorizar este lançamento (com busca)"
+                                    class="inline-flex items-center justify-between gap-1 oli-input rounded-lg px-2 py-0.5 text-[11px] ${isTransferTx ? "text-stone-500 font-medium" : "font-semibold text-stone-700"} bg-white max-w-[145px] sm:max-w-[170px] truncate cursor-pointer hover:border-lime-500 transition group/catbtn text-left"
                                   >
-                                    ${this.buildSubcategorySelectOptionsHTML(tx.subcategoryId, false)}
-                                  </select>
+                                    <span class="truncate">${this.escapeHTML((this.getSubcategory(tx.subcategoryId) || {}).name || item.sub.name || "Sem Categoria")}</span>
+                                    <i data-lucide="chevron-down" class="w-3 h-3 text-stone-400 group-hover/catbtn:text-stone-600 shrink-0"></i>
+                                  </button>
                                   <button
                                     type="button"
                                     onclick="App.learnKeywordFromTransaction('${tx.id}')"
@@ -2911,6 +2928,16 @@ window.App = {
                     >
                       ${item.sub.name}
                     </button>
+                    ${!item.isMacro ? `
+                      <button
+                        type="button"
+                        onclick="event.stopPropagation(); App.promptRenameSubcategory('${item.sub.id}')"
+                        class="p-0.5 rounded text-stone-300 hover:text-stone-700 hover:bg-stone-100 transition"
+                        title="Renomear subcategoria ${this.escapeHTML(item.sub.name)}"
+                      >
+                        <i data-lucide="edit-2" class="w-3 h-3"></i>
+                      </button>
+                    ` : ""}
                     <button
                       type="button"
                       onclick="App.toggleCategoryItemOwnership('${accountId}', '${item.isMacro ? item.cat.id : item.sub.id}', ${Boolean(item.isMacro)})"
@@ -3980,13 +4007,15 @@ window.App = {
 
           <div class="flex items-center gap-1.5 shrink-0">
             <span class="w-2 h-2 rounded-full shrink-0" style="background:${s.cat.color}"></span>
-            <select
-              onchange="App.recategorizeInstallmentSeries('${txIdsCSV}', this.value)"
-              title="Recategorizar todas as parcelas desta compra"
-              class="oli-input rounded-lg px-2 py-1 text-[11px] font-semibold text-stone-700 bg-white max-w-[180px] cursor-pointer"
+            <button
+              type="button"
+              onclick="App.openCategoryPicker(event, { installmentTxIds: '${txIdsCSV}' })"
+              title="Recategorizar todas as parcelas desta compra (com busca)"
+              class="inline-flex items-center justify-between gap-1.5 oli-input rounded-lg px-2 py-1 text-[11px] font-semibold text-stone-700 bg-white max-w-[185px] cursor-pointer hover:border-lime-500 transition group/catbtn text-left"
             >
-              ${this.buildSubcategorySelectOptionsHTML(s.displayTx.subcategoryId, false)}
-            </select>
+              <span class="truncate">${this.escapeHTML((this.getSubcategory(s.displayTx.subcategoryId) || {}).name || "Sem Categoria")}</span>
+              <i data-lucide="chevron-down" class="w-3 h-3 text-stone-400 group-hover/catbtn:text-stone-600 shrink-0"></i>
+            </button>
             <button
               type="button"
               onclick="App.learnKeywordFromTransaction('${s.displayTx.id}')"
@@ -4975,13 +5004,15 @@ window.App = {
             <td class="py-3 px-4">
               <div class="inline-flex items-center gap-1.5">
                 <span class="w-2 h-2 rounded-full shrink-0" style="background:${cat.color}"></span>
-                <select
-                  onchange="App.recategorizeTransaction('${tx.id}', this.value)"
-                  title="Clique para recategorizar este lançamento"
-                  class="oli-input rounded-lg px-2 py-1 text-xs font-semibold text-stone-700 bg-white max-w-[170px] cursor-pointer"
+                <button
+                  type="button"
+                  onclick="App.openCategoryPicker(event, { txId: '${tx.id}' })"
+                  title="Clique para recategorizar este lançamento (com busca)"
+                  class="inline-flex items-center justify-between gap-1.5 oli-input rounded-lg px-2.5 py-1 text-xs font-semibold text-stone-700 bg-white max-w-[180px] truncate cursor-pointer hover:border-lime-500 transition group/catbtn text-left"
                 >
-                  ${this.buildSubcategorySelectOptionsHTML(tx.subcategoryId, false)}
-                </select>
+                  <span class="truncate">${this.escapeHTML(sub ? sub.name : "Sem Categoria")}</span>
+                  <i data-lucide="chevron-down" class="w-3 h-3 text-stone-400 group-hover/catbtn:text-stone-600 shrink-0"></i>
+                </button>
               </div>
             </td>
             <td class="py-3 px-4">
@@ -6011,12 +6042,15 @@ window.App = {
               ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">⇄ Transferência entre contas próprias</span>` : ""}
             </td>
             <td class="py-2.5 px-3">
-              <select
-                onchange="App.updateStagedItem(${idx}, 'subcategoryId', this.value)"
-                class="oli-input rounded-lg px-2 py-1 text-xs w-44"
+              <button
+                type="button"
+                onclick="App.openCategoryPicker(event, { stagedIdx: ${idx} })"
+                class="inline-flex items-center justify-between gap-1 oli-input rounded-lg px-2 py-1 text-xs w-44 bg-white text-stone-700 font-semibold cursor-pointer hover:border-lime-500 transition group/catbtn text-left"
+                title="Recategorizar item importado (com busca)"
               >
-                ${subOptions}
-              </select>
+                <span class="truncate">${this.escapeHTML((this.getSubcategory(item.subcategoryId) || {}).name || "Sem Categoria")}</span>
+                <i data-lucide="chevron-down" class="w-3 h-3 text-stone-400 group-hover/catbtn:text-stone-600 shrink-0"></i>
+              </button>
             </td>
             <td class="py-2.5 px-3">
               <select
@@ -7897,9 +7931,25 @@ window.App = {
                   : subs
                       .map(s => `
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#f9faf7] border border-[#e6ece0] rounded-xl p-3 text-xs">
-                          <div>
-                            <div class="font-bold text-stone-800 flex items-center gap-2">
-                              ${s.name}
+                          <div class="min-w-0 flex-1">
+                            <div class="font-bold text-stone-800 flex items-center gap-1.5 flex-wrap">
+                              <input
+                                type="text"
+                                value="${this.escapeHTML(s.name)}"
+                                onchange="App.renameSubcategory('${s.id}', this.value)"
+                                onkeydown="if(event.key==='Enter') this.blur()"
+                                class="font-bold text-stone-800 bg-white hover:bg-stone-50 focus:bg-white border border-stone-200 focus:border-lime-600 rounded-lg px-2 py-1 text-xs transition outline-none max-w-[200px]"
+                                title="Clique para editar diretamente o nome da subcategoria"
+                              />
+                              <button
+                                type="button"
+                                onclick="App.promptRenameSubcategory('${s.id}')"
+                                class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 hover:text-lime-800 font-semibold transition inline-flex items-center gap-1"
+                                title="Renomear subcategoria"
+                              >
+                                <i data-lucide="edit-2" class="w-3 h-3"></i>
+                                <span>Renomear</span>
+                              </button>
                               <button
                                 onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')"
                                 title="Clique para alternar o padrão: Coletivo, Bruno ou Núbia"
@@ -7908,12 +7958,12 @@ window.App = {
                                 ${this.getOwnershipBadge(s.defaultOwnership)}
                               </button>
                             </div>
-                            <div class="text-[11px] text-stone-400 mt-0.5">
+                            <div class="text-[11px] text-stone-400 mt-1">
                               Regras: <span class="text-lime-700 font-medium">${(s.keywords || []).join(", ") || "Nenhuma"}</span>
                             </div>
                           </div>
-                          <div class="flex items-center gap-2 self-end sm:self-center">
-                            <span class="text-stone-500">Meta: <strong class="text-stone-800">${this.formatBRL(s.defaultMeta)}</strong></span>
+                          <div class="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                            <span class="text-stone-500 mr-1">Meta: <strong class="text-stone-800">${this.formatBRL(s.defaultMeta)}</strong></span>
                             <button onclick="App.toggleSubcategoryDefaultOwnership('${s.id}')" class="px-2 py-1 rounded-lg bg-white border border-stone-200 hover:border-lime-600 text-stone-600 font-semibold transition">
                               Alternar Divisão
                             </button>
@@ -8129,6 +8179,344 @@ window.App = {
     }, 200);
   },
 
+  renameSubcategory(subId, newName) {
+    if (!subId) return;
+    const sub = this.state.subcategories.find(s => s.id === subId);
+    if (!sub) return;
+
+    const clean = (newName || "").trim();
+    if (!clean) {
+      this.showToast("O nome da subcategoria não pode ser vazio.", "error");
+      this.renderCategoriesTab();
+      return;
+    }
+
+    if (clean === sub.name) return;
+
+    // Verificar se já existe outra subcategoria com o mesmo nome na mesma categoria macro
+    const duplicate = this.state.subcategories.some(
+      s => s.categoryId === sub.categoryId && s.id !== subId && s.name.trim().toLowerCase() === clean.toLowerCase()
+    );
+    if (duplicate) {
+      this.showToast(`Já existe uma subcategoria "${clean}" nesta categoria.`, "error");
+      this.renderCategoriesTab();
+      return;
+    }
+
+    const oldName = sub.name;
+    sub.name = clean;
+
+    // Atualiza projeções / metas vinculadas a esta subcategoria cujo título correspondia ao nome antigo
+    (this.state.projections || []).forEach(p => {
+      if (p.subcategoryId === subId && (p.title === oldName || !p.title)) {
+        p.title = clean;
+      }
+    });
+
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`🫒 Subcategoria renomeada para "${clean}"!`, "success");
+  },
+
+  promptRenameSubcategory(subId) {
+    if (!subId) return;
+    const sub = this.state.subcategories.find(s => s.id === subId);
+    if (!sub) return;
+    const newName = prompt(`Renomear subcategoria "${sub.name}":`, sub.name);
+    if (newName === null) return;
+    this.renameSubcategory(subId, newName);
+  },
+
+  // ==========================================================================
+  // BUSCA & DROPDOWN RÁPIDO DE CATEGORIZAÇÃO (POP-UP / MODAL PESQUISÁVEL)
+  // ==========================================================================
+  openCategoryPicker(event, target = {}) {
+    if (event) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+    this.activeCategoryPickerTarget = target;
+    this.categoryPickerQuery = "";
+    this.categoryPickerSelectedIndex = 0;
+
+    const modal = document.getElementById("category-search-picker");
+    if (!modal) return;
+
+    const titleEl = document.getElementById("cat-picker-title");
+    const subEl = document.getElementById("cat-picker-subtitle");
+    const searchInput = document.getElementById("cat-picker-search");
+
+    if (target.txId) {
+      const tx = this.state.transactions.find(t => t.id === target.txId);
+      if (tx) {
+        if (titleEl) titleEl.textContent = "Recategorizar Lançamento";
+        if (subEl) subEl.textContent = `${tx.description} • ${this.formatBRL(Math.abs(tx.amount))}`;
+      }
+    } else if (target.isBulk) {
+      const count = (this.selectedTxIds || []).length;
+      if (titleEl) titleEl.textContent = "Recategorizar em Lote";
+      if (subEl) subEl.textContent = `${count} lançamento(s) selecionado(s)`;
+    } else if (target.stagedIdx !== undefined) {
+      const item = this.stagedImports && this.stagedImports[target.stagedIdx];
+      if (item) {
+        if (titleEl) titleEl.textContent = "Categorizar Extrato";
+        if (subEl) subEl.textContent = `${item.description} • ${this.formatBRL(Math.abs(item.amount))}`;
+      }
+    } else if (target.installmentTxIds) {
+      if (titleEl) titleEl.textContent = "Recategorizar Compra Parcelada";
+      if (subEl) subEl.textContent = "Aplica a todas as parcelas desta compra";
+    } else if (target.isStagedBulk) {
+      const count = (this.stagedImports || []).filter(i => i.selected).length;
+      if (titleEl) titleEl.textContent = "Recategorizar Marcados no Extrato";
+      if (subEl) subEl.textContent = `${count} item(ns) da importação`;
+    } else {
+      if (titleEl) titleEl.textContent = "Selecionar Categoria";
+      if (subEl) subEl.textContent = "Selecione uma subcategoria";
+    }
+
+    if (searchInput) {
+      searchInput.value = "";
+      const clearBtn = document.getElementById("cat-picker-search-clear");
+      if (clearBtn) clearBtn.classList.add("hidden");
+    }
+
+    this.renderCategoryPickerList("");
+    modal.classList.remove("hidden");
+
+    setTimeout(() => {
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
+      }
+      if (window.lucide) window.lucide.createIcons();
+    }, 50);
+  },
+
+  closeCategoryPicker() {
+    const modal = document.getElementById("category-search-picker");
+    if (modal) modal.classList.add("hidden");
+    this.activeCategoryPickerTarget = null;
+    this.categoryPickerQuery = "";
+  },
+
+  clearCategoryPickerSearch() {
+    const input = document.getElementById("cat-picker-search");
+    if (input) {
+      input.value = "";
+      input.focus();
+    }
+    const clearBtn = document.getElementById("cat-picker-search-clear");
+    if (clearBtn) clearBtn.classList.add("hidden");
+    this.filterCategoryPicker("");
+  },
+
+  filterCategoryPicker(query) {
+    this.categoryPickerQuery = (query || "").trim().toLowerCase();
+    this.categoryPickerSelectedIndex = 0;
+    const clearBtn = document.getElementById("cat-picker-search-clear");
+    if (clearBtn) {
+      if (this.categoryPickerQuery) clearBtn.classList.remove("hidden");
+      else clearBtn.classList.add("hidden");
+    }
+    this.renderCategoryPickerList(this.categoryPickerQuery);
+  },
+
+  handleCategoryPickerKeyDown(e) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const items = document.querySelectorAll("#cat-picker-list [data-picker-item='true']");
+      if (items.length > 0) {
+        this.categoryPickerSelectedIndex = (this.categoryPickerSelectedIndex + 1) % items.length;
+        this.updateCategoryPickerActiveItem();
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const items = document.querySelectorAll("#cat-picker-list [data-picker-item='true']");
+      if (items.length > 0) {
+        this.categoryPickerSelectedIndex = (this.categoryPickerSelectedIndex - 1 + items.length) % items.length;
+        this.updateCategoryPickerActiveItem();
+      }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const items = document.querySelectorAll("#cat-picker-list [data-picker-item='true']");
+      if (items.length > 0 && items[this.categoryPickerSelectedIndex]) {
+        const subId = items[this.categoryPickerSelectedIndex].getAttribute("data-sub-id");
+        if (subId) this.selectCategoryFromPicker(subId);
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      this.closeCategoryPicker();
+    }
+  },
+
+  updateCategoryPickerActiveItem() {
+    const items = document.querySelectorAll("#cat-picker-list [data-picker-item='true']");
+    items.forEach((item, idx) => {
+      if (idx === this.categoryPickerSelectedIndex) {
+        item.classList.add("ring-2", "ring-lime-500", "bg-lime-50");
+        item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      } else {
+        item.classList.remove("ring-2", "ring-lime-500", "bg-lime-50");
+      }
+    });
+  },
+
+  selectCategoryFromPicker(subId) {
+    const target = this.activeCategoryPickerTarget;
+    this.closeCategoryPicker();
+    if (!target || !subId) return;
+
+    if (target.txId) {
+      this.recategorizeTransaction(target.txId, subId);
+    } else if (target.isBulk) {
+      this.recategorizeSelectedTransactions(subId);
+    } else if (target.stagedIdx !== undefined) {
+      this.updateStagedItem(target.stagedIdx, "subcategoryId", subId);
+      this.renderImportTab(this.state.settings.activeMonth);
+    } else if (target.installmentTxIds) {
+      this.recategorizeInstallmentSeries(target.installmentTxIds, subId);
+    } else if (target.isStagedBulk) {
+      this.recategorizeSelectedStagedImports(subId);
+    }
+  },
+
+  renderCategoryPickerList(query = "") {
+    const container = document.getElementById("cat-picker-list");
+    if (!container) return;
+
+    const target = this.activeCategoryPickerTarget || {};
+    let currentSubId = null;
+    if (target.txId) {
+      const tx = this.state.transactions.find(t => t.id === target.txId);
+      if (tx) currentSubId = tx.subcategoryId;
+    } else if (target.stagedIdx !== undefined && this.stagedImports && this.stagedImports[target.stagedIdx]) {
+      currentSubId = this.stagedImports[target.stagedIdx].subcategoryId;
+    }
+
+    const cleanQuery = (query || "").trim().toLowerCase();
+
+    if (cleanQuery) {
+      // Busca plana filtrada
+      const matches = [];
+      (this.state.subcategories || []).forEach(sub => {
+        const cat = this.state.categories.find(c => c.id === sub.categoryId);
+        const nameMatch = (sub.name || "").toLowerCase().includes(cleanQuery);
+        const catMatch = (cat && cat.name ? cat.name.toLowerCase().includes(cleanQuery) : false);
+        const matchedKw = (sub.keywords || []).find(k => k.toLowerCase().includes(cleanQuery));
+
+        if (nameMatch || catMatch || matchedKw) {
+          matches.push({
+            sub,
+            cat,
+            nameMatch,
+            catMatch,
+            matchedKeyword: matchedKw
+          });
+        }
+      });
+
+      if (matches.length === 0) {
+        container.innerHTML = `
+          <div class="py-8 text-center text-xs text-stone-400 space-y-1.5">
+            <div>Nenhuma categoria ou regra encontrada para "<strong>${this.escapeHTML(cleanQuery)}</strong>".</div>
+            <div class="text-[11px] text-stone-400">Tente buscar por palavras como Uber, Mercado, Farmácia...</div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = matches.map((m, idx) => {
+        const sub = m.sub;
+        const cat = m.cat;
+        const isCurrent = sub.id === currentSubId;
+        const isSelected = idx === this.categoryPickerSelectedIndex;
+        return `
+          <button
+            type="button"
+            data-picker-item="true"
+            data-sub-id="${sub.id}"
+            onclick="App.selectCategoryFromPicker('${sub.id}')"
+            class="w-full text-left px-3 py-2.5 rounded-xl border transition flex items-center justify-between gap-2 group cursor-pointer ${
+              isSelected ? "ring-2 ring-lime-500 bg-lime-50" : ""
+            } ${
+              isCurrent ? "bg-lime-50/80 border-lime-300 font-bold" : "bg-white border-stone-200/70 hover:border-lime-400 hover:bg-lime-50/50"
+            }"
+          >
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${cat ? cat.color : '#84cc16'}"></span>
+                <span class="text-xs text-stone-900 font-bold group-hover:text-lime-900 truncate">${this.escapeHTML(sub.name)}</span>
+                <span class="text-[11px] text-stone-400 truncate">em ${this.escapeHTML(cat ? cat.name : "Geral")}</span>
+                ${isCurrent ? `<span class="px-1.5 py-0.2 rounded bg-lime-200 text-lime-900 text-[10px] font-extrabold shrink-0">✓ Atual</span>` : ""}
+              </div>
+              ${
+                m.matchedKeyword
+                  ? `<div class="text-[10px] text-lime-700 font-medium truncate mt-0.5">🏷️ Regra encontrada: "${this.escapeHTML(m.matchedKeyword)}"</div>`
+                  : (sub.keywords && sub.keywords.length > 0 ? `<div class="text-[10px] text-stone-400 truncate mt-0.5">Regras: ${this.escapeHTML(sub.keywords.slice(0, 3).join(", "))}</div>` : "")
+              }
+            </div>
+            <div class="shrink-0 flex items-center gap-1.5">
+              ${this.getOwnershipBadge(sub.defaultOwnership)}
+            </div>
+          </button>
+        `;
+      }).join("");
+
+    } else {
+      // Lista completa agrupada por Categoria Macro
+      let globalIdx = 0;
+      const groupsHTML = (this.state.categories || []).map(cat => {
+        const subs = (this.state.subcategories || []).filter(s => s.categoryId === cat.id);
+        if (subs.length === 0) return "";
+
+        const subsHTML = subs.map(sub => {
+          const isCurrent = sub.id === currentSubId;
+          const isSelected = globalIdx === this.categoryPickerSelectedIndex;
+          globalIdx++;
+          return `
+            <button
+              type="button"
+              data-picker-item="true"
+              data-sub-id="${sub.id}"
+              onclick="App.selectCategoryFromPicker('${sub.id}')"
+              class="w-full text-left px-3 py-2 rounded-xl border transition flex items-center justify-between gap-2 group cursor-pointer ${
+                isSelected ? "ring-2 ring-lime-500 bg-lime-50" : ""
+              } ${
+                isCurrent ? "bg-lime-50/80 border-lime-300 font-bold" : "bg-white border-transparent hover:border-lime-300 hover:bg-lime-50/50"
+              }"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-stone-800 font-semibold group-hover:text-lime-900 truncate">${this.escapeHTML(sub.name)}</span>
+                  ${isCurrent ? `<span class="px-1.5 py-0.2 rounded bg-lime-200 text-lime-900 text-[10px] font-extrabold shrink-0">✓ Atual</span>` : ""}
+                </div>
+                ${sub.keywords && sub.keywords.length > 0 ? `<div class="text-[10px] text-stone-400 truncate mt-0.5">Regras: ${this.escapeHTML(sub.keywords.slice(0, 3).join(", "))}${sub.keywords.length > 3 ? "..." : ""}</div>` : ""}
+              </div>
+              <div class="shrink-0 flex items-center gap-1.5">
+                ${this.getOwnershipBadge(sub.defaultOwnership)}
+              </div>
+            </button>
+          `;
+        }).join("");
+
+        return `
+          <div class="pt-2 first:pt-0">
+            <div class="px-2 py-1 text-[11px] font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
+              <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${cat.color || '#84cc16'}"></span>
+              <span class="truncate">${this.escapeHTML(cat.name)}</span>
+              <span class="text-[10px] text-stone-400 font-normal">(${cat.type === "INCOME" ? "Receita" : "Despesa"})</span>
+            </div>
+            <div class="space-y-1 mt-1">
+              ${subsHTML}
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      container.innerHTML = groupsHTML;
+    }
+  },
+
   toggleSubcategoryDefaultOwnership(subId) {
     const sub = this.state.subcategories.find(s => s.id === subId);
     if (!sub) return;
@@ -8279,6 +8667,7 @@ window.App = {
 
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        this.closeCategoryPicker();
         this.closeTxNoteModal();
         return;
       }
