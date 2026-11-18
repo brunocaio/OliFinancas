@@ -211,6 +211,46 @@
         <div id="dashboard-kpis" class="hidden"></div>
       </div>
 
+      <!-- SEÇÃO DE GRÁFICOS DA HOME: EVOLUÇÃO ANUAL (RECEITAS X DESPESAS) & GASTOS POR CATEGORIA MACRO (PRIMEIRO ITEM) -->
+      <div id="dashboard-charts-section" class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <!-- Gráfico 1: Evolução Anual (Receitas vs Despesas) -->
+        <div class="lg:col-span-7 oli-card rounded-3xl p-5 border border-stone-200/80 shadow-xs flex flex-col justify-between">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-stone-100">
+            <div>
+              <h3 class="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
+                <i data-lucide="trending-up" class="w-4 h-4 text-lime-700"></i>
+                Evolução Anual
+                <span id="dashboard-evolution-year-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-lime-100 text-lime-800">2026</span>
+              </h3>
+              <p class="text-xs text-stone-500 mt-0.5">Receitas vs. Despesas realizadas mês a mês</p>
+            </div>
+            <div id="dashboard-evolution-summary-badges" class="flex flex-wrap items-center gap-1.5 text-xs"></div>
+          </div>
+          <div class="relative h-[280px] w-full">
+            <canvas id="dashboard-chart-evolution"></canvas>
+          </div>
+        </div>
+
+        <!-- Gráfico 2: Gastos por Categoria Macro -->
+        <div class="lg:col-span-5 oli-card rounded-3xl p-5 border border-stone-200/80 shadow-xs flex flex-col justify-between">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-stone-100">
+            <div>
+              <h3 class="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
+                <i data-lucide="pie-chart" class="w-4 h-4 text-lime-700"></i>
+                Categorias Macro
+                <span id="dashboard-pie-month-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-700">Mês Atual</span>
+              </h3>
+              <p class="text-xs text-stone-500 mt-0.5">Distribuição das despesas do mês selecionado</p>
+            </div>
+            <div id="dashboard-pie-total-badge" class="text-xs font-bold text-stone-700 bg-stone-100 px-2.5 py-1 rounded-xl"></div>
+          </div>
+          <div class="relative h-[280px] w-full">
+            <canvas id="dashboard-chart-macro-pie"></canvas>
+          </div>
+        </div>
+      </div>
+
+
       <!-- CARD UNIFICADO ENXUTO: IMPORTAR EXTRATO (PADRÃO) | LANÇAMENTO RÁPIDO (ABA OCULTA) -->
       <div class="oli-card rounded-3xl p-4 sm:p-5 border-stone-200/90 shadow-xs space-y-3">
         <!-- Abas do card + seletor de tipo no lançamento rápido -->
@@ -486,44 +526,6 @@
       <!-- PAINEL DE CONTROLE DE EXTRATOS & IMPORTAÇÕES (TODAS AS CONTAS CADASTRADAS) -->
       <div id="statements-control-panel" class="oli-card rounded-3xl overflow-hidden shadow-xs"></div>
 
-      <!-- SEÇÃO DE GRÁFICOS DA HOME: EVOLUÇÃO ANUAL (RECEITAS X DESPESAS) & GASTOS POR CATEGORIA MACRO -->
-      <div id="dashboard-charts-section" class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <!-- Gráfico 1: Evolução Anual (Receitas vs Despesas) -->
-        <div class="lg:col-span-7 oli-card rounded-3xl p-5 border border-stone-200/80 shadow-xs flex flex-col justify-between">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-stone-100">
-            <div>
-              <h3 class="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
-                <i data-lucide="trending-up" class="w-4 h-4 text-lime-700"></i>
-                Evolução Anual
-                <span id="dashboard-evolution-year-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-lime-100 text-lime-800">2026</span>
-              </h3>
-              <p class="text-xs text-stone-500 mt-0.5">Receitas vs. Despesas realizadas mês a mês</p>
-            </div>
-            <div id="dashboard-evolution-summary-badges" class="flex flex-wrap items-center gap-1.5 text-xs"></div>
-          </div>
-          <div class="relative h-[280px] w-full">
-            <canvas id="dashboard-chart-evolution"></canvas>
-          </div>
-        </div>
-
-        <!-- Gráfico 2: Gastos por Categoria Macro -->
-        <div class="lg:col-span-5 oli-card rounded-3xl p-5 border border-stone-200/80 shadow-xs flex flex-col justify-between">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-stone-100">
-            <div>
-              <h3 class="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
-                <i data-lucide="pie-chart" class="w-4 h-4 text-lime-700"></i>
-                Categorias Macro
-                <span id="dashboard-pie-month-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-700">Mês Atual</span>
-              </h3>
-              <p class="text-xs text-stone-500 mt-0.5">Distribuição das despesas do mês selecionado</p>
-            </div>
-            <div id="dashboard-pie-total-badge" class="text-xs font-bold text-stone-700 bg-stone-100 px-2.5 py-1 rounded-xl"></div>
-          </div>
-          <div class="relative h-[280px] w-full">
-            <canvas id="dashboard-chart-macro-pie"></canvas>
-          </div>
-        </div>
-      </div>
 
       <!-- SEÇÃO 3 DA HOME: HISTÓRICO DE LANÇAMENTOS DO MÊS (COM FILTROS E BUSCA + SELEÇÃO EM LOTE) -->
       <div class="oli-card rounded-3xl overflow-hidden shadow-xs">
@@ -1561,11 +1563,11 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=64"></script>
-  <script src="./js/housing-financing.js?v=64"></script>
-  <script src="./js/ofx-csv-parser.js?v=64"></script>
-  <script src="./js/supabase-sync.js?v=64"></script>
-  <script src="./js/app.js?v=64"></script>
+  <script src="./js/data-seed.js?v=65"></script>
+  <script src="./js/housing-financing.js?v=65"></script>
+  <script src="./js/ofx-csv-parser.js?v=65"></script>
+  <script src="./js/supabase-sync.js?v=65"></script>
+  <script src="./js/app.js?v=65"></script>
 
   <!-- Registro de Service Worker para PWA / APK -->
   <script>
