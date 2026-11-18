@@ -622,6 +622,17 @@
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            id="btn-toggle-simulation"
+            onclick="App.toggleSimulationColumn()"
+            class="px-3 py-1.5 rounded-xl bg-white hover:bg-violet-50 border border-stone-200 hover:border-violet-500 text-stone-700 hover:text-violet-900 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+            title="Ativar/ocultar coluna opcional de simulação de cenários"
+          >
+            <i data-lucide="flask-conical" class="w-3.5 h-3.5 text-violet-600"></i>
+            <span>Simulação</span>
+          </button>
+
+          <button
+            type="button"
             onclick="App.importCategoriesFromPreviousMonth()"
             class="px-3 py-1.5 rounded-xl bg-white hover:bg-lime-50 border border-stone-200 hover:border-lime-500 text-stone-700 hover:text-lime-900 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
             title="Trazer as categorias macro do mês anterior para este mês com valores zerados"
@@ -1511,11 +1522,11 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=61"></script>
-  <script src="./js/housing-financing.js?v=61"></script>
-  <script src="./js/ofx-csv-parser.js?v=61"></script>
-  <script src="./js/supabase-sync.js?v=61"></script>
-  <script src="./js/app.js?v=61"></script>
+  <script src="./js/data-seed.js?v=62"></script>
+  <script src="./js/housing-financing.js?v=62"></script>
+  <script src="./js/ofx-csv-parser.js?v=62"></script>
+  <script src="./js/supabase-sync.js?v=62"></script>
+  <script src="./js/app.js?v=62"></script>
 
   <!-- Registro de Service Worker para PWA / APK -->
   <script>

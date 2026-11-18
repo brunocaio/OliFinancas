@@ -54,6 +54,7 @@ window.App = {
   categoryPickerQuery: "",
   categoryPickerSelectedIndex: 0,
   importCategoriesSelection: new Set(),
+  showSimulationColumn: false,
   undoStack: [],
   lastSavedSnapshot: null,
   charts: {},
@@ -684,6 +685,7 @@ window.App = {
       console.error("Erro ao carregar estado local, usando seed inicial:", e);
       this.state = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
     }
+    this.showSimulationColumn = Boolean(this.state && this.state.settings && this.state.settings.showSimulationColumn);
     this.lastSavedSnapshot = JSON.stringify({
       state: this.state,
       stagedImports: this.stagedImports
@@ -2710,6 +2712,7 @@ window.App = {
   },
 
   groupBudgetItemsByMacro(accountId, activeSubItems) {
+    const monthYear = this.state.settings.activeMonth;
     const map = new Map();
     activeSubItems.forEach(item => {
       const cat = this.getCategory(item.sub.categoryId);
@@ -2722,6 +2725,7 @@ window.App = {
           accountId,
           actual: 0,
           meta: 0,
+          sim: 0,
           txs: [],
           ownership: item.ownership,
           isTransfer: Boolean(item.isTransfer) || (cat && cat.type === "TRANSFER")
@@ -2730,11 +2734,17 @@ window.App = {
       const g = map.get(cat.id);
       g.actual += item.actual;
       g.meta += item.meta;
+      const subSim = item.sim !== undefined ? item.sim : this.getCategorySimulation(monthYear, item.sub.id, item.meta);
+      g.sim += subSim;
       g.txs.push(...item.txs);
     });
 
     const list = Array.from(map.values());
     list.forEach(g => {
+      const macroSimOverride = this.getMacroCategorySimulation(monthYear, g.cat.id);
+      if (macroSimOverride !== null && macroSimOverride !== undefined) {
+        g.sim = macroSimOverride;
+      }
       g.txs.sort((a, b) => (b.transactionDate || "").localeCompare(a.transactionDate || ""));
     });
     return list.sort((a, b) => b.actual - a.actual || b.meta - a.meta);
@@ -2808,6 +2818,108 @@ window.App = {
     this.setCategoryMeta(accountId, subcategoryId, val);
   },
 
+  getCategorySimulation(monthYear, subcategoryId, fallbackMeta = 0) {
+    const simMap = (this.state.settings && this.state.settings.simulationValuesByMonth && this.state.settings.simulationValuesByMonth[monthYear]) || {};
+    if (simMap[subcategoryId] !== undefined && simMap[subcategoryId] !== null && simMap[subcategoryId] !== "") {
+      return Number(simMap[subcategoryId]);
+    }
+    return fallbackMeta;
+  },
+
+  getMacroCategorySimulation(monthYear, categoryId) {
+    const simMap = (this.state.settings && this.state.settings.simulationValuesByMonth && this.state.settings.simulationValuesByMonth[monthYear]) || {};
+    const key = "macro__" + categoryId;
+    if (simMap[key] !== undefined && simMap[key] !== null && simMap[key] !== "") {
+      return Number(simMap[key]);
+    }
+    return null;
+  },
+
+  setCategorySimulation(accountId, subcategoryId, rawValue) {
+    const monthYear = this.state.settings.activeMonth;
+    const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
+    if (!this.state.settings) this.state.settings = {};
+    if (!this.state.settings.simulationValuesByMonth) this.state.settings.simulationValuesByMonth = {};
+    if (!this.state.settings.simulationValuesByMonth[monthYear]) this.state.settings.simulationValuesByMonth[monthYear] = {};
+
+    this.state.settings.simulationValuesByMonth[monthYear][subcategoryId] = val;
+    this.saveState(true);
+    this.renderAll();
+    const sub = this.getSubcategory(subcategoryId);
+    this.showToast(`🧪 Simulação de "${sub ? sub.name : subcategoryId}" definida para ${this.formatBRL(val)}!`, "info");
+  },
+
+  setMacroCategorySimulation(accountId, categoryId, rawValue) {
+    const monthYear = this.state.settings.activeMonth;
+    const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
+    if (!this.state.settings) this.state.settings = {};
+    if (!this.state.settings.simulationValuesByMonth) this.state.settings.simulationValuesByMonth = {};
+    if (!this.state.settings.simulationValuesByMonth[monthYear]) this.state.settings.simulationValuesByMonth[monthYear] = {};
+
+    this.state.settings.simulationValuesByMonth[monthYear]["macro__" + categoryId] = val;
+    this.saveState(true);
+    this.renderAll();
+    const cat = this.getCategory(categoryId);
+    this.showToast(`🧪 Simulação de "${cat ? cat.name : categoryId}" definida para ${this.formatBRL(val)}!`, "info");
+  },
+
+  copyMetaToSimulation(accountId, targetId, isMacro) {
+    const monthYear = this.state.settings.activeMonth;
+    let metaVal = 0;
+    let targetName = "";
+    if (isMacro) {
+      const childSubs = this.state.subcategories.filter(s => s.categoryId === targetId);
+      const childSubIds = new Set(childSubs.map(s => s.id));
+      const scopeIds = this.getBudgetScopeAccountIds(accountId);
+      metaVal = this.state.projections
+        .filter(p => p.monthYear === monthYear && scopeIds.has(p.accountId) && childSubIds.has(p.subcategoryId))
+        .reduce((s, p) => s + Number(p.plannedAmount || 0), 0);
+      const cat = this.getCategory(targetId);
+      targetName = cat ? cat.name : targetId;
+      this.setMacroCategorySimulation(accountId, targetId, metaVal);
+    } else {
+      const scopeIds = this.getBudgetScopeAccountIds(accountId);
+      const proj = this.state.projections.find(p => p.monthYear === monthYear && scopeIds.has(p.accountId) && p.subcategoryId === targetId);
+      metaVal = proj ? Number(proj.plannedAmount || 0) : 0;
+      const sub = this.getSubcategory(targetId);
+      targetName = sub ? sub.name : targetId;
+      this.setCategorySimulation(accountId, targetId, metaVal);
+    }
+    this.showToast(`🧪 Simulação de "${targetName}" igualada à Meta (${this.formatBRL(metaVal)})`, "info");
+  },
+
+  resetSimulationToMeta() {
+    const monthYear = this.state.settings.activeMonth;
+    if (this.state.settings && this.state.settings.simulationValuesByMonth && this.state.settings.simulationValuesByMonth[monthYear]) {
+      delete this.state.settings.simulationValuesByMonth[monthYear];
+    }
+    this.saveState(true);
+    this.renderAll();
+    this.showToast("🔄 Valores de simulação deste mês resetados para os valores da Meta!", "info");
+  },
+
+  toggleSimulationColumn() {
+    this.showSimulationColumn = !this.showSimulationColumn;
+    if (!this.state.settings) this.state.settings = {};
+    this.state.settings.showSimulationColumn = this.showSimulationColumn;
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(this.showSimulationColumn ? "🧪 Coluna de simulação ativada!" : "🧪 Coluna de simulação ocultada.", "info");
+  },
+
+  updateSimulationButtonUI() {
+    const btn = document.getElementById("btn-toggle-simulation");
+    if (!btn) return;
+    if (this.showSimulationColumn) {
+      btn.className = "px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs bg-violet-600 text-white border-violet-700 hover:bg-violet-700";
+      btn.innerHTML = `<i data-lucide="flask-conical" class="w-3.5 h-3.5 text-white"></i><span>Simulação Ativa</span>`;
+    } else {
+      btn.className = "px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs bg-white text-stone-700 border-stone-200 hover:border-violet-400";
+      btn.innerHTML = `<i data-lucide="flask-conical" class="w-3.5 h-3.5 text-violet-600"></i><span>Simulação</span>`;
+    }
+    if (window.lucide) window.lucide.createIcons();
+  },
+
   quickLaunchInCategory(accountId, subcategoryId) {
     const sub = this.getSubcategory(subcategoryId);
     const cat = this.getCategory(sub.categoryId);
@@ -2869,7 +2981,7 @@ window.App = {
 
   buildCategoryTreeRowsHTML(accountId, items, monthYear) {
     const isMetaEditable = accountId === "ALL_INCOME" || accountId === "ALL_ACCOUNTS";
-    const colSpanTotal = isMetaEditable ? 4 : 3;
+    const colSpanTotal = isMetaEditable ? (this.showSimulationColumn ? 5 : 4) : 3;
 
     if (items.length === 0) {
       return `
@@ -3002,6 +3114,13 @@ window.App = {
         const copyActualToMetaCall = isMacroRow
           ? `App.copyActualToMeta('${accountId}', '${item.cat.id}', true)`
           : `App.copyActualToMeta('${accountId}', '${item.sub.id}', false)`;
+        const simChangeCall = isMacroRow
+          ? `App.setMacroCategorySimulation('${accountId}', '${item.cat.id}', this.value)`
+          : `App.setCategorySimulation('${accountId}', '${item.sub.id}', this.value)`;
+        const copyMetaToSimCall = isMacroRow
+          ? `App.copyMetaToSimulation('${accountId}', '${item.cat.id}', true)`
+          : `App.copyMetaToSimulation('${accountId}', '${item.sub.id}', false)`;
+        const itemSim = item.sim !== undefined ? item.sim : item.meta;
 
         const treeChildrenHTML = isExpanded
           ? `
@@ -3259,6 +3378,34 @@ window.App = {
               </div>
             </td>
 
+            ${
+              this.showSimulationColumn
+                ? `
+            <!-- Coluna SIMULAÇÃO (Cenários Opcionais) -->
+            <td class="py-2 px-0.5 sm:px-3 text-right w-[88px] sm:w-36">
+              <div class="relative flex items-center justify-end gap-1">
+                <button
+                  type="button"
+                  onclick="${copyMetaToSimCall}"
+                  class="opacity-40 hover:opacity-100 p-1 text-violet-400 hover:text-violet-700 hover:bg-violet-100/80 rounded-md transition shrink-0 cursor-pointer"
+                  title="Copiar valor da Meta (${this.formatBRL(item.meta)}) para a Simulação"
+                >
+                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+                <input
+                  type="number"
+                  step="0.01"
+                  value="${Number(itemSim).toFixed(2)}"
+                  onchange="${simChangeCall}"
+                  title="Clique para editar o valor simulado desta categoria neste mês"
+                  class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right font-extrabold text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-violet-600 transition bg-violet-50/70 text-violet-900 border border-violet-200/80"
+                />
+              </div>
+            </td>
+            `
+                : ""
+            }
+
             <!-- Coluna SALDO / AÇÃO RÁPIDA -->
             <td class="py-2.5 px-1 sm:px-4 text-right w-[86px] sm:w-32">
               <div class="flex items-center justify-end gap-0.5 sm:gap-1 flex-nowrap">
@@ -3413,11 +3560,13 @@ window.App = {
       const isExplicit = this.isCategoryExplicitlyActive(monthYear, sub.categoryId, sub.id);
       if (subTxs.length > 0 || meta > 0 || isExplicit) {
         const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id);
+        const sim = this.getCategorySimulation(monthYear, sub.id, meta);
         activeIncomeItems.push({
           sub,
           accountId: "ALL_INCOME",
           actual,
           meta,
+          sim,
           txs: subTxs,
           ownership
         });
@@ -3426,8 +3575,12 @@ window.App = {
       }
     });
     activeIncomeItems.sort((a, b) => b.actual - a.actual || b.meta - a.meta);
-    const totalIncomeActual = activeIncomeItems.reduce((s, i) => s + i.actual, 0);
-    const totalIncomeMeta = activeIncomeItems.reduce((s, i) => s + i.meta, 0);
+    const displayIncomeItems = this.budgetGroupMode === "MACRO"
+      ? this.groupBudgetItemsByMacro("ALL_INCOME", activeIncomeItems)
+      : activeIncomeItems;
+    const totalIncomeActual = displayIncomeItems.reduce((s, i) => s + i.actual, 0);
+    const totalIncomeMeta = displayIncomeItems.reduce((s, i) => s + i.meta, 0);
+    const totalIncomeSim = displayIncomeItems.reduce((s, i) => s + (i.sim !== undefined ? i.sim : i.meta), 0);
     const totalIncomeDiff = totalIncomeActual - totalIncomeMeta;
 
     // 1. Totais Gerais por Categoria (somando todas as formas de pagamento)
@@ -3449,11 +3602,13 @@ window.App = {
 
       if (subTxs.length > 0 || meta > 0 || isExplicit) {
         const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id);
+        const sim = this.getCategorySimulation(monthYear, sub.id, meta);
         activeConsolidatedItems.push({
           sub,
           accountId: "ALL_ACCOUNTS",
           actual,
           meta,
+          sim,
           txs: subTxs,
           ownership
         });
@@ -3463,10 +3618,20 @@ window.App = {
     });
 
     activeConsolidatedItems.sort((a, b) => b.actual - a.actual || b.meta - a.meta);
+    const displayConsolidatedItems = this.budgetGroupMode === "MACRO"
+      ? this.groupBudgetItemsByMacro("ALL_ACCOUNTS", activeConsolidatedItems)
+      : activeConsolidatedItems;
 
-    const grandTotalAllActual = activeConsolidatedItems.reduce((s, i) => s + i.actual, 0);
-    const grandTotalAllMeta = activeConsolidatedItems.reduce((s, i) => s + i.meta, 0);
+    const grandTotalAllActual = displayConsolidatedItems.reduce((s, i) => s + i.actual, 0);
+    const grandTotalAllMeta = displayConsolidatedItems.reduce((s, i) => s + i.meta, 0);
+    const grandTotalAllSim = displayConsolidatedItems.reduce((s, i) => s + (i.sim !== undefined ? i.sim : i.meta), 0);
     const grandTotalDiff = grandTotalAllMeta - grandTotalAllActual;
+
+    const netActual = totalIncomeActual - grandTotalAllActual;
+    const netMeta = totalIncomeMeta - grandTotalAllMeta;
+    const netSim = totalIncomeSim - grandTotalAllSim;
+    const diffActualVsMeta = netActual - netMeta;
+    const diffSimVsMeta = netSim - netMeta;
 
     // Resumo das Contas Correntes (para o painel resumo antes do detalhamento das contas correntes)
     const checkingSummaryRows = checkingAccounts.map(acc => {
@@ -3843,24 +4008,26 @@ window.App = {
           </div>
         </div>
 
-        <div class="w-full overflow-x-hidden">
-          <table class="w-full table-fixed text-left border-collapse">
+        <div class="w-full overflow-x-auto">
+          <table class="w-full min-w-[500px] sm:min-w-0 table-fixed text-left border-collapse">
             <thead>
               <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
                 <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[88px] sm:w-36 whitespace-nowrap">Meta</th>
+                ${this.showSimulationColumn ? `<th class="py-2.5 px-1 sm:px-3 text-right w-[88px] sm:w-36 whitespace-nowrap text-violet-800">🧪 Simulação</th>` : ""}
                 <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
               </tr>
             </thead>
             <tbody>
-              ${this.buildCategoryTreeRowsHTML("ALL_INCOME", this.budgetGroupMode === "MACRO" ? this.groupBudgetItemsByMacro("ALL_INCOME", activeIncomeItems) : activeIncomeItems, monthYear)}
+              ${this.buildCategoryTreeRowsHTML("ALL_INCOME", displayIncomeItems, monthYear)}
             </tbody>
             <tfoot>
               <tr class="bg-lime-900 text-white font-extrabold text-[10px] sm:text-sm">
                 <td class="py-3 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL RECEITAS</td>
                 <td class="py-3 px-1 sm:px-3 text-right text-lime-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalIncomeActual)}</td>
                 <td class="py-3 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalIncomeMeta)}</td>
+                ${this.showSimulationColumn ? `<td class="py-3 px-1 sm:px-3 text-right text-violet-200 whitespace-nowrap tabular-nums">${this.formatBRL(totalIncomeSim)}</td>` : ""}
                 <td class="py-3 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalIncomeDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
                   ${totalIncomeDiff >= 0 ? "+" : ""}${this.formatBRL(totalIncomeDiff)}
                 </td>
@@ -3896,24 +4063,26 @@ window.App = {
           </div>
         </div>
 
-        <div class="w-full overflow-x-hidden">
-          <table class="w-full table-fixed text-left border-collapse">
+        <div class="w-full overflow-x-auto">
+          <table class="w-full min-w-[500px] sm:min-w-0 table-fixed text-left border-collapse">
             <thead>
               <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
                 <th class="py-2.5 px-2 sm:px-4 w-auto">Categoria (Todas as Formas de Pagamento)</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[78px] sm:w-32 whitespace-nowrap">Realizado</th>
                 <th class="py-2.5 px-1 sm:px-3 text-right w-[88px] sm:w-36 whitespace-nowrap">Meta</th>
+                ${this.showSimulationColumn ? `<th class="py-2.5 px-1 sm:px-3 text-right w-[88px] sm:w-36 whitespace-nowrap text-violet-800">🧪 Simulação</th>` : ""}
                 <th class="py-2.5 px-1.5 sm:px-4 text-right w-[86px] sm:w-32 whitespace-nowrap">Saldo</th>
               </tr>
             </thead>
             <tbody>
-              ${this.buildCategoryTreeRowsHTML("ALL_ACCOUNTS", this.budgetGroupMode === "MACRO" ? this.groupBudgetItemsByMacro("ALL_ACCOUNTS", activeConsolidatedItems) : activeConsolidatedItems, monthYear)}
+              ${this.buildCategoryTreeRowsHTML("ALL_ACCOUNTS", displayConsolidatedItems, monthYear)}
             </tbody>
             <tfoot>
               <tr class="bg-stone-900 text-white font-extrabold text-[10px] sm:text-sm">
                 <td class="py-3.5 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL DESPESAS</td>
                 <td class="py-3.5 px-1 sm:px-3 text-right text-amber-300 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalAllActual)}</td>
                 <td class="py-3.5 px-1 sm:px-3 text-right text-stone-200 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalAllMeta)}</td>
+                ${this.showSimulationColumn ? `<td class="py-3.5 px-1 sm:px-3 text-right text-violet-300 whitespace-nowrap tabular-nums">${this.formatBRL(grandTotalAllSim)}</td>` : ""}
                 <td class="py-3.5 px-1.5 sm:px-4 text-right whitespace-nowrap tabular-nums ${grandTotalDiff >= 0 ? "text-lime-300" : "text-rose-300"}">
                   ${grandTotalDiff >= 0 ? "+" : ""}${this.formatBRL(grandTotalDiff)}
                 </td>
@@ -3923,6 +4092,115 @@ window.App = {
         </div>
 
         ${this.buildArchiveDrawerHTML("archive__ALL_ACCOUNTS", "ALL_ACCOUNTS", archivedConsolidatedSubs)}
+      </div>
+
+      <!-- ================================================================ -->
+      <!-- SALDO GERAL DO MÊS (RECEITAS X DESPESAS TOTAIS)                  -->
+      <!-- ================================================================ -->
+      <div class="oli-card rounded-3xl p-5 sm:p-6 bg-gradient-to-br from-stone-900 via-stone-850 to-stone-900 text-white shadow-md border border-stone-700/80 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-700/60 pb-3">
+          <div class="flex items-center gap-2.5 flex-wrap">
+            <div class="w-8 h-8 rounded-xl bg-lime-500/20 text-lime-400 flex items-center justify-center font-extrabold text-sm border border-lime-500/30">
+              <i data-lucide="scale" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm sm:text-base font-extrabold tracking-tight text-white flex items-center gap-2">
+                <span>Saldo Geral do Mês</span>
+                <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-stone-800 text-stone-300 border border-stone-700">
+                  Receitas &minus; Despesas Totais
+                </span>
+              </h3>
+              <p class="text-[11px] text-stone-400">
+                Visão consolidada do fluxo mensal (${userLabel})
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 self-start sm:self-center flex-wrap">
+            <button
+              type="button"
+              onclick="App.toggleSimulationColumn()"
+              class="px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs ${this.showSimulationColumn ? "bg-violet-600 hover:bg-violet-700 text-white border border-violet-500" : "bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700"}"
+            >
+              <i data-lucide="flask-conical" class="w-3.5 h-3.5 ${this.showSimulationColumn ? "text-white" : "text-violet-400"}"></i>
+              <span>${this.showSimulationColumn ? "Simulação Ativa" : "Ativar Simulação"}</span>
+            </button>
+
+            ${this.showSimulationColumn ? `
+              <button
+                type="button"
+                onclick="App.resetSimulationToMeta()"
+                class="px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white border border-stone-700 transition cursor-pointer"
+                title="Resetar todos os valores simulados para as Metas planejadas deste mês"
+              >
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-stone-400"></i>
+                <span>Resetar p/ Metas</span>
+              </button>
+            ` : ""}
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+          <!-- Card 1: Saldo Realizado -->
+          <div class="rounded-2xl p-4 bg-stone-800/80 border border-stone-700 flex flex-col justify-between space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-stone-400 uppercase tracking-wider text-[10px]">Saldo Realizado</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${netActual >= 0 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-rose-500/20 text-rose-300 border border-rose-500/30"}">
+                ${netActual >= 0 ? "Superávit Efetivo" : "Déficit Efetivo"}
+              </span>
+            </div>
+            <div class="text-xl sm:text-2xl font-black tabular-nums tracking-tight ${netActual >= 0 ? "text-emerald-400" : "text-rose-400"}">
+              ${netActual >= 0 ? "+" : ""}${this.formatBRL(netActual)}
+            </div>
+            <div class="text-[11px] text-stone-400 flex items-center justify-between pt-1 border-t border-stone-700/60 font-medium">
+              <span>Receitas: <strong class="text-lime-300">${this.formatBRL(totalIncomeActual)}</strong></span>
+              <span>Despesas: <strong class="text-amber-300">${this.formatBRL(grandTotalAllActual)}</strong></span>
+            </div>
+          </div>
+
+          <!-- Card 2: Saldo da Meta (Planejado) -->
+          <div class="rounded-2xl p-4 bg-stone-800/80 border border-stone-700 flex flex-col justify-between space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-stone-400 uppercase tracking-wider text-[10px]">Saldo da Meta (Planejado)</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${netMeta >= 0 ? "bg-lime-500/20 text-lime-300 border border-lime-500/30" : "bg-amber-500/20 text-amber-300 border border-amber-500/30"}">
+                ${netMeta >= 0 ? "Planejado Positivo" : "Planejado Negativo"}
+              </span>
+            </div>
+            <div class="text-xl sm:text-2xl font-black tabular-nums tracking-tight ${netMeta >= 0 ? "text-lime-300" : "text-amber-300"}">
+              ${netMeta >= 0 ? "+" : ""}${this.formatBRL(netMeta)}
+            </div>
+            <div class="text-[11px] text-stone-400 flex items-center justify-between pt-1 border-t border-stone-700/60 font-medium">
+              <span>Receitas: <strong class="text-stone-300">${this.formatBRL(totalIncomeMeta)}</strong></span>
+              <span>Despesas: <strong class="text-stone-300">${this.formatBRL(grandTotalAllMeta)}</strong></span>
+            </div>
+          </div>
+
+          <!-- Card 3: Saldo Simulado (Cenários) -->
+          <div class="rounded-2xl p-4 ${this.showSimulationColumn ? "bg-violet-950/40 border-violet-700/80" : "bg-stone-800/50 border-stone-700/60"} border flex flex-col justify-between space-y-2 transition">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold ${this.showSimulationColumn ? "text-violet-300" : "text-stone-400"} uppercase tracking-wider text-[10px] flex items-center gap-1">
+                <i data-lucide="flask-conical" class="w-3 h-3 text-violet-400"></i>
+                <span>Saldo Simulado (Cenário)</span>
+              </span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${this.showSimulationColumn ? (netSim >= 0 ? "bg-violet-500/30 text-violet-200 border border-violet-500/40" : "bg-rose-500/25 text-rose-300 border border-rose-500/30") : "bg-stone-700 text-stone-400"}">
+                ${this.showSimulationColumn ? (netSim >= 0 ? "Cenário Superávit" : "Cenário Déficit") : "Opcional"}
+              </span>
+            </div>
+            <div class="text-xl sm:text-2xl font-black tabular-nums tracking-tight ${this.showSimulationColumn ? (netSim >= 0 ? "text-violet-300" : "text-rose-400") : "text-stone-500"}">
+              ${this.showSimulationColumn ? `${netSim >= 0 ? "+" : ""}${this.formatBRL(netSim)}` : "—"}
+            </div>
+            <div class="text-[11px] ${this.showSimulationColumn ? "text-violet-300/80" : "text-stone-500"} flex items-center justify-between pt-1 border-t ${this.showSimulationColumn ? "border-violet-800/60" : "border-stone-700/60"} font-medium">
+              ${this.showSimulationColumn ? `
+                <span>vs Meta: <strong class="${diffSimVsMeta >= 0 ? "text-emerald-400" : "text-rose-400"}">${diffSimVsMeta >= 0 ? "+" : ""}${this.formatBRL(diffSimVsMeta)}</strong></span>
+                <span>vs Real: <strong class="${(netSim - netActual) >= 0 ? "text-emerald-400" : "text-rose-400"}">${(netSim - netActual) >= 0 ? "+" : ""}${this.formatBRL(netSim - netActual)}</strong></span>
+              ` : `
+                <button type="button" onclick="App.toggleSimulationColumn()" class="text-violet-400 hover:text-violet-300 underline font-bold cursor-pointer">
+                  Ativar simulação para prever saldo
+                </button>
+              `}
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ================================================================ -->
@@ -3994,6 +4272,7 @@ window.App = {
     const container = document.getElementById("projections-groups-container");
     if (!container) return;
     container.innerHTML = this.buildStructuredBudgetHTML(monthYear);
+    this.updateSimulationButtonUI();
   },
 
   // ==========================================================================
