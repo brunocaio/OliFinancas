@@ -55,6 +55,7 @@ window.App = {
   categoryPickerSelectedIndex: 0,
   importCategoriesSelection: new Set(),
   showSimulationColumn: false,
+  simulationAddInstallments: false,
   undoStack: [],
   lastSavedSnapshot: null,
   charts: {},
@@ -695,6 +696,7 @@ window.App = {
       this.state = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
     }
     this.showSimulationColumn = Boolean(this.state && this.state.settings && this.state.settings.showSimulationColumn);
+    this.simulationAddInstallments = Boolean(this.state && this.state.settings && this.state.settings.simulationAddInstallments);
     this.lastSavedSnapshot = JSON.stringify({
       state: this.state,
       stagedImports: this.stagedImports
@@ -3122,29 +3124,123 @@ window.App = {
     this.setCategoryMeta(accountId, subcategoryId, val);
   },
 
+  getInstallmentsInMonth(monthYear, userFilter = this.activeUserFilter) {
+    const allInstTxs = (this.state.transactions || []).filter(tx => {
+      if (!tx || tx.type !== "EXPENSE" || (Number(tx.installmentTotal) || 1) <= 1) return false;
+      if (tx.subcategoryId === "sub_financiamento_imob" || (tx.importHash && tx.importHash.startsWith("fin_"))) return false;
+      if (userFilter === "bruno") return tx.paidByUserId === "bruno" || tx.ownership === "INDIVIDUAL_BRUNO";
+      if (userFilter === "nubia") return tx.paidByUserId === "nubia" || tx.ownership === "INDIVIDUAL_NUBIA";
+      return true;
+    });
+
+    const monthToInt = (ym) => {
+      if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return 2026 * 12 + 11;
+      const [y, m] = ym.split("-").map(Number);
+      return y * 12 + m;
+    };
+
+    const seriesMap = new Map();
+    for (const tx of allInstTxs) {
+      const total = Number(tx.installmentTotal) || 1;
+      const current = Number(tx.installmentCurrent) || 1;
+      const baseName = this.getInstallmentBaseName(tx.description);
+      const normBase = window.StatementParser
+        ? window.StatementParser.normalizeText(baseName)
+        : baseName.toUpperCase();
+      const startMonthIdx = monthToInt(tx.competenceMonth) - current;
+      const amountCents = Math.round(Math.abs(Number(tx.amount)) * 100);
+      const key = `${tx.accountId}__${normBase}__${total}__${amountCents}__${startMonthIdx}`;
+
+      if (!seriesMap.has(key)) {
+        seriesMap.set(key, {
+          key,
+          baseName: baseName || tx.description,
+          accountId: tx.accountId,
+          total,
+          startMonthIdx,
+          parcelValue: Math.abs(Number(tx.amount)),
+          txs: []
+        });
+      }
+      seriesMap.get(key).txs.push(tx);
+    }
+
+    const targetIdx = monthToInt(monthYear);
+    const subMap = {};
+    const macroMap = {};
+    const seriesListInMonth = [];
+    let total = 0;
+
+    for (const s of seriesMap.values()) {
+      const parcelNum = targetIdx - s.startMonthIdx;
+      if (parcelNum >= 1 && parcelNum <= s.total) {
+        const activeTx = s.txs.find(t => t.competenceMonth === monthYear);
+        const displayTx = activeTx || s.txs[s.txs.length - 1];
+        const val = activeTx ? Math.abs(Number(activeTx.amount)) : s.parcelValue;
+        const subId = displayTx.subcategoryId || "sub_outros";
+        const sub = this.getSubcategory(subId);
+        const catId = sub ? sub.categoryId : "cat_outros";
+
+        subMap[subId] = (subMap[subId] || 0) + val;
+        macroMap[catId] = (macroMap[catId] || 0) + val;
+        total += val;
+
+        seriesListInMonth.push({
+          series: s,
+          parcelNum,
+          value: val,
+          subId,
+          catId
+        });
+      }
+    }
+
+    return { subMap, macroMap, total, count: seriesListInMonth.length, items: seriesListInMonth };
+  },
+
   getCategorySimulation(monthYear, subcategoryId, fallbackMeta = 0) {
     const simMap = (this.state.settings && this.state.settings.simulationValuesByMonth && this.state.settings.simulationValuesByMonth[monthYear]) || {};
+    let baseVal = fallbackMeta;
     if (simMap[subcategoryId] !== undefined && simMap[subcategoryId] !== null && simMap[subcategoryId] !== "") {
-      return Number(simMap[subcategoryId]);
+      baseVal = Number(simMap[subcategoryId]);
     }
-    return fallbackMeta;
+
+    if (this.simulationAddInstallments) {
+      const instData = this.getInstallmentsInMonth(monthYear);
+      const instVal = Number(instData.subMap[subcategoryId] || 0);
+      return baseVal + instVal;
+    }
+
+    return baseVal;
   },
 
   getMacroCategorySimulation(monthYear, categoryId) {
     const simMap = (this.state.settings && this.state.settings.simulationValuesByMonth && this.state.settings.simulationValuesByMonth[monthYear]) || {};
     const key = "macro__" + categoryId;
     if (simMap[key] !== undefined && simMap[key] !== null && simMap[key] !== "") {
-      return Number(simMap[key]);
+      let baseVal = Number(simMap[key]);
+      if (this.simulationAddInstallments) {
+        const instData = this.getInstallmentsInMonth(monthYear);
+        const instVal = Number(instData.macroMap[categoryId] || 0);
+        return baseVal + instVal;
+      }
+      return baseVal;
     }
     return null;
   },
 
   setCategorySimulation(accountId, subcategoryId, rawValue) {
     const monthYear = this.state.settings.activeMonth;
-    const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
+    let val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
     if (!this.state.settings) this.state.settings = {};
     if (!this.state.settings.simulationValuesByMonth) this.state.settings.simulationValuesByMonth = {};
     if (!this.state.settings.simulationValuesByMonth[monthYear]) this.state.settings.simulationValuesByMonth[monthYear] = {};
+
+    if (this.simulationAddInstallments) {
+      const instData = this.getInstallmentsInMonth(monthYear);
+      const instVal = Number(instData.subMap[subcategoryId] || 0);
+      val = Math.max(0, val - instVal);
+    }
 
     this.state.settings.simulationValuesByMonth[monthYear][subcategoryId] = val;
     this.saveState(true);
@@ -3155,16 +3251,36 @@ window.App = {
 
   setMacroCategorySimulation(accountId, categoryId, rawValue) {
     const monthYear = this.state.settings.activeMonth;
-    const val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
+    let val = Math.max(0, parseFloat(String(rawValue).replace(",", ".")) || 0);
     if (!this.state.settings) this.state.settings = {};
     if (!this.state.settings.simulationValuesByMonth) this.state.settings.simulationValuesByMonth = {};
     if (!this.state.settings.simulationValuesByMonth[monthYear]) this.state.settings.simulationValuesByMonth[monthYear] = {};
+
+    if (this.simulationAddInstallments) {
+      const instData = this.getInstallmentsInMonth(monthYear);
+      const instVal = Number(instData.macroMap[categoryId] || 0);
+      val = Math.max(0, val - instVal);
+    }
 
     this.state.settings.simulationValuesByMonth[monthYear]["macro__" + categoryId] = val;
     this.saveState(true);
     this.renderAll();
     const cat = this.getCategory(categoryId);
     this.showToast(`🧪 Simulação de "${cat ? cat.name : categoryId}" definida para ${this.formatBRL(val)}!`, "info");
+  },
+
+  toggleSimulationAddInstallments() {
+    this.simulationAddInstallments = !this.simulationAddInstallments;
+    if (!this.state.settings) this.state.settings = {};
+    this.state.settings.simulationAddInstallments = this.simulationAddInstallments;
+    this.saveState(true);
+    this.renderAll();
+    const instData = this.getInstallmentsInMonth(this.state.settings.activeMonth);
+    if (this.simulationAddInstallments) {
+      this.showToast(`🧪 Parcelas somadas à simulação de cada categoria (+${this.formatBRL(instData.total)})!`, "success");
+    } else {
+      this.showToast("🧪 Simulação voltou aos valores base (sem somar parcelas).", "info");
+    }
   },
 
   copyMetaToSimulation(accountId, targetId, isMacro) {
@@ -3286,6 +3402,7 @@ window.App = {
   buildCategoryTreeRowsHTML(accountId, items, monthYear) {
     const isMetaEditable = accountId === "ALL_INCOME" || accountId === "ALL_ACCOUNTS";
     const colSpanTotal = isMetaEditable ? (this.showSimulationColumn ? 5 : 4) : 3;
+    const instData = this.getInstallmentsInMonth(monthYear);
 
     if (items.length === 0) {
       return `
@@ -3425,6 +3542,9 @@ window.App = {
           ? `App.copyMetaToSimulation('${accountId}', '${item.cat.id}', true)`
           : `App.copyMetaToSimulation('${accountId}', '${item.sub.id}', false)`;
         const itemSim = item.sim !== undefined ? item.sim : item.meta;
+        const itemInstVal = isMacroRow
+          ? Number(instData.macroMap[item.cat.id] || 0)
+          : Number(instData.subMap[item.sub.id] || 0);
 
         const treeChildrenHTML = isExpanded
           ? `
@@ -3705,6 +3825,14 @@ window.App = {
                   class="w-full rounded-lg px-1 sm:px-2.5 py-1.5 text-right font-extrabold text-[10px] sm:text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-violet-600 transition bg-violet-50/70 text-violet-900 border border-violet-200/80"
                 />
               </div>
+              ${
+                itemInstVal > 0
+                  ? `<div class="text-[9px] sm:text-[10px] text-violet-700 font-bold mt-0.5 flex items-center justify-end gap-1" title="Parcelas de compras parceladas deste mês: ${this.formatBRL(itemInstVal)} ${this.simulationAddInstallments ? "(já somadas acima)" : "(clique em '+ Somar Parcelas' no topo para somar)"}">
+                      <i data-lucide="layers" class="w-2.5 h-2.5 shrink-0 text-violet-500"></i>
+                      <span>+${this.formatBRL(itemInstVal)} parc.</span>
+                    </div>`
+                  : ""
+              }
             </td>
             `
                 : ""
@@ -3895,6 +4023,7 @@ window.App = {
 
     const activeConsolidatedItems = [];
     const archivedConsolidatedSubs = [];
+    const instSummary = this.getInstallmentsInMonth(monthYear);
 
     expenseSubcategories.forEach(sub => {
       const subTxs = monthTxs.filter(t => allUserAccountIds.includes(t.accountId) && t.subcategoryId === sub.id)
@@ -3903,8 +4032,9 @@ window.App = {
       const actual = subTxs.reduce((s, t) => s + Number(t.amount), 0);
       const meta = subProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
       const isExplicit = this.isCategoryExplicitlyActive(monthYear, sub.categoryId, sub.id);
+      const hasInstallment = Boolean(instSummary.subMap[sub.id] && instSummary.subMap[sub.id] > 0);
 
-      if (subTxs.length > 0 || meta > 0 || isExplicit) {
+      if (subTxs.length > 0 || meta > 0 || isExplicit || (this.simulationAddInstallments && hasInstallment)) {
         const ownership = (subProjs[0] && subProjs[0].ownership) || (subTxs[0] && subTxs[0].ownership) || this.resolveDefaultOwnership(sub.id);
         const sim = this.getCategorySimulation(monthYear, sub.id, meta);
         activeConsolidatedItems.push({
@@ -4433,6 +4563,19 @@ window.App = {
             ${this.showSimulationColumn ? `
               <button
                 type="button"
+                onclick="App.toggleSimulationAddInstallments()"
+                class="px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs ${this.simulationAddInstallments ? "bg-violet-600 hover:bg-violet-700 text-white border border-violet-400" : "bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700"}"
+                title="Somar as parcelas de compras parceladas deste mês à simulação de cada categoria"
+              >
+                <i data-lucide="layers" class="w-3.5 h-3.5 ${this.simulationAddInstallments ? "text-white" : "text-violet-400"}"></i>
+                <span>${this.simulationAddInstallments ? "Parcelas Somadas" : "+ Somar Parcelas"}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full ${this.simulationAddInstallments ? "bg-violet-800 text-violet-100" : "bg-stone-700 text-stone-300"} font-extrabold whitespace-nowrap">
+                  +${this.formatBRL(instSummary.total)}
+                </span>
+              </button>
+
+              <button
+                type="button"
                 onclick="App.resetSimulationToMeta()"
                 class="px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white border border-stone-700 transition cursor-pointer"
                 title="Resetar todos os valores simulados para as Metas planejadas deste mês"
@@ -4495,8 +4638,11 @@ window.App = {
             </div>
             <div class="text-[11px] ${this.showSimulationColumn ? "text-violet-300/80" : "text-stone-500"} flex items-center justify-between pt-1 border-t ${this.showSimulationColumn ? "border-violet-800/60" : "border-stone-700/60"} font-medium">
               ${this.showSimulationColumn ? `
-                <span>vs Meta: <strong class="${diffSimVsMeta >= 0 ? "text-emerald-400" : "text-rose-400"}">${diffSimVsMeta >= 0 ? "+" : ""}${this.formatBRL(diffSimVsMeta)}</strong></span>
-                <span>vs Real: <strong class="${(netSim - netActual) >= 0 ? "text-emerald-400" : "text-rose-400"}">${(netSim - netActual) >= 0 ? "+" : ""}${this.formatBRL(netSim - netActual)}</strong></span>
+                <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 w-full">
+                  <span>vs Meta: <strong class="${diffSimVsMeta >= 0 ? "text-emerald-400" : "text-rose-400"}">${diffSimVsMeta >= 0 ? "+" : ""}${this.formatBRL(diffSimVsMeta)}</strong></span>
+                  ${this.simulationAddInstallments && instSummary.total > 0 ? `<span>• Parc: <strong class="text-violet-300 font-bold">+${this.formatBRL(instSummary.total)}</strong></span>` : ""}
+                  <span>vs Real: <strong class="${(netSim - netActual) >= 0 ? "text-emerald-400" : "text-rose-400"}">${(netSim - netActual) >= 0 ? "+" : ""}${this.formatBRL(netSim - netActual)}</strong></span>
+                </div>
               ` : `
                 <button type="button" onclick="App.toggleSimulationColumn()" class="text-violet-400 hover:text-violet-300 underline font-bold cursor-pointer">
                   Ativar simulação para prever saldo
