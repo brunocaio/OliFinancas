@@ -498,14 +498,14 @@ window.StatementParser = {
   autoClassify(description, amount, isCreditCard, subcategories, projections, competenceMonth, ownerId = "bruno", state = null) {
     const normDesc = this.normalizeText(description);
 
-    const faturaKeywords = ["PAGAMENTO DE FATURA", "PAGTO FATURA", "PAGAMENTO FATURA", "PAGAMENTO RECEBIDO", "FATURA CARTAO", "DEBITO AUTOMATICO FATURA"];
+    const faturaKeywords = ["PAGAMENTO DE FATURA", "PAGTO FATURA", "PAGAMENTO FATURA", "PAGAMENTO RECEBIDO", "FATURA CARTAO", "DEBITO AUTOMATICO FATURA", "NU PAGAMENTOS S/A", "NU PAGAMENTOS SA"];
     if (isCreditCard) {
       faturaKeywords.push("PAGAMENTO EFETUADO", "PAGTO EFETUADO");
     }
     for (const kw of faturaKeywords) {
       if (normDesc.includes(kw)) {
         return {
-          type: "EXPENSE",
+          type: "TRANSFER",
           subcategoryId: "sub_pag_fatura",
           ownership: "COLLECTIVE",
           projectionId: null,
@@ -624,9 +624,17 @@ window.StatementParser = {
     const matchedProj = monthProjections.find(p => p.subcategoryId === matchedSub.id) || null;
 
     let txType = "EXPENSE";
-    if (matchedSub.categoryId === "cat_receitas") {
+    const matchedCat = state && Array.isArray(state.categories)
+      ? state.categories.find(c => c.id === matchedSub.categoryId)
+      : null;
+    if (matchedSub.categoryId === "cat_receitas" || (matchedCat && matchedCat.type === "INCOME")) {
       txType = "INCOME";
-    } else if (matchedSub.categoryId === "cat_transferencia") {
+    } else if (
+      matchedSub.categoryId === "cat_transferencia" ||
+      matchedSub.categoryId === "cat_pagamento_fatura" ||
+      matchedSub.id === "sub_pag_fatura" ||
+      (matchedCat && matchedCat.type === "TRANSFER")
+    ) {
       txType = "TRANSFER";
     }
 
@@ -759,11 +767,14 @@ window.StatementParser = {
         ? this.findSiblingInstallmentClassification(candidateForSibling, state)
         : null;
       const pixInfo = this.extractTransferPixDetails(description, finalType, account);
+      const resolvedSubcategoryId = siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId;
+      const isCardInvoicePayment = Boolean(isCreditCard && resolvedSubcategoryId === "sub_pag_fatura");
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists,
+        selected: !alreadyExists && !isCardInvoicePayment,
         alreadyExists,
+        isCardInvoicePayment,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
         cycleCompetenceMonth: itemCycleMonth,
@@ -778,7 +789,7 @@ window.StatementParser = {
         accountId: account.id,
         paidByUserId: account.ownerId || "bruno",
         ownership: siblingMatch ? siblingMatch.ownership : classification.ownership,
-        subcategoryId: siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId,
+        subcategoryId: resolvedSubcategoryId,
         projectionId: classification.projectionId,
         installmentCurrent: inst.current,
         installmentTotal: inst.total,
@@ -957,11 +968,14 @@ window.StatementParser = {
         ? this.findSiblingInstallmentClassification(candidateForSibling, state)
         : null;
       const pixInfo = this.extractTransferPixDetails(rawDesc, finalType, account);
+      const resolvedSubcategoryId = siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId;
+      const isCardInvoicePayment = Boolean(isCreditCard && resolvedSubcategoryId === "sub_pag_fatura");
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists,
+        selected: !alreadyExists && !isCardInvoicePayment,
         alreadyExists,
+        isCardInvoicePayment,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
         cycleCompetenceMonth: itemCycleMonth,
@@ -976,7 +990,7 @@ window.StatementParser = {
         accountId: account.id,
         paidByUserId: account.ownerId || "bruno",
         ownership: siblingMatch ? siblingMatch.ownership : classification.ownership,
-        subcategoryId: siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId,
+        subcategoryId: resolvedSubcategoryId,
         projectionId: classification.projectionId,
         installmentCurrent: inst.current,
         installmentTotal: inst.total,
@@ -1410,6 +1424,8 @@ VERSION:102
         ? this.findSiblingInstallmentClassification(candidateForSibling, state)
         : null;
       const pixInfo = this.extractTransferPixDetails(description, finalType, account);
+      const resolvedSubcategoryId = siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId;
+      const isCardInvoicePayment = Boolean(isCreditCard && resolvedSubcategoryId === "sub_pag_fatura");
 
       let defaultNote = (siblingMatch && siblingMatch.notes) || "";
       if (!defaultNote && cardEnding && isCreditCard) {
@@ -1418,8 +1434,9 @@ VERSION:102
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists,
+        selected: !alreadyExists && !isCardInvoicePayment,
         alreadyExists,
+        isCardInvoicePayment,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
         cycleCompetenceMonth: itemCycleMonth,
@@ -1434,7 +1451,7 @@ VERSION:102
         accountId: account.id,
         paidByUserId: account.ownerId || "bruno",
         ownership: siblingMatch ? siblingMatch.ownership : classification.ownership,
-        subcategoryId: siblingMatch ? siblingMatch.subcategoryId : classification.subcategoryId,
+        subcategoryId: resolvedSubcategoryId,
         projectionId: classification.projectionId,
         installmentCurrent: inst.current,
         installmentTotal: inst.total,

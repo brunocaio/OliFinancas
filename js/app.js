@@ -667,6 +667,71 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 14: trata "Pagamento de Fatura" como TRANSFER (liquidação de fatura)
+    // para não duplicar despesas nos gráficos/metas, mantendo abatimento no saldo da conta corrente,
+    // e remove lançamentos "Pagamento recebido" negativos de dentro dos cartões de crédito
+    if ((stateObj.schemaPatch || 0) < 14) {
+      if (Array.isArray(stateObj.categories)) {
+        const catFatura = stateObj.categories.find(c => c.id === "cat_pagamento_fatura");
+        if (catFatura) {
+          catFatura.type = "TRANSFER";
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(stateObj.subcategories)) {
+        const subFatura = stateObj.subcategories.find(s => s.id === "sub_pag_fatura");
+        if (subFatura) {
+          subFatura.categoryId = "cat_pagamento_fatura";
+          const reqKws = ["PAGAMENTO DE FATURA", "PAGTO FATURA", "FATURA CARTAO", "NU PAGAMENTOS S/A", "DEBITO AUTOMATICO FATURA"];
+          if (!Array.isArray(subFatura.keywords)) subFatura.keywords = [];
+          reqKws.forEach(kw => {
+            if (!subFatura.keywords.includes(kw)) subFatura.keywords.push(kw);
+          });
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(stateObj.transactions)) {
+        const accMap = new Map((stateObj.accounts || []).map(a => [a.id, a]));
+        const beforeLen = stateObj.transactions.length;
+        stateObj.transactions = stateObj.transactions.filter(tx => {
+          if (!tx) return false;
+          const acc = accMap.get(tx.accountId);
+          const isCard = acc && acc.type === "CREDIT_CARD";
+          const desc = (tx.description || "").trim();
+          if (isCard && (tx.subcategoryId === "sub_pag_fatura" || /^PAGAMENTO\s+(RECEBIDO|EFETUADO|DE\s+FATURA)/i.test(desc))) {
+            return false;
+          }
+          return true;
+        });
+        if (stateObj.transactions.length !== beforeLen) {
+          changed = true;
+        }
+
+        stateObj.transactions.forEach(tx => {
+          if (!tx) return;
+          const acc = accMap.get(tx.accountId);
+          const isCard = acc && acc.type === "CREDIT_CARD";
+          const desc = (tx.description || "").trim();
+          if (
+            !isCard &&
+            (tx.subcategoryId === "sub_pag_fatura" ||
+              /NU\s+PAGAMENTOS\s+S\/?A|PAGAMENTO\s+DE\s+FATURA|PAGTO\s+FATURA|FATURA\s+CARTAO|DEBITO\s+AUTOMATICO\s+FATURA/i.test(desc))
+          ) {
+            tx.subcategoryId = "sub_pag_fatura";
+            tx.type = "TRANSFER";
+            tx.projectionId = null;
+            tx.amount = Math.abs(Number(tx.amount) || 0);
+            changed = true;
+          }
+        });
+      }
+
+      stateObj.schemaPatch = 14;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -1076,6 +1141,10 @@ window.App = {
 
   getTransferDirection(tx) {
     if (!tx) return "OUT";
+    if (tx.subcategoryId === "sub_pag_fatura") {
+      const acc = this.getAccount(tx.accountId);
+      return (acc && acc.type === "CREDIT_CARD") ? "IN" : "OUT";
+    }
     const desc = (tx.description || "").toLowerCase();
     const orig = (tx.originLabel || "").toLowerCase();
     const dest = (tx.destinationLabel || "").toLowerCase();
@@ -6267,9 +6336,7 @@ window.App = {
     let extraMoved = 0;
     if (similarTxs.length > 0 && confirm(`Encontramos mais ${similarTxs.length} lançamento(s) neste mês contendo "${normKw}" em Outros/Parceladas.\nDeseja recategorizá-los para "${sub.name}" agora?`)) {
       similarTxs.forEach(st => {
-        const acc = this.getAccount(st.accountId);
-        st.subcategoryId = sub.id;
-        st.ownership = this.resolveDefaultOwnership(sub.id, acc.ownerId || st.paidByUserId);
+        this.applySubcategoryToTx(st, sub.id);
         extraMoved++;
       });
     }
@@ -7043,9 +7110,9 @@ window.App = {
               ${item.memoryMatched && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-lime-100 text-lime-800 text-[10px] font-bold mt-0.5 mr-1">🧠 Memória do histórico</span>` : ""}
               ${isIncome && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5 mr-1">↓ Entrada</span>` : ""}
               ${!isIncome && isCheckingImport && item.type === "EXPENSE" && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-bold mt-0.5 mr-1">↑ Saída</span>` : ""}
-              ${isCredit ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
+              ${isCredit && !item.isCardInvoicePayment ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
-              ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">⇄ Transferência entre contas próprias</span>` : ""}
+              ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">${item.subcategoryId === "sub_pag_fatura" ? (item.isCardInvoicePayment ? "💳 Quitação de fatura anterior no cartão (Ignorado p/ não duplicar)" : "💳 Pagamento de fatura (Abate saldo da Conta Corrente sem duplicar despesas)") : "⇄ Transferência entre contas próprias"}</span>` : ""}
             </td>
             <td class="py-2.5 px-3">
               <button
