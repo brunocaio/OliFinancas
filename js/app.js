@@ -674,7 +674,16 @@ window.App = {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         this.state = JSON.parse(saved);
-        if (this.upgradeStateToLatest(this.state)) {
+        if (
+          (!this.state.transactions || this.state.transactions.length === 0) &&
+          window.INITIAL_SEED_DATA &&
+          Array.isArray(window.INITIAL_SEED_DATA.transactions) &&
+          window.INITIAL_SEED_DATA.transactions.length > 0
+        ) {
+          console.warn("Estado local vazio detectado. Restaurando a partir do backup estruturado...");
+          this.state = JSON.parse(JSON.stringify(window.INITIAL_SEED_DATA));
+          this.saveState(true, false);
+        } else if (this.upgradeStateToLatest(this.state)) {
           this.saveState(true, false);
         }
       } else {

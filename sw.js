@@ -1,4 +1,4 @@
-const CACHE_NAME = 'olifinancas-v62';
+const CACHE_NAME = 'olifinancas-v63';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -11,11 +11,11 @@ const ASSETS_TO_CACHE = [
   './icons/icon-512.png',
   './icons/icon-maskable.png',
   './icons/mascot-ghibli.png',
-  './js/app.js?v=62',
-  './js/data-seed.js?v=62',
-  './js/housing-financing.js?v=62',
-  './js/ofx-csv-parser.js?v=62',
-  './js/supabase-sync.js?v=62'
+  './js/app.js?v=63',
+  './js/data-seed.js?v=63',
+  './js/housing-financing.js?v=63',
+  './js/ofx-csv-parser.js?v=63',
+  './js/supabase-sync.js?v=63'
 ];
 
 self.addEventListener('install', (event) => {
