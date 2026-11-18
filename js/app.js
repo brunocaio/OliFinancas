@@ -6810,27 +6810,32 @@ window.App = {
   // ==========================================================================
   recalculateStagedCompetence() {
     if (!this.stagedImports || this.stagedImports.length === 0 || !window.StatementParser) return;
-    const account = this.getAccount(this.importTargetAccountId);
+    const defaultAccount = this.getAccount(this.importTargetAccountId);
     const mode = this.importCompetenceMode || "SMART_INVOICE";
     const activeMonth = this.state.settings.activeMonth;
 
     let forcedMonth = null;
     if (/^\d{4}-\d{2}$/.test(mode)) {
       forcedMonth = mode;
-    } else if (mode === "SMART_INVOICE" && account.type === "CREDIT_CARD") {
+    } else if (mode === "SMART_INVOICE" && defaultAccount && defaultAccount.type === "CREDIT_CARD") {
       forcedMonth = window.StatementParser.inferInvoiceMonthFromDates(
         this.stagedImports.map(i => i.transactionDate),
-        account,
+        defaultAccount,
         activeMonth
       );
     }
 
     this.stagedImports.forEach(item => {
-      item.accountId = account.id;
-      item.paidByUserId = account.ownerId || "bruno";
+      const itemAcc = (item.accountId && this.getAccount(item.accountId)) || defaultAccount;
+      if (!item.accountId && defaultAccount) {
+        item.accountId = defaultAccount.id;
+      }
+      if (itemAcc) {
+        item.paidByUserId = itemAcc.ownerId || "bruno";
+      }
       const cycleMonth = window.StatementParser.computeCompetenceMonth(
         item.transactionDate,
-        account,
+        itemAcc || defaultAccount,
         activeMonth
       );
       item.cycleCompetenceMonth = cycleMonth;
@@ -7030,6 +7035,7 @@ window.App = {
             <td class="py-2.5 px-3">
               <div class="font-bold text-stone-800 flex items-center gap-1.5 flex-wrap">
                 <span>${item.description}</span>
+                ${item.accountId ? `<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold" style="background:${(this.getAccount(item.accountId) || {}).color || "#84cc16"}22; color:${(this.getAccount(item.accountId) || {}).color || "#4d7c0f"}">${this.escapeHTML((this.getAccount(item.accountId) || {}).name || "")}</span>` : ""}
                 ${!item.alreadyExists ? this.buildTxNoteBadgeHTML(null, item.notes, idx) : ""}
                 ${!item.alreadyExists ? this.buildPixFlowBadgesHTML(null, item, idx) : ""}
                 ${sameStagedBtnHTML}
@@ -7185,96 +7191,283 @@ window.App = {
     this.showToast(`🫒 ${parsed.length} lançamentos prontos para revisão (${detectedMonths.join(", ")})!`, "success");
   },
 
+  setImportLoading(isLoading, text = "Processando extratos...") {
+    const idleEl = document.getElementById("import-drop-zone-idle");
+    const loadEl = document.getElementById("import-drop-zone-loading");
+    const textEl = document.getElementById("import-drop-zone-loading-text");
+    const dropZone = document.getElementById("import-drop-zone");
+
+    if (textEl && text) {
+      textEl.textContent = text;
+    }
+
+    if (isLoading) {
+      if (idleEl) idleEl.classList.add("hidden");
+      if (loadEl) loadEl.classList.remove("hidden");
+      if (dropZone) {
+        dropZone.classList.add("border-lime-600", "bg-lime-50/70");
+        dropZone.style.pointerEvents = "none";
+      }
+    } else {
+      if (idleEl) idleEl.classList.remove("hidden");
+      if (loadEl) loadEl.classList.add("hidden");
+      if (dropZone) {
+        dropZone.classList.remove("border-lime-600", "bg-lime-50/70", "bg-lime-100/70", "ring-2", "ring-lime-500/40", "scale-[1.01]");
+        dropZone.style.pointerEvents = "";
+      }
+    }
+  },
+
+  handleImportDragEnter(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dropZone = document.getElementById("import-drop-zone");
+    if (dropZone) {
+      dropZone.classList.add("border-lime-600", "bg-lime-100/70", "ring-2", "ring-lime-500/40", "scale-[1.01]");
+    }
+  },
+
+  handleImportDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "copy";
+    }
+    const dropZone = document.getElementById("import-drop-zone");
+    if (dropZone && !dropZone.classList.contains("border-lime-600")) {
+      dropZone.classList.add("border-lime-600", "bg-lime-100/70", "ring-2", "ring-lime-500/40", "scale-[1.01]");
+    }
+  },
+
+  handleImportDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dropZone = document.getElementById("import-drop-zone");
+    if (dropZone && !dropZone.contains(e.relatedTarget)) {
+      dropZone.classList.remove("border-lime-600", "bg-lime-100/70", "ring-2", "ring-lime-500/40", "scale-[1.01]");
+    }
+  },
+
+  handleImportDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dropZone = document.getElementById("import-drop-zone");
+    if (dropZone) {
+      dropZone.classList.remove("border-lime-600", "bg-lime-100/70", "ring-2", "ring-lime-500/40", "scale-[1.01]");
+    }
+    const files = e.dataTransfer ? e.dataTransfer.files : null;
+    if (files && files.length > 0) {
+      this.handleStatementFileUpload(files);
+    }
+  },
+
+  resolveAccountForFile(file, fallbackAccountId) {
+    const accounts = this.state.accounts || [];
+    const defaultAcc = this.getAccount(fallbackAccountId) || accounts[0];
+    if (!file || !file.name) return defaultAcc;
+
+    const rawName = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+
+    const isItau = rawName.includes("ITAU");
+    const isNubank = rawName.includes("NUBANK") || rawName.includes("NU_") || rawName.includes("NUPAY");
+    const isBB = rawName.includes("BRASIL") || rawName.includes("OUROCARD") || /\bBB\b/.test(rawName);
+    const isInter = rawName.includes("INTER");
+
+    const isCardHint = isPdf || rawName.includes("FATURA") || rawName.includes("CARTAO") || rawName.includes("CREDIT");
+    const isCheckingHint = rawName.includes("EXTRATO") || rawName.includes("CONTA") || rawName.includes("CC") || rawName.includes("CHECKING");
+
+    let bankMatches = [];
+    if (isItau) {
+      bankMatches = accounts.filter(a => {
+        const aName = (a.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        return aName.includes("ITAU");
+      });
+    } else if (isNubank) {
+      bankMatches = accounts.filter(a => {
+        const aName = (a.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        return aName.includes("NUBANK");
+      });
+    } else if (isBB) {
+      bankMatches = accounts.filter(a => {
+        const aName = (a.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        return aName.includes("BRASIL") || aName.includes("BB") || aName.includes("OUROCARD");
+      });
+    } else if (isInter) {
+      bankMatches = accounts.filter(a => {
+        const aName = (a.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        return aName.includes("INTER");
+      });
+    }
+
+    if (bankMatches.length > 0) {
+      if (isCardHint) {
+        const card = bankMatches.find(a => a.type === "CREDIT_CARD");
+        if (card) return card;
+      }
+      if (isCheckingHint) {
+        const checking = bankMatches.find(a => a.type === "CHECKING");
+        if (checking) return checking;
+      }
+      if (isPdf && isItau) {
+        const card = bankMatches.find(a => a.type === "CREDIT_CARD");
+        if (card) return card;
+      }
+      return bankMatches[0];
+    }
+
+    return defaultAcc;
+  },
+
+  async parsePdfFile(file, account, monthYear) {
+    const buffer = await file.arrayBuffer();
+    let password = null;
+    let parsed = null;
+    while (true) {
+      try {
+        parsed = await window.StatementParser.parseItauPDF(
+          buffer.slice(0),
+          account,
+          monthYear,
+          this.state,
+          this.importCompetenceMode,
+          password
+        );
+        break;
+      } catch (pdfErr) {
+        if (pdfErr && (pdfErr.name === "PasswordException" || /password/i.test(pdfErr.message || ""))) {
+          const promptMsg = password === null
+            ? `O PDF "${file.name}" do Itaú está protegido por senha (geralmente os primeiros dígitos do CPF). Informe a senha para abrir:`
+            : `Senha incorreta para "${file.name}". Tente novamente:`;
+          const entered = prompt(promptMsg, "");
+          if (entered === null) {
+            return null;
+          }
+          password = entered.trim();
+        } else {
+          throw pdfErr;
+        }
+      }
+    }
+    return parsed;
+  },
+
+  readTextFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = (e) => reject(e);
+      reader.readAsText(file, "UTF-8");
+    });
+  },
+
   async handleStatementFileUpload(fileList, inputEl = null) {
     if (!fileList || fileList.length === 0) return;
-    const file = fileList[0];
-    const accId = document.getElementById("import-account-select").value;
-    this.importTargetAccountId = accId;
-    const account = this.getAccount(accId);
+    const files = Array.from(fileList);
+    const accSelect = document.getElementById("import-account-select");
+    const defaultAccId = (accSelect && accSelect.value) || this.importTargetAccountId || "cc_bruno";
+    this.importTargetAccountId = defaultAccId;
     const monthYear = this.state.settings.activeMonth;
     const compSelect = document.getElementById("import-competence-select");
     this.importCompetenceMode = (compSelect && compSelect.value) || "SMART_INVOICE";
 
-    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+    this.setImportLoading(true, files.length > 1 ? `Lendo 1 de ${files.length}: ${files[0].name}...` : `Lendo ${files[0].name}...`);
 
-    if (isPdf) {
-      const accNameNorm = window.StatementParser
-        ? window.StatementParser.normalizeText(account ? account.name : "")
-        : (account ? account.name.toUpperCase() : "");
-      if (!accNameNorm.includes("ITAU")) {
-        this.showToast("Importação de PDF foi feita para o Itaú (para Nubank/BB prefira .OFX). Lendo arquivo...", "info");
-      }
+    const allParsedTxs = [];
+    const processedFiles = [];
+    const errors = [];
+    let combinedRange = { dtStart: null, dtEnd: null };
+    let primaryAccount = this.getAccount(defaultAccId);
 
-      try {
-        const buffer = await file.arrayBuffer();
-        let password = null;
-        let parsed = null;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileAccount = this.resolveAccountForFile(file, defaultAccId);
+        if (i === 0) primaryAccount = fileAccount;
 
-        while (true) {
-          try {
-            parsed = await window.StatementParser.parseItauPDF(
-              buffer.slice(0),
-              account,
-              monthYear,
-              this.state,
-              this.importCompetenceMode,
-              password
-            );
-            break;
-          } catch (pdfErr) {
-            if (pdfErr && (pdfErr.name === "PasswordException" || /password/i.test(pdfErr.message || ""))) {
-              const promptMsg = password === null
-                ? "Este PDF do Itaú está protegido por senha (geralmente os primeiros dígitos do CPF). Informe a senha para abrir:"
-                : "Senha incorreta para este PDF do Itaú. Tente novamente:";
-              const entered = prompt(promptMsg, "");
-              if (entered === null) {
-                if (inputEl) inputEl.value = "";
-                return;
-              }
-              password = entered.trim();
+        this.setImportLoading(true, files.length > 1 ? `Lendo ${i + 1} de ${files.length}: ${file.name}...` : `Processando ${file.name}...`);
+
+        const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+
+        try {
+          if (isPdf) {
+            const accNameNorm = (fileAccount ? fileAccount.name : "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+            if (!accNameNorm.includes("ITAU")) {
+              this.showToast(`Importando PDF para "${fileAccount ? fileAccount.name : 'Itaú'}".`, "info");
+            }
+            const parsed = await this.parsePdfFile(file, fileAccount, monthYear);
+            if (!parsed) continue;
+            if (parsed.length === 0) {
+              errors.push(`${file.name}: nenhum lançamento reconhecido`);
             } else {
-              throw pdfErr;
+              parsed.forEach(tx => {
+                if (!tx.accountId) tx.accountId = fileAccount ? fileAccount.id : defaultAccId;
+                tx._sourceFile = file.name;
+              });
+              allParsedTxs.push(...parsed);
+              processedFiles.push(file.name);
+            }
+          } else {
+            const content = await this.readTextFile(file);
+            const isOFX = file.name.toLowerCase().endsWith(".ofx") || content.includes("<OFX>") || content.includes("<STMTTRN>");
+            const parsed = isOFX
+              ? window.StatementParser.parseOFX(content, fileAccount, monthYear, this.state, this.importCompetenceMode)
+              : window.StatementParser.parseCSV(content, fileAccount, monthYear, this.state, this.importCompetenceMode);
+
+            if (!parsed || parsed.length === 0) {
+              errors.push(`${file.name}: nenhuma transação encontrada`);
+            } else {
+              parsed.forEach(tx => {
+                if (!tx.accountId) tx.accountId = fileAccount ? fileAccount.id : defaultAccId;
+                tx._sourceFile = file.name;
+              });
+              allParsedTxs.push(...parsed);
+              processedFiles.push(file.name);
+
+              if (isOFX && window.StatementParser.extractOFXDateRange) {
+                const r = window.StatementParser.extractOFXDateRange(content);
+                if (r && r.dtStart && (!combinedRange.dtStart || r.dtStart < combinedRange.dtStart)) combinedRange.dtStart = r.dtStart;
+                if (r && r.dtEnd && (!combinedRange.dtEnd || r.dtEnd > combinedRange.dtEnd)) combinedRange.dtEnd = r.dtEnd;
+              }
             }
           }
+        } catch (fileErr) {
+          console.error(`Erro ao processar arquivo ${file.name}:`, fileErr);
+          errors.push(`${file.name}: erro na leitura`);
         }
+      }
+    } finally {
+      this.setImportLoading(false);
+      if (inputEl) inputEl.value = "";
+    }
 
-        if (inputEl) inputEl.value = "";
-        if (!parsed || parsed.length === 0) {
-          this.showToast("Nenhum lançamento reconhecido neste PDF do Itaú (verifique se o arquivo possui texto selecionável).", "error");
-          return;
-        }
-        this.stageParsedStatement(parsed, file.name, account, monthYear);
-      } catch (err) {
-        if (inputEl) inputEl.value = "";
-        console.error("Erro ao importar PDF Itaú:", err);
-        this.showToast("Não foi possível ler este PDF do Itaú. Verifique o arquivo ou tente outra versão.", "error");
+    if (allParsedTxs.length === 0) {
+      if (errors.length > 0) {
+        this.showToast(`Nenhum lançamento importado (${errors.join("; ")}).`, "error");
       }
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target.result;
-      const isOFX = file.name.toLowerCase().endsWith(".ofx") || content.includes("<OFX>") || content.includes("<STMTTRN>");
-
-      const parsed = isOFX
-        ? window.StatementParser.parseOFX(content, account, monthYear, this.state, this.importCompetenceMode)
-        : window.StatementParser.parseCSV(content, account, monthYear, this.state, this.importCompetenceMode);
-
-      if (inputEl) inputEl.value = "";
-
-      if (parsed.length === 0) {
-        this.showToast("Nenhuma transação encontrada neste arquivo.", "error");
-        return;
+    // Deduplicação inteligente de transações no lote
+    const seenKeys = new Set();
+    const deduplicatedTxs = [];
+    for (const tx of allParsedTxs) {
+      const key = tx.fitid || tx.importHash || `${tx.accountId || ""}_${tx.transactionDate}_${Math.round((tx.amount || 0) * 100)}_${(tx.rawDescription || "").trim().toUpperCase()}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        deduplicatedTxs.push(tx);
       }
+    }
 
-      const ofxRange = isOFX && window.StatementParser.extractOFXDateRange
-        ? window.StatementParser.extractOFXDateRange(content)
-        : { dtStart: null, dtEnd: null };
+    const summaryFileName = processedFiles.length === 1
+      ? processedFiles[0]
+      : `${processedFiles.length} extratos (${processedFiles.join(", ")})`;
 
-      this.stageParsedStatement(parsed, file.name, account, monthYear, ofxRange);
-    };
-    reader.readAsText(file, "UTF-8");
+    this.stageParsedStatement(deduplicatedTxs, summaryFileName, primaryAccount, monthYear, combinedRange);
+
+    if (errors.length > 0) {
+      this.showToast(`Atenção: alguns arquivos apresentaram erros (${errors.join("; ")})`, "warning");
+    }
   },
 
   loadSampleNubankExtract() {
@@ -9697,6 +9890,10 @@ window.App = {
   },
 
   bindGlobalEvents() {
+    // Evita que o navegador abra o arquivo caso seja solto fora da dropzone
+    window.addEventListener("dragover", (e) => e.preventDefault());
+    window.addEventListener("drop", (e) => e.preventDefault());
+
     const searchInput = document.getElementById("tx-filter-search");
     if (searchInput) {
       searchInput.addEventListener("input", (e) => {
