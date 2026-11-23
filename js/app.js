@@ -9513,6 +9513,97 @@ window.App = {
   // ==========================================================================
   // BUSCA & DROPDOWN RÁPIDO DE CATEGORIZAÇÃO (POP-UP / MODAL PESQUISÁVEL)
   // ==========================================================================
+  getPrimaryItemForPickerTarget(target = {}) {
+    if (!target) return null;
+    if (target.txId) {
+      return this.state.transactions.find(t => t.id === target.txId) || null;
+    }
+    if (target.stagedIdx !== undefined && this.stagedImports) {
+      return this.stagedImports[target.stagedIdx] || null;
+    }
+    if (target.installmentTxIds) {
+      const firstId = String(target.installmentTxIds).split(",")[0];
+      return this.state.transactions.find(t => t.id === firstId) || null;
+    }
+    if (target.isBulk && Array.isArray(this.selectedTxIds) && this.selectedTxIds.length > 0) {
+      return this.state.transactions.find(t => t.id === this.selectedTxIds[0]) || null;
+    }
+    if (target.isStagedBulk && Array.isArray(this.stagedImports)) {
+      return this.stagedImports.find(i => i.selected) || null;
+    }
+    return null;
+  },
+
+  extractSuggestedKeywordFromItem(item) {
+    if (!item) return "";
+    if (item.counterparty && item.counterparty.trim().length >= 3 && !/^\d{2}\/\d{2}/.test(item.counterparty.trim())) {
+      return item.counterparty.trim().toUpperCase();
+    }
+    return this.cleanMerchantDescription(item.description || "");
+  },
+
+  applyInstantRuleForSubcategory(subId, keywordRaw, sourceItem = null) {
+    const sub = this.getSubcategory(subId);
+    const normKw = (keywordRaw || "").trim().toUpperCase();
+    if (!sub || !normKw) return 0;
+
+    if (!Array.isArray(sub.keywords)) sub.keywords = [];
+    if (!sub.keywords.includes(normKw)) {
+      sub.keywords.push(normKw);
+    }
+
+    if (sourceItem && sourceItem.description) {
+      this.recordMerchantMemory(sourceItem.description, sub.id, sourceItem.ownership);
+    }
+
+    const fallbackIds = new Set(["sub_outros", "sub_sem_categoria", "sub_parceladas"]);
+    const normTarget = window.StatementParser
+      ? window.StatementParser.normalizeText(normKw)
+      : normKw;
+    let extraMoved = 0;
+
+    // 1. Aplica automaticamente nos itens em revisão do extrato (stagedImports) que estavam em Outros/Parceladas
+    if (Array.isArray(this.stagedImports) && this.stagedImports.length > 0) {
+      const cat = this.getCategory(sub.categoryId);
+      const monthProjs = this.state.projections.filter(p => p.monthYear === this.state.settings.activeMonth);
+      this.stagedImports.forEach(item => {
+        if (!item || !fallbackIds.has(item.subcategoryId)) return;
+        const itemNorm = window.StatementParser
+          ? window.StatementParser.normalizeText(item.description || "")
+          : (item.description || "").toUpperCase();
+        if (normTarget && itemNorm.includes(normTarget)) {
+          item.subcategoryId = sub.id;
+          if (cat && (cat.type === "TRANSFER" || cat.type === "INCOME" || cat.type === "EXPENSE")) {
+            item.type = cat.type;
+          }
+          item.ownership = this.resolveDefaultOwnership(sub.id, item.paidByUserId);
+          const match = item.type === "TRANSFER" ? null : monthProjs.find(p => p.subcategoryId === sub.id);
+          item.projectionId = match ? match.id : null;
+          extraMoved++;
+        }
+      });
+    }
+
+    // 2. Aplica automaticamente nos lançamentos do mês ativo que estavam em Outros/Sem Categoria/Parceladas
+    const activeMonth = this.state.settings.activeMonth;
+    (this.state.transactions || []).forEach(tx => {
+      if (!tx || tx.competenceMonth !== activeMonth || !fallbackIds.has(tx.subcategoryId)) return;
+      const txNorm = window.StatementParser
+        ? window.StatementParser.normalizeText(tx.description || "")
+        : (tx.description || "").toUpperCase();
+      if (normTarget && txNorm.includes(normTarget)) {
+        this.applySubcategoryToTx(tx, sub.id);
+        extraMoved++;
+      }
+    });
+
+    this.saveState(true);
+    this.renderAll();
+    const extraMsg = extraMoved > 0 ? ` (+${extraMoved} item(ns) semelhante(s) atualizado(s))` : "";
+    this.showToast(`🧠 Regra "${normKw}" salva em "${sub.name}"${extraMsg}!`, "success");
+    return extraMoved;
+  },
+
   openCategoryPicker(event, target = {}) {
     if (event) {
       event.stopPropagation();
@@ -9529,6 +9620,8 @@ window.App = {
     const titleEl = document.getElementById("cat-picker-title");
     const subEl = document.getElementById("cat-picker-subtitle");
     const searchInput = document.getElementById("cat-picker-search");
+    const ruleCheck = document.getElementById("cat-picker-save-rule-check");
+    const ruleInput = document.getElementById("cat-picker-rule-keyword");
 
     if (target.txId) {
       const tx = this.state.transactions.find(t => t.id === target.txId);
@@ -9558,6 +9651,11 @@ window.App = {
       if (subEl) subEl.textContent = "";
     }
 
+    const primaryItem = this.getPrimaryItemForPickerTarget(target);
+    const suggestedKw = this.extractSuggestedKeywordFromItem(primaryItem);
+    if (ruleCheck) ruleCheck.checked = false;
+    if (ruleInput) ruleInput.value = suggestedKw;
+
     if (searchInput) {
       searchInput.value = "";
       const clearBtn = document.getElementById("cat-picker-search-clear");
@@ -9573,10 +9671,10 @@ window.App = {
 
     if (trigger && !isMobile && !target.isBulk && !target.isStagedBulk) {
       const rect = trigger.getBoundingClientRect();
-      const width = Math.min(320, window.innerWidth - 24);
+      const width = Math.min(365, window.innerWidth - 24);
       pickerBox.style.width = `${width}px`;
       pickerBox.style.maxWidth = `${width}px`;
-      pickerBox.style.maxHeight = "min(460px, 75vh)";
+      pickerBox.style.maxHeight = "min(480px, 78vh)";
       pickerBox.style.transform = "none";
 
       // Alinhamento horizontal: alinha pela direita do botão se couber, senão pela esquerda
@@ -9684,8 +9782,14 @@ window.App = {
     });
   },
 
-  selectCategoryFromPicker(subId) {
+  selectCategoryFromPicker(subId, forceSaveRule = false) {
     const target = this.activeCategoryPickerTarget;
+    const ruleCheck = document.getElementById("cat-picker-save-rule-check");
+    const ruleInput = document.getElementById("cat-picker-rule-keyword");
+    const shouldSaveRule = Boolean(forceSaveRule || (ruleCheck && ruleCheck.checked));
+    const ruleKw = (ruleInput && ruleInput.value || "").trim().toUpperCase();
+    const primaryItem = this.getPrimaryItemForPickerTarget(target);
+
     this.closeCategoryPicker();
     if (!target || !subId) return;
 
@@ -9700,6 +9804,24 @@ window.App = {
       this.recategorizeInstallmentSeries(target.installmentTxIds, subId);
     } else if (target.isStagedBulk) {
       this.recategorizeSelectedStagedImports(subId);
+    }
+
+    if (shouldSaveRule && ruleKw) {
+      this.applyInstantRuleForSubcategory(subId, ruleKw, primaryItem);
+    } else if (ruleKw && ruleKw.length >= 2) {
+      const sub = this.getSubcategory(subId);
+      const alreadyHasKw = sub && Array.isArray(sub.keywords) && sub.keywords.includes(ruleKw);
+      if (sub && !alreadyHasKw) {
+        const shortKw = ruleKw.length > 20 ? ruleKw.slice(0, 20) + "…" : ruleKw;
+        this.showToast(
+          `💡 Quer criar regra para "${shortKw}" em "${sub.name}"?`,
+          "info",
+          {
+            label: `+ Criar regra`,
+            onClick: () => this.applyInstantRuleForSubcategory(subId, ruleKw, primaryItem)
+          }
+        );
+      }
     }
   },
 
@@ -9780,6 +9902,15 @@ window.App = {
             </div>
             <div class="shrink-0 flex items-center gap-1.5">
               ${this.getOwnershipBadge(sub.defaultOwnership)}
+              <span
+                role="button"
+                tabindex="-1"
+                onclick="event.stopPropagation(); App.selectCategoryFromPicker('${sub.id}', true)"
+                class="px-1.5 py-0.5 rounded-md bg-stone-100 hover:bg-lime-700 text-stone-600 hover:text-white text-[10px] font-bold transition shrink-0"
+                title="Trocar para esta categoria e já salvar a regra automática acima"
+              >
+                +Regra
+              </span>
             </div>
           </button>
         `;
@@ -9817,6 +9948,15 @@ window.App = {
               </div>
               <div class="shrink-0 flex items-center gap-1.5">
                 ${this.getOwnershipBadge(sub.defaultOwnership)}
+                <span
+                  role="button"
+                  tabindex="-1"
+                  onclick="event.stopPropagation(); App.selectCategoryFromPicker('${sub.id}', true)"
+                  class="px-1.5 py-0.5 rounded-md bg-stone-100 hover:bg-lime-700 text-stone-600 hover:text-white text-[10px] font-bold transition shrink-0"
+                  title="Trocar para esta categoria e já salvar a regra automática acima"
+                >
+                  +Regra
+                </span>
               </div>
             </button>
           `;
@@ -10020,7 +10160,7 @@ window.App = {
     });
   },
 
-  showToast(message, type = "info") {
+  showToast(message, type = "info", action = null) {
     const container = document.getElementById("toast-container");
     if (!container) return;
 
@@ -10031,14 +10171,33 @@ window.App = {
     };
 
     const toast = document.createElement("div");
-    toast.className = `px-4 py-3 rounded-xl border shadow-lg text-xs font-bold flex items-center gap-2 transition-all duration-300 ${colors[type] || colors.info}`;
-    toast.innerHTML = `<span>${message}</span>`;
+    toast.className = `px-4 py-3 rounded-xl border shadow-lg text-xs font-bold flex items-center justify-between gap-2.5 transition-all duration-300 ${colors[type] || colors.info}`;
+
+    const textSpan = document.createElement("span");
+    textSpan.textContent = message;
+    toast.appendChild(textSpan);
+
+    if (action && action.label && typeof action.onClick === "function") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "px-2.5 py-1 rounded-lg bg-lime-400 hover:bg-lime-300 text-stone-950 text-[11px] font-extrabold shrink-0 cursor-pointer transition shadow-2xs";
+      btn.textContent = action.label;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toast.remove();
+        action.onClick();
+      });
+      toast.appendChild(btn);
+    }
+
     container.appendChild(toast);
 
+    const duration = action ? 6000 : 3500;
     setTimeout(() => {
+      if (!toast.parentNode) return;
       toast.classList.add("opacity-0", "translate-y-2");
       setTimeout(() => toast.remove(), 300);
-    }, 3500);
+    }, duration);
   }
 };
 
