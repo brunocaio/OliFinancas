@@ -243,7 +243,7 @@ window.INITIAL_SEED_DATA = {
     {
       "id": "cat_financeiro",
       "icon": "credit-card",
-      "name": "Anuidades & Parcelados",
+      "name": "Parcelados",
       "type": "EXPENSE",
       "color": "#78716c",
       "sortOrder": 10
@@ -1415,7 +1415,7 @@ window.INITIAL_SEED_DATA = {
       "subcategoryId": "sub_festa"
     }
   ],
-  "schemaPatch": 14,
+  "schemaPatch": 15,
   "transactions": [
     {
       "id": "tx_1794332978178_v2h0f",
@@ -17458,7 +17458,7 @@ window.INITIAL_SEED_DATA = {
         "ANUIDADE DIFERENCIADA",
         "PARCELA ANUIDADE"
       ],
-      "categoryId": "cat_financeiro",
+      "categoryId": "cat_taxas_bancarias",
       "defaultMeta": 0,
       "defaultAccountId": null,
       "defaultOwnership": "INDIVIDUAL_BRUNO"

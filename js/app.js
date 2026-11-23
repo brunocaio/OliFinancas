@@ -732,6 +732,29 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 15: move "Anuidade de Cartão" (sub_anuidade) para "Taxas & Tarifas Bancárias" (cat_taxas_bancarias)
+    // e renomeia a categoria macro "Anuidades & Parcelados" (cat_financeiro) para "Parcelados"
+    if ((stateObj.schemaPatch || 0) < 15) {
+      if (Array.isArray(stateObj.categories)) {
+        const catFin = stateObj.categories.find(c => c.id === "cat_financeiro");
+        if (catFin) {
+          catFin.name = "Parcelados";
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(stateObj.subcategories)) {
+        const subAnuidade = stateObj.subcategories.find(s => s.id === "sub_anuidade");
+        if (subAnuidade) {
+          subAnuidade.categoryId = "cat_taxas_bancarias";
+          changed = true;
+        }
+      }
+
+      stateObj.schemaPatch = 15;
+      changed = true;
+    }
+
     return changed;
   },
 
