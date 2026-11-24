@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>OliFinanças 🫒 • Gestão Financeira</title>
-  <link rel="manifest" href="./manifest.json?v=55" />
+  <link rel="manifest" href="./manifest.json?v=71" />
   <link rel="shortcut icon" href="./favicon.ico?v=55" />
   <link rel="icon" type="image/x-icon" href="./favicon.ico?v=55" />
   <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32x32.png?v=55" />
@@ -291,15 +291,15 @@
 
         <!-- ABA 1 (PADRÃO): IMPORTAR OFX / CSV / PDF ITAÚ COMPACTO -->
         <div id="entry-panel-import" class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-          <div class="sm:col-span-5">
+          <div class="sm:col-span-4">
             <select
               id="import-account-select"
               onchange="App.onImportAccountChange(this.value)"
               class="w-full oli-input rounded-xl px-3 py-2.5 text-xs font-semibold"
-              title="Conta ou cartão do extrato (usado como padrão caso não identificado pelo nome do arquivo)"
+              title="Banco e tipo são detectados automaticamente pelo conteúdo do arquivo (este campo serve como fallback)"
             ></select>
           </div>
-          <div class="sm:col-span-7">
+          <div class="sm:col-span-8 flex items-stretch gap-2">
             <div
               id="import-drop-zone"
               ondragover="App.handleImportDragOver(event)"
@@ -307,8 +307,8 @@
               ondragleave="App.handleImportDragLeave(event)"
               ondrop="App.handleImportDrop(event)"
               onclick="document.getElementById('import-file-input').click()"
-              class="relative flex items-center justify-center border-2 border-dashed border-lime-600/35 hover:border-lime-600 bg-[#f9fbf6] hover:bg-lime-50/50 rounded-xl px-4 py-2.5 cursor-pointer transition text-center group select-none"
-              title="Arraste arquivos ou clique para selecionar múltiplos extratos"
+              class="flex-1 min-w-0 relative flex items-center justify-center border-2 border-dashed border-lime-600/35 hover:border-lime-600 bg-[#f9fbf6] hover:bg-lime-50/50 rounded-xl px-3 py-2.5 cursor-pointer transition text-center group select-none"
+              title="Arraste arquivos ou clique para selecionar múltiplos extratos (detecção automática de banco e conta/cartão)"
             >
               <input
                 id="import-file-input"
@@ -322,7 +322,7 @@
               <!-- Estado Ocioso (Idle) -->
               <div id="import-drop-zone-idle" class="flex items-center justify-center gap-2">
                 <i data-lucide="upload-cloud" class="w-4 h-4 text-lime-700 shrink-0 group-hover:scale-110 transition"></i>
-                <span class="text-xs font-bold text-stone-700">Arraste ou clique para selecionar extratos (.OFX, .CSV, .PDF Itaú)</span>
+                <span class="text-xs font-bold text-stone-700">Arraste ou selecione extratos (.OFX, .CSV, .PDF)</span>
               </div>
 
               <!-- Estado Carregando (Loading) -->
@@ -331,6 +331,25 @@
                 <span id="import-drop-zone-loading-text" class="text-xs font-bold text-lime-800 animate-pulse">Lendo extratos...</span>
               </div>
             </div>
+
+            <input
+              id="import-folder-input"
+              type="file"
+              webkitdirectory
+              directory
+              multiple
+              class="hidden"
+              onchange="App.handleFolderStatementUpload(this.files, this)"
+            />
+            <button
+              type="button"
+              onclick="App.triggerFolderStatementUpload()"
+              class="px-3 py-2.5 rounded-xl border border-lime-600/35 hover:border-lime-600 bg-white hover:bg-lime-50 text-stone-700 hover:text-lime-900 text-xs font-bold inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer transition shadow-2xs"
+              title="Ler automaticamente todos os extratos (.OFX, .CSV, .PDF) de uma pasta do celular ou computador"
+            >
+              <i data-lucide="folder-search" class="w-4 h-4 text-lime-700 shrink-0"></i>
+              <span>Ler Pasta</span>
+            </button>
           </div>
           <select id="import-competence-select" onchange="App.onImportCompetenceModeChange(this.value)" class="hidden">
             <option value="SMART_INVOICE">SMART_INVOICE</option>
@@ -1610,11 +1629,11 @@
   </div>
 
   <!-- Scripts da Aplicação -->
-  <script src="./js/data-seed.js?v=70"></script>
-  <script src="./js/housing-financing.js?v=70"></script>
-  <script src="./js/ofx-csv-parser.js?v=70"></script>
-  <script src="./js/supabase-sync.js?v=70"></script>
-  <script src="./js/app.js?v=70"></script>
+  <script src="./js/data-seed.js?v=71"></script>
+  <script src="./js/housing-financing.js?v=71"></script>
+  <script src="./js/ofx-csv-parser.js?v=71"></script>
+  <script src="./js/supabase-sync.js?v=71"></script>
+  <script src="./js/app.js?v=71"></script>
 
   <!-- Registro de Service Worker para PWA / APK -->
   <script>

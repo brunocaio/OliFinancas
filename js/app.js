@@ -66,6 +66,7 @@ window.App = {
     this.bindGlobalEvents();
     this.renderAll();
     this.rotateQuotes();
+    this.checkSharedOrLaunchedFiles();
   },
 
   rotateQuotes() {
@@ -7351,39 +7352,94 @@ window.App = {
     }
   },
 
-  resolveAccountForFile(file, fallbackAccountId) {
+  resolveAccountForFile(file, fallbackAccountId, contentText = "") {
     const accounts = this.state.accounts || [];
     const defaultAcc = this.getAccount(fallbackAccountId) || accounts[0];
-    if (!file || !file.name) return defaultAcc;
+    if (!file) return defaultAcc;
 
-    const rawName = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-    const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+    const rawName = (file.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    const isPdf = (file.name || "").toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+    const text = String(contentText || "");
+    const firstLineNorm = (text.split(/\r?\n/)[0] || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .trim();
 
-    const isItau = rawName.includes("ITAU");
-    const isNubank = rawName.includes("NUBANK") || rawName.includes("NU_") || rawName.includes("NUPAY");
-    const isBB = rawName.includes("BRASIL") || rawName.includes("OUROCARD") || /\bBB\b/.test(rawName);
-    const isInter = rawName.includes("INTER");
+    // 1. Detecção do TIPO DE EXTRATO (Cartão de Crédito vs. Conta Corrente) pelo conteúdo interno + nome
+    let detectedType = null;
+    if (/<CREDITCARDMSGSRSV1>|<CCSTMTRS>|<CCACCTFROM>/i.test(text)) {
+      detectedType = "CREDIT_CARD";
+    } else if (/<BANKMSGSRSV1>|<STMTRS>|<BANKACCTFROM>/i.test(text)) {
+      detectedType = "CHECKING";
+    } else if (/^DATA[,;]VALOR[,;]IDENTIFICADOR[,;]DESCRI/i.test(firstLineNorm)) {
+      detectedType = "CHECKING";
+    } else if (/^DATE[,;](?:CATEGORY[,;])?TITLE[,;]AMOUNT/i.test(firstLineNorm)) {
+      detectedType = "CREDIT_CARD";
+    } else if (isPdf) {
+      detectedType = "CREDIT_CARD";
+    } else if (rawName.includes("FATURA") || rawName.includes("CARTAO") || rawName.includes("CREDIT") || rawName.includes("ITAUCARD") || rawName.includes("OUROCARD")) {
+      detectedType = "CREDIT_CARD";
+    } else if (rawName.includes("EXTRATO") || rawName.includes("CONTA") || rawName.includes("CC") || rawName.includes("CHECKING")) {
+      detectedType = "CHECKING";
+    }
 
-    const isCardHint = isPdf || rawName.includes("FATURA") || rawName.includes("CARTAO") || rawName.includes("CREDIT");
-    const isCheckingHint = rawName.includes("EXTRATO") || rawName.includes("CONTA") || rawName.includes("CC") || rawName.includes("CHECKING");
+    // 2. Detecção do BANCO (BB, Nubank, Itaú, Inter) pelo conteúdo interno + nome
+    let detectedBank = null;
+    if (
+      /<(?:BANKID|FID)>\s*0*1\s*(?:<|\r|\n)/i.test(text) ||
+      /<(?:ORG|FI)>[^<\r\n]*BANCO\s+DO\s+BRASIL/i.test(text) ||
+      /Pix\s*-\s*(?:Enviado|Recebido)\s*-\s*\d{2}\/\d{2}/i.test(text) ||
+      /BB\s+Rende\s+F[aá]cil|Tarifa\s+Pacote\s+de\s+Servi/i.test(text)
+    ) {
+      detectedBank = "BB";
+    } else if (
+      /<(?:BANKID|FID)>\s*0*260\s*(?:<|\r|\n)/i.test(text) ||
+      /<(?:ORG|FI)>[^<\r\n]*(?:NU\s+PAGAMENTOS|NUBANK)/i.test(text) ||
+      /Transfer[êe]ncia\s+(?:enviada|recebida)\s+pelo\s+Pix\s+-/i.test(text) ||
+      /<FITID>\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text) ||
+      /^DATA[,;]VALOR[,;]IDENTIFICADOR[,;]DESCRI/i.test(firstLineNorm) ||
+      /^DATE[,;](?:CATEGORY[,;])?TITLE[,;]AMOUNT/i.test(firstLineNorm)
+    ) {
+      detectedBank = "NUBANK";
+    } else if (
+      /<(?:BANKID|FID)>\s*0*341\s*(?:<|\r|\n)/i.test(text) ||
+      /<(?:ORG|FI)>[^<\r\n]*ITAU/i.test(text) ||
+      /REND\s+PAGO\s+APLIC\s+AUT|SISPAG|ITAU\s+UNIBANCO|ITAUCARD|UNICLASS|PERSONNALITE/i.test(text)
+    ) {
+      detectedBank = "ITAU";
+    } else if (
+      /<(?:BANKID|FID)>\s*0*77\s*(?:<|\r|\n)/i.test(text) ||
+      /BANCO\s+INTER/i.test(text)
+    ) {
+      detectedBank = "INTER";
+    }
+
+    if (!detectedBank) {
+      if (rawName.includes("ITAU")) detectedBank = "ITAU";
+      else if (rawName.includes("NUBANK") || rawName.includes("NU_") || rawName.includes("NUPAY")) detectedBank = "NUBANK";
+      else if (rawName.includes("BRASIL") || rawName.includes("OUROCARD") || /\bBB\b/.test(rawName)) detectedBank = "BB";
+      else if (rawName.includes("INTER")) detectedBank = "INTER";
+      else if (isPdf) detectedBank = "ITAU";
+    }
 
     let bankMatches = [];
-    if (isItau) {
+    if (detectedBank === "ITAU") {
       bankMatches = accounts.filter(a => {
         const aName = (a.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
         return aName.includes("ITAU");
       });
-    } else if (isNubank) {
+    } else if (detectedBank === "NUBANK") {
       bankMatches = accounts.filter(a => {
         const aName = (a.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
         return aName.includes("NUBANK");
       });
-    } else if (isBB) {
+    } else if (detectedBank === "BB") {
       bankMatches = accounts.filter(a => {
         const aName = (a.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
         return aName.includes("BRASIL") || aName.includes("BB") || aName.includes("OUROCARD");
       });
-    } else if (isInter) {
+    } else if (detectedBank === "INTER") {
       bankMatches = accounts.filter(a => {
         const aName = (a.name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
         return aName.includes("INTER");
@@ -7391,22 +7447,108 @@ window.App = {
     }
 
     if (bankMatches.length > 0) {
-      if (isCardHint) {
+      if (detectedType === "CREDIT_CARD") {
         const card = bankMatches.find(a => a.type === "CREDIT_CARD");
         if (card) return card;
       }
-      if (isCheckingHint) {
+      if (detectedType === "CHECKING") {
         const checking = bankMatches.find(a => a.type === "CHECKING");
         if (checking) return checking;
-      }
-      if (isPdf && isItau) {
-        const card = bankMatches.find(a => a.type === "CREDIT_CARD");
-        if (card) return card;
       }
       return bankMatches[0];
     }
 
+    if (detectedType) {
+      if (defaultAcc && defaultAcc.type === detectedType) return defaultAcc;
+      const typeMatch = accounts.find(a => a.type === detectedType);
+      if (typeMatch) return typeMatch;
+    }
+
     return defaultAcc;
+  },
+
+  triggerFolderStatementUpload() {
+    const folderInput = document.getElementById("import-folder-input");
+    if (folderInput) {
+      folderInput.click();
+    }
+  },
+
+  async handleFolderStatementUpload(fileList, inputEl = null) {
+    if (!fileList || fileList.length === 0) return;
+    const allFiles = Array.from(fileList);
+    const validStatementFiles = allFiles.filter(f => {
+      const name = (f && f.name || "").toLowerCase();
+      return name.endsWith(".ofx") || name.endsWith(".csv") || name.endsWith(".pdf");
+    });
+
+    if (validStatementFiles.length === 0) {
+      if (inputEl) inputEl.value = "";
+      this.showToast("Nenhum arquivo .OFX, .CSV ou .PDF encontrado na pasta selecionada.", "error");
+      return;
+    }
+
+    await this.handleStatementFileUpload(validStatementFiles, inputEl, { fromFolder: true });
+  },
+
+  async checkSharedOrLaunchedFiles() {
+    // 1. Suporte a Web Share Target (arquivos enviados pelo menu "Compartilhar" do Android)
+    try {
+      if ("caches" in window) {
+        const cache = await caches.open("olifinancas-shared-files-v1");
+        const metaResp = await cache.match("/__shared_meta__");
+        if (metaResp) {
+          const metaList = await metaResp.json();
+          const sharedFiles = [];
+          for (const meta of metaList) {
+            const fileResp = await cache.match(meta.key);
+            if (fileResp) {
+              const blob = await fileResp.blob();
+              sharedFiles.push(
+                new File([blob], meta.name || "extrato.ofx", {
+                  type: meta.type || blob.type || "application/octet-stream",
+                  lastModified: meta.lastModified || Date.now()
+                })
+              );
+            }
+          }
+          const keys = await cache.keys();
+          await Promise.all(keys.map(k => cache.delete(k)));
+
+          if (window.location.search.includes("shared") || window.location.search.includes("share-target")) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+
+          if (sharedFiles.length > 0) {
+            this.switchEntryTab("IMPORT");
+            await this.handleStatementFileUpload(sharedFiles);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Aviso ao verificar arquivos compartilhados:", err);
+    }
+
+    // 2. Suporte a File Handling API ("Abrir com OliFinanças")
+    try {
+      if ("launchQueue" in window && window.launchQueue && typeof window.launchQueue.setConsumer === "function") {
+        window.launchQueue.setConsumer(async (launchParams) => {
+          if (!launchParams || !Array.isArray(launchParams.files) || launchParams.files.length === 0) return;
+          const files = [];
+          for (const handle of launchParams.files) {
+            if (handle && typeof handle.getFile === "function") {
+              files.push(await handle.getFile());
+            }
+          }
+          if (files.length > 0) {
+            this.switchEntryTab("IMPORT");
+            await this.handleStatementFileUpload(files);
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("Aviso File Handling API:", err);
+    }
   },
 
   async parsePdfFile(file, account, monthYear) {
@@ -7451,7 +7593,7 @@ window.App = {
     });
   },
 
-  async handleStatementFileUpload(fileList, inputEl = null) {
+  async handleStatementFileUpload(fileList, inputEl = null, options = {}) {
     if (!fileList || fileList.length === 0) return;
     const files = Array.from(fileList);
     const accSelect = document.getElementById("import-account-select");
@@ -7465,6 +7607,7 @@ window.App = {
 
     const allParsedTxs = [];
     const processedFiles = [];
+    const detectedAccountsNames = new Set();
     const errors = [];
     let combinedRange = { dtStart: null, dtEnd: null };
     let primaryAccount = this.getAccount(defaultAccId);
@@ -7472,19 +7615,16 @@ window.App = {
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const fileAccount = this.resolveAccountForFile(file, defaultAccId);
-        if (i === 0) primaryAccount = fileAccount;
-
         this.setImportLoading(true, files.length > 1 ? `Lendo ${i + 1} de ${files.length}: ${file.name}...` : `Processando ${file.name}...`);
 
         const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
 
         try {
           if (isPdf) {
-            const accNameNorm = (fileAccount ? fileAccount.name : "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-            if (!accNameNorm.includes("ITAU")) {
-              this.showToast(`Importando PDF para "${fileAccount ? fileAccount.name : 'Itaú'}".`, "info");
-            }
+            const fileAccount = this.resolveAccountForFile(file, defaultAccId, "");
+            if (i === 0) primaryAccount = fileAccount;
+            if (fileAccount && fileAccount.name) detectedAccountsNames.add(fileAccount.name);
+
             const parsed = await this.parsePdfFile(file, fileAccount, monthYear);
             if (!parsed) continue;
             if (parsed.length === 0) {
@@ -7499,6 +7639,10 @@ window.App = {
             }
           } else {
             const content = await this.readTextFile(file);
+            const fileAccount = this.resolveAccountForFile(file, defaultAccId, content);
+            if (i === 0) primaryAccount = fileAccount;
+            if (fileAccount && fileAccount.name) detectedAccountsNames.add(fileAccount.name);
+
             const isOFX = file.name.toLowerCase().endsWith(".ofx") || content.includes("<OFX>") || content.includes("<STMTTRN>");
             const parsed = isOFX
               ? window.StatementParser.parseOFX(content, fileAccount, monthYear, this.state, this.importCompetenceMode)
@@ -7538,6 +7682,14 @@ window.App = {
       return;
     }
 
+    // Atualiza o seletor de conta na interface com a conta principal detectada automaticamente
+    if (primaryAccount && primaryAccount.id) {
+      this.importTargetAccountId = primaryAccount.id;
+      if (accSelect && Array.from(accSelect.options).some(o => o.value === primaryAccount.id)) {
+        accSelect.value = primaryAccount.id;
+      }
+    }
+
     // Deduplicação inteligente de transações no lote
     const seenKeys = new Set();
     const deduplicatedTxs = [];
@@ -7549,9 +7701,21 @@ window.App = {
       }
     }
 
+    // Se veio da leitura de pasta (fromFolder), verifica se há itens novos ainda não importados
+    if (options && options.fromFolder) {
+      const newPendingTxs = deduplicatedTxs.filter(t => !t.alreadyExists && !t.isCardInvoicePayment);
+      if (newPendingTxs.length === 0) {
+        this.showToast(`🫒 Pasta verificada (${processedFiles.length} arquivo(s)): todos os lançamentos já foram importados!`, "info");
+        return;
+      }
+    }
+
+    const detectedAccLabel = detectedAccountsNames.size > 0
+      ? ` • Detectado: ${Array.from(detectedAccountsNames).join(", ")}`
+      : "";
     const summaryFileName = processedFiles.length === 1
-      ? processedFiles[0]
-      : `${processedFiles.length} extratos (${processedFiles.join(", ")})`;
+      ? `${processedFiles[0]}${detectedAccLabel}`
+      : `${processedFiles.length} extratos (${processedFiles.join(", ")})${detectedAccLabel}`;
 
     this.stageParsedStatement(deduplicatedTxs, summaryFileName, primaryAccount, monthYear, combinedRange);
 

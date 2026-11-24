@@ -34,5 +34,43 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "share_target": {
+    "action": "./index.html?share-target=1",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "statements",
+          "accept": [
+            ".ofx",
+            ".csv",
+            ".pdf",
+            ".txt",
+            "application/x-ofx",
+            "application/ofx",
+            "text/csv",
+            "application/pdf",
+            "text/plain",
+            "application/octet-stream"
+          ]
+        }
+      ]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "./index.html?file-handler=1",
+      "accept": {
+        "application/pdf": [".pdf"],
+        "text/csv": [".csv"],
+        "application/x-ofx": [".ofx"],
+        "text/plain": [".ofx", ".txt"]
+      }
+    }
   ]
 }

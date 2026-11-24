@@ -1,4 +1,5 @@
-const CACHE_NAME = 'olifinancas-v70';
+const CACHE_NAME = 'olifinancas-v71';
+const SHARED_CACHE_NAME = 'olifinancas-shared-files-v1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -11,11 +12,11 @@ const ASSETS_TO_CACHE = [
   './icons/icon-512.png',
   './icons/icon-maskable.png',
   './icons/mascot-ghibli.png',
-  './js/app.js?v=70',
-  './js/data-seed.js?v=70',
-  './js/housing-financing.js?v=70',
-  './js/ofx-csv-parser.js?v=70',
-  './js/supabase-sync.js?v=70'
+  './js/app.js?v=71',
+  './js/data-seed.js?v=71',
+  './js/housing-financing.js?v=71',
+  './js/ofx-csv-parser.js?v=71',
+  './js/supabase-sync.js?v=71'
 ];
 
 self.addEventListener('install', (event) => {
@@ -33,7 +34,9 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+        keys
+          .filter((key) => key !== CACHE_NAME && key !== SHARED_CACHE_NAME)
+          .map((key) => caches.delete(key))
       );
     })
   );
@@ -41,8 +44,59 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Ignora requisições de outros esquemas (como chrome-extension:) ou que não sejam GET
-  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) return;
+  if (!event.request.url.startsWith('http')) return;
+  const url = new URL(event.request.url);
+
+  // Intercepta arquivos enviados pelo menu "Compartilhar" do Android (Web Share Target API)
+  if (event.request.method === 'POST' && url.searchParams.has('share-target')) {
+    event.respondWith(
+      (async () => {
+        try {
+          const formData = await event.request.formData();
+          const files = formData.getAll('statements');
+          const cache = await caches.open(SHARED_CACHE_NAME);
+          const oldKeys = await cache.keys();
+          await Promise.all(oldKeys.map((k) => cache.delete(k)));
+
+          const metaList = [];
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            if (!file || typeof file.arrayBuffer !== 'function') continue;
+            const buf = await file.arrayBuffer();
+            const fileKey = `/__shared_file_${i}__`;
+            await cache.put(
+              fileKey,
+              new Response(buf, {
+                headers: {
+                  'Content-Type': file.type || 'application/octet-stream'
+                }
+              })
+            );
+            metaList.push({
+              key: fileKey,
+              name: file.name || `extrato_${i + 1}.ofx`,
+              type: file.type || 'application/octet-stream',
+              lastModified: file.lastModified || Date.now()
+            });
+          }
+
+          await cache.put(
+            '/__shared_meta__',
+            new Response(JSON.stringify(metaList), {
+              headers: { 'Content-Type': 'application/json' }
+            })
+          );
+        } catch (err) {
+          console.error('Erro ao receber arquivo compartilhado:', err);
+        }
+        return Response.redirect('./index.html?shared=1', 303);
+      })()
+    );
+    return;
+  }
+
+  // Ignora requisições que não sejam GET
+  if (event.request.method !== 'GET') return;
 
   event.respondWith(
     fetch(event.request)
