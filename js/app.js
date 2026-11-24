@@ -7549,6 +7549,41 @@ window.App = {
     } catch (err) {
       console.warn("Aviso File Handling API:", err);
     }
+
+    // 3. Suporte à ponte nativa do APK Android ("Abrir com OliFinanças" / "Compartilhar")
+    await this.consumeAndroidBridgeFiles();
+  },
+
+  async consumeAndroidBridgeFiles() {
+    try {
+      if (!window.AndroidBridge || typeof window.AndroidBridge.consumePendingFilesJson !== "function") return;
+      const rawJson = window.AndroidBridge.consumePendingFilesJson();
+      if (!rawJson) return;
+      const items = JSON.parse(rawJson);
+      if (!Array.isArray(items) || items.length === 0) return;
+
+      const files = items.map((it, idx) => {
+        const binStr = atob(it.base64 || "");
+        const len = binStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binStr.charCodeAt(i);
+        }
+        return new File([bytes], it.name || `extrato_${idx + 1}.ofx`, {
+          type: it.mime || "application/octet-stream",
+          lastModified: Date.now()
+        });
+      });
+
+      if (files.length > 0) {
+        this.switchTab("dashboard");
+        this.switchEntryTab("IMPORT");
+        await this.handleStatementFileUpload(files);
+      }
+    } catch (err) {
+      console.error("Erro ao receber arquivo nativo do Android:", err);
+      this.showToast("Erro ao ler o arquivo recebido pelo Android.", "error");
+    }
   },
 
   async parsePdfFile(file, account, monthYear) {

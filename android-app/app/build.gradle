@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'br.com.olifinancas.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "br.com.olifinancas.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 72
+        versionName "1.7.2"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("olifinancas-release.jks")
+            storePassword "olifinancas2026"
+            keyAlias "olifinancas"
+            keyPassword "olifinancas2026"
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+}
