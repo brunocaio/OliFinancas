@@ -51,11 +51,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view v1.7.2 >/dev/null 2>&1; then
-            gh release upload v1.7.2 OliFinancas.apk --clobber
+          if gh release view v1.7.3 >/dev/null 2>&1; then
+            gh release upload v1.7.3 OliFinancas.apk --clobber
           else
-            gh release create v1.7.2 OliFinancas.apk \
-              --title "OliFinanças Android v1.7.2 (Suporte Nativo .OFX / .CSV / .PDF)" \
-              --notes "Aplicativo Android nativo do OliFinanças com associação direta para abrir e compartilhar arquivos .OFX, .CSV e .PDF." \
+            gh release create v1.7.3 OliFinancas.apk \
+              --title "OliFinanças Android v1.7.3 (Correção Abrir com .OFX em todos os gerenciadores)" \
+              --notes "Corrige associação de arquivos .OFX sem MIME type (type == null) e URIs content:// opacos em todos os gerenciadores Android." \
               --latest
           fi

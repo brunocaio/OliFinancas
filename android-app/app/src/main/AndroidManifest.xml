@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <application
         android:allowBackup="true"
@@ -24,7 +25,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 1. ABRIR COM ("ACTION_VIEW"): Toque direto em arquivos .OFX, .CSV e .PDF no Android -->
+            <!-- 1. ABRIR COM ("ACTION_VIEW") quando o Android não reconhece o MIME type do .OFX (type == null) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+            </intent-filter>
+
+            <!-- 2. ABRIR COM ("ACTION_VIEW") para qualquer MIME type enviado por gerenciadores (Samsung, Google Files, Downloads, WhatsApp) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -35,14 +45,24 @@
                 <data android:mimeType="application/x-ofx" />
                 <data android:mimeType="application/ofx" />
                 <data android:mimeType="application/vnd.intu.qfx" />
+                <data android:mimeType="application/vnd.intu.qbo" />
+                <data android:mimeType="application/x-qfx" />
+                <data android:mimeType="application/download" />
+                <data android:mimeType="application/force-download" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="text/plain" />
                 <data android:mimeType="text/ofx" />
                 <data android:mimeType="text/x-ofx" />
+                <data android:mimeType="text/sgml" />
                 <data android:mimeType="text/csv" />
                 <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="application/csv" />
                 <data android:mimeType="application/pdf" />
+                <data android:mimeType="*/*" />
             </intent-filter>
 
-            <!-- 2. ABRIR COM por extensão explícita em gerenciadores de arquivos que enviam mimeType */* -->
+            <!-- 3. ABRIR COM por sufixo/extensão explícita (.ofx, .csv, .pdf) sem MIME type -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -50,24 +70,24 @@
                 <data android:scheme="file" />
                 <data android:scheme="content" />
                 <data android:host="*" />
-                <data android:mimeType="*/*" />
+                <data android:pathSuffix=".ofx" />
+                <data android:pathSuffix=".OFX" />
+                <data android:pathSuffix=".csv" />
+                <data android:pathSuffix=".CSV" />
+                <data android:pathSuffix=".pdf" />
+                <data android:pathSuffix=".PDF" />
                 <data android:pathPattern=".*\\.ofx" />
+                <data android:pathPattern=".*\\..*\\.ofx" />
+                <data android:pathPattern=".*\\..*\\..*\\.ofx" />
                 <data android:pathPattern=".*\\.OFX" />
-                <data android:pathPattern=".*\\.csv" />
-                <data android:pathPattern=".*\\.CSV" />
+                <data android:pathPattern=".*\\..*\\.OFX" />
             </intent-filter>
 
-            <!-- 3. COMPARTILHAR ("ACTION_SEND" / "ACTION_SEND_MULTIPLE") direto do app do banco -->
+            <!-- 4. COMPARTILHAR ("ACTION_SEND" / "ACTION_SEND_MULTIPLE") direto do app do banco ou gerenciador -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="application/octet-stream" />
-                <data android:mimeType="application/x-ofx" />
-                <data android:mimeType="application/ofx" />
-                <data android:mimeType="application/pdf" />
-                <data android:mimeType="text/csv" />
-                <data android:mimeType="text/plain" />
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
