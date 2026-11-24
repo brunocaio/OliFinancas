@@ -60,13 +60,19 @@ window.App = {
   lastSavedSnapshot: null,
   charts: {},
 
-  init() {
+  _initialSyncReady: false,
+
+  async init() {
     this.loadState();
-    this.initSupabase();
     this.bindGlobalEvents();
     this.renderAll();
     this.rotateQuotes();
-    this.checkSharedOrLaunchedFiles();
+    try {
+      await this.initSupabase();
+    } finally {
+      this._initialSyncReady = true;
+    }
+    await this.checkSharedOrLaunchedFiles();
   },
 
   rotateQuotes() {
@@ -7520,7 +7526,8 @@ window.App = {
           }
 
           if (sharedFiles.length > 0) {
-            this.switchEntryTab("IMPORT");
+            this.switchTab("dashboard");
+            this.setDashboardEntryMode("IMPORT");
             await this.handleStatementFileUpload(sharedFiles);
           }
         }
@@ -7541,7 +7548,8 @@ window.App = {
             }
           }
           if (files.length > 0) {
-            this.switchEntryTab("IMPORT");
+            this.switchTab("dashboard");
+            this.setDashboardEntryMode("IMPORT");
             await this.handleStatementFileUpload(files);
           }
         });
@@ -7556,6 +7564,7 @@ window.App = {
 
   async consumeAndroidBridgeFiles() {
     try {
+      if (!this._initialSyncReady) return;
       if (!window.AndroidBridge || typeof window.AndroidBridge.consumePendingFilesJson !== "function") return;
       const rawJson = window.AndroidBridge.consumePendingFilesJson();
       if (!rawJson) return;
@@ -7563,7 +7572,8 @@ window.App = {
       if (!Array.isArray(items) || items.length === 0) return;
 
       const files = items.map((it, idx) => {
-        const binStr = atob(it.base64 || "");
+        const cleanB64 = String(it.base64 || "").replace(/\s+/g, "");
+        const binStr = atob(cleanB64);
         const len = binStr.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
@@ -7577,12 +7587,18 @@ window.App = {
 
       if (files.length > 0) {
         this.switchTab("dashboard");
-        this.switchEntryTab("IMPORT");
+        this.setDashboardEntryMode("IMPORT");
         await this.handleStatementFileUpload(files);
+        setTimeout(() => {
+          const stagingEl = document.getElementById("import-staging-area");
+          if (stagingEl && !stagingEl.classList.contains("hidden")) {
+            stagingEl.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }, 120);
       }
     } catch (err) {
       console.error("Erro ao receber arquivo nativo do Android:", err);
-      this.showToast("Erro ao ler o arquivo recebido pelo Android.", "error");
+      this.showToast(`Erro ao ler arquivo recebido: ${err && err.message ? err.message : "formato inválido"}`, "error");
     }
   },
 
