@@ -355,17 +355,90 @@ window.StatementParser = {
   },
 
   extractOFXDateRange(content) {
-    if (!content) return { dtStart: null, dtEnd: null };
+    if (!content) return { dtStart: null, dtEnd: null, ledgerBalance: null, balanceDate: null };
     const parseTag = (tag) => {
       const m = content.match(new RegExp(`<${tag}>(\\d{8})`, "i"));
       if (!m) return null;
       const raw = m[1];
       return `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
     };
+    let ledgerBalance = null;
+    let balanceDate = null;
+    const ledgerBlockMatch = content.match(/<LEDGERBAL>([\s\S]*?)(?:<\/LEDGERBAL>|<AVAILBAL>|<\/STMTRS>|<\/CCSTMTRS>|$)/i);
+    if (ledgerBlockMatch) {
+      const lBlock = ledgerBlockMatch[1];
+      const balMatch = lBlock.match(/<BALAMT>\s*([^<\r\n]+)/i);
+      if (balMatch) {
+        const parsedBal = parseFloat(balMatch[1].trim().replace(",", "."));
+        if (!isNaN(parsedBal)) ledgerBalance = Number(parsedBal.toFixed(2));
+      }
+      const dtMatch = lBlock.match(/<DTASOF>\s*(\d{8})/i);
+      if (dtMatch) {
+        const raw = dtMatch[1];
+        balanceDate = `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
+      }
+    }
     return {
       dtStart: parseTag("DTSTART"),
-      dtEnd: parseTag("DTEND")
+      dtEnd: parseTag("DTEND"),
+      ledgerBalance,
+      balanceDate
     };
+  },
+
+  findMatchingExistingTransaction(candidate, state, usedExistingIds) {
+    const txs = (state && Array.isArray(state.transactions)) ? state.transactions : [];
+    if (txs.length === 0) return null;
+
+    // 1. Correspondência direta pelo importHash canônico
+    if (candidate.importHash) {
+      const exact = txs.find(t => !usedExistingIds.has(t.id) && t.importHash === candidate.importHash);
+      if (exact) {
+        usedExistingIds.add(exact.id);
+        return exact;
+      }
+    }
+
+    // 2. Compatibilidade com importHash legado (ofx_<acc>_<fitId>) restrita à mesma competência e mesma natureza (evita colisão entre parcelas de meses distintos ou compra vs estorno)
+    if (candidate.legacyFitHash) {
+      const leg = txs.find(t => {
+        if (usedExistingIds.has(t.id)) return false;
+        if (t.importHash !== candidate.legacyFitHash) return false;
+        if (t.accountId !== candidate.accountId || t.competenceMonth !== candidate.competenceMonth) return false;
+        const tIsCredit = Boolean(Number(t.amount) < 0 || t.isInvoiceCredit);
+        return tIsCredit === Boolean(candidate.isInvoiceCredit) && t.type === candidate.type;
+      });
+      if (leg) {
+        usedExistingIds.add(leg.id);
+        return leg;
+      }
+    }
+
+    // 3. Correspondência entre formatos (ex: CSV importado antes e OFX importado depois na mesma fatura/conta, com tolerância de até 4 dias de liquidação)
+    const candDesc = this.normalizeText(candidate.description);
+    const candAbs = Math.abs(Number(candidate.amount) || 0);
+    const candIsNeg = Number(candidate.amount) < 0;
+    const candDateMs = candidate.transactionDate ? new Date(candidate.transactionDate + "T12:00:00").getTime() : NaN;
+
+    const crossMatch = txs.find(t => {
+      if (usedExistingIds.has(t.id)) return false;
+      if (t.accountId !== candidate.accountId || t.competenceMonth !== candidate.competenceMonth) return false;
+      if ((Number(t.amount) < 0) !== candIsNeg) return false;
+      if (Math.abs(Math.abs(Number(t.amount) || 0) - candAbs) >= 0.005) return false;
+      if (this.normalizeText(t.description) !== candDesc) return false;
+      if (!isNaN(candDateMs) && t.transactionDate) {
+        const tMs = new Date(t.transactionDate + "T12:00:00").getTime();
+        if (!isNaN(tMs) && Math.abs(tMs - candDateMs) > 4 * 86400000) return false;
+      }
+      return true;
+    });
+
+    if (crossMatch) {
+      usedExistingIds.add(crossMatch.id);
+      return crossMatch;
+    }
+
+    return null;
   },
 
   getAccountExpectedPeriod(account, targetCompetenceMonth = "2026-11") {
@@ -705,6 +778,8 @@ window.StatementParser = {
       );
     }
 
+    const baseCounts = new Map();
+    const usedExistingIds = new Set();
     const results = [];
     for (const raw of rawItems) {
       const { trnType, txDate, signedVal, fitId, description } = raw;
@@ -726,6 +801,9 @@ window.StatementParser = {
       let finalType = classification.type;
       let isInvoiceCredit = false;
       let finalAmount = absAmount;
+      const transferDirection = isCreditCard
+        ? (signedVal > 0 ? "IN" : "OUT")
+        : (signedVal >= 0 ? "IN" : "OUT");
 
       if (finalType !== "TRANSFER") {
         if (isCreditCard) {
@@ -749,11 +827,31 @@ window.StatementParser = {
         }
       }
 
-      const importHash = fitId
-        ? `ofx_${account.id}_${fitId}`
-        : `ofx_${account.id}_${txDate}_${absAmount.toFixed(2)}_${this.normalizeText(description).slice(0, 20)}`;
+      const signCode = signedVal >= 0 ? "C" : "D";
+      const baseHash = fitId
+        ? `ofx_${account.id}_${resolvedCompetence}_${signCode}_${fitId}`
+        : `ofx_${account.id}_${resolvedCompetence}_${txDate}_${signCode}_${absAmount.toFixed(2)}_${this.normalizeText(description).slice(0, 24)}`;
+      const occ = (baseCounts.get(baseHash) || 0) + 1;
+      baseCounts.set(baseHash, occ);
+      const importHash = occ > 1 ? `${baseHash}_${occ}` : baseHash;
+      const legacyFitHash = fitId && occ === 1 ? `ofx_${account.id}_${fitId}` : null;
 
-      const alreadyExists = state.transactions.some(t => t.importHash === importHash);
+      const matchedExisting = this.findMatchingExistingTransaction(
+        {
+          importHash,
+          legacyFitHash,
+          accountId: account.id,
+          competenceMonth: resolvedCompetence,
+          transactionDate: txDate,
+          description,
+          amount: finalAmount,
+          isInvoiceCredit,
+          type: finalType
+        },
+        state,
+        usedExistingIds
+      );
+      const alreadyExists = Boolean(matchedExisting);
 
       const candidateForSibling = {
         description,
@@ -772,9 +870,11 @@ window.StatementParser = {
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists && !isCardInvoicePayment,
+        selected: !alreadyExists,
         alreadyExists,
+        matchedExistingId: matchedExisting ? matchedExisting.id : null,
         isCardInvoicePayment,
+        transferDirection,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
         cycleCompetenceMonth: itemCycleMonth,
@@ -911,6 +1011,8 @@ window.StatementParser = {
       );
     }
 
+    const baseCounts = new Map();
+    const usedExistingIds = new Set();
     const results = [];
     for (const row of parsedRows) {
       const { txDate, rawDesc, signedVal } = row;
@@ -918,9 +1020,10 @@ window.StatementParser = {
       const inst = this.detectInstallments(rawDesc, isCreditCard);
       const itemCycleMonth = this.computeCompetenceMonth(txDate, account, competenceMonth);
       const resolvedCompetence = forcedInvoiceMonth || itemCycleMonth;
+      const isOppositeSign = isCreditCard ? (purchasesArePositive ? signedVal < 0 : signedVal > 0) : false;
       const classification = this.autoClassify(
         rawDesc,
-        signedVal,
+        isCreditCard ? (isOppositeSign ? absAmount : -absAmount) : signedVal,
         isCreditCard,
         state.subcategories,
         state.projections,
@@ -932,10 +1035,12 @@ window.StatementParser = {
       let finalType = classification.type;
       let isInvoiceCredit = false;
       let finalAmount = absAmount;
+      const transferDirection = isCreditCard
+        ? (isOppositeSign ? "IN" : "OUT")
+        : (signedVal >= 0 ? "IN" : "OUT");
 
       if (finalType !== "TRANSFER") {
         if (isCreditCard) {
-          const isOppositeSign = purchasesArePositive ? signedVal < 0 : signedVal > 0;
           if (isOppositeSign) {
             isInvoiceCredit = true;
             finalType = "EXPENSE";
@@ -953,8 +1058,29 @@ window.StatementParser = {
         }
       }
 
-      const importHash = `csv_${account.id}_${txDate}_${absAmount.toFixed(2)}_${this.normalizeText(rawDesc).slice(0, 24)}`;
-      const alreadyExists = state.transactions.some(t => t.importHash === importHash);
+      const signCode = transferDirection === "IN" ? "C" : "D";
+      const baseHash = `csv_${account.id}_${resolvedCompetence}_${txDate}_${signCode}_${absAmount.toFixed(2)}_${this.normalizeText(rawDesc).slice(0, 24)}`;
+      const occ = (baseCounts.get(baseHash) || 0) + 1;
+      baseCounts.set(baseHash, occ);
+      const importHash = occ > 1 ? `${baseHash}_${occ}` : baseHash;
+      const legacyCsvHash = occ === 1 ? `csv_${account.id}_${txDate}_${absAmount.toFixed(2)}_${this.normalizeText(rawDesc).slice(0, 24)}` : null;
+
+      const matchedExisting = this.findMatchingExistingTransaction(
+        {
+          importHash,
+          legacyFitHash: legacyCsvHash,
+          accountId: account.id,
+          competenceMonth: resolvedCompetence,
+          transactionDate: txDate,
+          description: rawDesc,
+          amount: finalAmount,
+          isInvoiceCredit,
+          type: finalType
+        },
+        state,
+        usedExistingIds
+      );
+      const alreadyExists = Boolean(matchedExisting);
 
       const candidateForSibling = {
         description: rawDesc,
@@ -973,9 +1099,11 @@ window.StatementParser = {
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists && !isCardInvoicePayment,
+        selected: !alreadyExists,
         alreadyExists,
+        matchedExistingId: matchedExisting ? matchedExisting.id : null,
         isCardInvoicePayment,
+        transferDirection,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
         cycleCompetenceMonth: itemCycleMonth,
@@ -1368,6 +1496,7 @@ VERSION:102
     }
 
     const baseCounts = new Map();
+    const usedExistingIds = new Set();
     const results = [];
 
     for (const raw of rawItems) {
@@ -1389,6 +1518,9 @@ VERSION:102
       let finalType = classification.type;
       let isInvoiceCredit = false;
       let finalAmount = absAmount;
+      const transferDirection = isCreditCard
+        ? (signedVal > 0 ? "IN" : "OUT")
+        : (signedVal >= 0 ? "IN" : "OUT");
 
       if (finalType !== "TRANSFER") {
         if (isCreditCard) {
@@ -1405,12 +1537,29 @@ VERSION:102
         }
       }
 
-      const baseHash = `pdf_itau_${account.id}_${txDate}_${absAmount.toFixed(2)}_${this.normalizeText(description).slice(0, 24)}`;
+      const signCode = signedVal >= 0 ? "C" : "D";
+      const baseHash = `pdf_itau_${account.id}_${resolvedCompetence}_${txDate}_${signCode}_${absAmount.toFixed(2)}_${this.normalizeText(description).slice(0, 24)}`;
       const occ = (baseCounts.get(baseHash) || 0) + 1;
       baseCounts.set(baseHash, occ);
       const importHash = occ > 1 ? `${baseHash}_${occ}` : baseHash;
+      const legacyPdfHash = occ === 1 ? `pdf_itau_${account.id}_${txDate}_${absAmount.toFixed(2)}_${this.normalizeText(description).slice(0, 24)}` : null;
 
-      const alreadyExists = (state.transactions || []).some(t => t.importHash === importHash);
+      const matchedExisting = this.findMatchingExistingTransaction(
+        {
+          importHash,
+          legacyFitHash: legacyPdfHash,
+          accountId: account.id,
+          competenceMonth: resolvedCompetence,
+          transactionDate: txDate,
+          description,
+          amount: finalAmount,
+          isInvoiceCredit,
+          type: finalType
+        },
+        state,
+        usedExistingIds
+      );
+      const alreadyExists = Boolean(matchedExisting);
 
       const candidateForSibling = {
         description,
@@ -1434,9 +1583,11 @@ VERSION:102
 
       results.push({
         tempId: "imp_" + Math.random().toString(36).substring(2, 9),
-        selected: !alreadyExists && !isCardInvoicePayment,
+        selected: !alreadyExists,
         alreadyExists,
+        matchedExistingId: matchedExisting ? matchedExisting.id : null,
         isCardInvoicePayment,
+        transferDirection,
         transactionDate: txDate,
         competenceMonth: resolvedCompetence,
         cycleCompetenceMonth: itemCycleMonth,

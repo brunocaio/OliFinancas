@@ -762,6 +762,54 @@ window.App = {
       changed = true;
     }
 
+    // Patch incremental 16: grava direção contábil exata (transferDirection: IN/OUT) em todas as transferências
+    // a partir do código do extrato bancário (ex: dígito de sinal do OFX BB) e inicializa saldos de conciliação
+    if ((stateObj.schemaPatch || 0) < 16) {
+      const accMap = new Map((stateObj.accounts || []).map(a => [a.id, a]));
+      if (!stateObj.settings) stateObj.settings = {};
+      if (!stateObj.settings.accountMonthBalances) {
+        stateObj.settings.accountMonthBalances = {};
+      }
+
+      if (Array.isArray(stateObj.transactions)) {
+        stateObj.transactions.forEach(tx => {
+          if (!tx) return;
+          const acc = accMap.get(tx.accountId);
+          const isCard = Boolean(acc && acc.type === "CREDIT_CARD");
+          const hash = String(tx.importHash || "");
+          const desc = String(tx.description || "").toLowerCase();
+
+          if (tx.type === "TRANSFER" || tx.subcategoryId === "sub_pag_fatura" || tx.subcategoryId === "sub_transf_propria") {
+            tx.type = "TRANSFER";
+            tx.projectionId = null;
+            tx.amount = Math.abs(Number(tx.amount) || 0);
+
+            if (tx.transferDirection !== "IN" && tx.transferDirection !== "OUT") {
+              const bbMatch = hash.match(/^ofx_cc_[^_]+_\d{8}([01])\d+$/);
+              const canonMatch = hash.match(/_(C|D)_/);
+              if (bbMatch) {
+                tx.transferDirection = bbMatch[1] === "0" ? "IN" : "OUT";
+              } else if (canonMatch) {
+                tx.transferDirection = canonMatch[1] === "C" ? "IN" : "OUT";
+              } else if (tx.subcategoryId === "sub_pag_fatura") {
+                tx.transferDirection = isCard ? "IN" : "OUT";
+              } else if (tx.accountId === "cc_bruno_1794345904021" && desc.includes("pix transf")) {
+                tx.transferDirection = "IN";
+              } else if (desc.includes("recebid") || desc.includes("crédito") || desc.includes("credito") || desc.includes("resgate")) {
+                tx.transferDirection = "IN";
+              } else {
+                tx.transferDirection = "OUT";
+              }
+            }
+            changed = true;
+          }
+        });
+      }
+
+      stateObj.schemaPatch = 16;
+      changed = true;
+    }
+
     return changed;
   },
 
@@ -1169,8 +1217,43 @@ window.App = {
     return (cat && cat.type) ? cat.type : "EXPENSE";
   },
 
+  isInternalOrInvoiceTransfer(tx) {
+    if (!tx) return false;
+    if (tx.type === "TRANSFER") return true;
+    if (tx.subcategoryId === "sub_pag_fatura" || tx.subcategoryId === "sub_transf_propria") return true;
+    const sub = this.getSubcategory(tx.subcategoryId);
+    const cat = sub ? this.getCategory(sub.categoryId) : null;
+    return Boolean(cat && (cat.type === "TRANSFER" || cat.id === "cat_transferencia" || cat.id === "cat_pagamento_fatura"));
+  },
+
+  inferTxFlowDirection(tx) {
+    if (!tx) return "OUT";
+    if (tx.transferDirection === "IN" || tx.transferDirection === "OUT") {
+      return tx.transferDirection;
+    }
+    const acc = this.getAccount(tx.accountId);
+    if (acc && acc.type === "CREDIT_CARD") {
+      return (Number(tx.amount) < 0 || tx.isInvoiceCredit) ? "IN" : "OUT";
+    }
+    if (tx.type === "INCOME") return "IN";
+    if (tx.type === "EXPENSE") return "OUT";
+    return this.getTransferDirection(tx);
+  },
+
   getTransferDirection(tx) {
     if (!tx) return "OUT";
+    if (tx.transferDirection === "IN" || tx.transferDirection === "OUT") {
+      return tx.transferDirection;
+    }
+    const hash = String(tx.importHash || "");
+    const bbMatch = hash.match(/^ofx_cc_[^_]+_\d{8}([01])\d+$/);
+    if (bbMatch) {
+      return bbMatch[1] === "0" ? "IN" : "OUT";
+    }
+    const canonMatch = hash.match(/_(C|D)_/);
+    if (canonMatch) {
+      return canonMatch[1] === "C" ? "IN" : "OUT";
+    }
     if (tx.subcategoryId === "sub_pag_fatura") {
       const acc = this.getAccount(tx.accountId);
       return (acc && acc.type === "CREDIT_CARD") ? "IN" : "OUT";
@@ -1192,6 +1275,189 @@ window.App = {
       return "OUT";
     }
     return "OUT";
+  },
+
+  computeCheckingMonthFlow(accId, monthYear) {
+    const txs = (this.state.transactions || []).filter(t => t.accountId === accId && t.competenceMonth === monthYear);
+    let income = 0;
+    let expense = 0;
+    let transferIn = 0;
+    let transferOut = 0;
+    txs.forEach(t => {
+      const amt = Math.abs(Number(t.amount) || 0);
+      if (this.isInternalOrInvoiceTransfer(t)) {
+        if (this.getTransferDirection(t) === "IN") transferIn += amt;
+        else transferOut += amt;
+      } else if (t.type === "INCOME") {
+        income += amt;
+      } else {
+        expense += amt;
+      }
+    });
+    const totalIn = Number((income + transferIn).toFixed(2));
+    const totalOut = Number((expense + transferOut).toFixed(2));
+    const netFlow = Number((totalIn - totalOut).toFixed(2));
+    return { income, expense, transferIn, transferOut, totalIn, totalOut, netFlow, txCount: txs.length };
+  },
+
+  getCheckingAccountBalanceInfo(accId, monthYear) {
+    const manualAll = (this.state.settings && this.state.settings.accountMonthBalances) || {};
+    const monthsSet = new Set([monthYear]);
+    (this.state.transactions || []).forEach(t => {
+      if (t.accountId === accId && t.competenceMonth) monthsSet.add(t.competenceMonth);
+    });
+    (this.state.statementImports || []).forEach(b => {
+      if (b.accountId === accId && b.competenceMonth) monthsSet.add(b.competenceMonth);
+    });
+    Object.keys(manualAll).forEach(k => {
+      if (k.startsWith(`${accId}__`)) monthsSet.add(k.split("__")[1]);
+    });
+
+    const sortedMonths = Array.from(monthsSet).filter(m => /^\d{4}-\d{2}$/.test(m)).sort();
+    const resolved = new Map();
+
+    // Passada 1: coleta fluxos, saldos manuais e LEDGERBAL oficiais do OFX por mês
+    sortedMonths.forEach(m => {
+      const flow = this.computeCheckingMonthFlow(accId, m);
+      const manual = manualAll[`${accId}__${m}`] || {};
+      const batches = (this.state.statementImports || [])
+        .filter(b => b.accountId === accId && b.competenceMonth === m && typeof b.ledgerBalance === "number" && !isNaN(b.ledgerBalance))
+        .sort((a, b) => String(a.balanceDate || a.cutoffDate || a.importedAt || "").localeCompare(String(b.balanceDate || b.cutoffDate || b.importedAt || "")));
+      const latestLedgerBatch = batches.length > 0 ? batches[batches.length - 1] : null;
+      resolved.set(m, {
+        month: m,
+        flow,
+        manualOpening: typeof manual.openingBalance === "number" && !isNaN(manual.openingBalance) ? manual.openingBalance : null,
+        manualClosing: typeof manual.closingBalance === "number" && !isNaN(manual.closingBalance) ? manual.closingBalance : null,
+        ofxClosing: latestLedgerBatch ? Number(latestLedgerBatch.ledgerBalance) : null,
+        ofxBalanceDate: latestLedgerBatch ? (latestLedgerBatch.balanceDate || latestLedgerBatch.cutoffDate || null) : null,
+        openingBalance: null,
+        closingBalance: null,
+        hasBalance: false,
+        source: null
+      });
+    });
+
+    // Passada 2: encadeia saldos para frente e deriva saldo inicial do primeiro mês com LEDGERBAL/manualClosing
+    let prevClosing = null;
+    for (let i = 0; i < sortedMonths.length; i++) {
+      const m = sortedMonths[i];
+      const info = resolved.get(m);
+      const net = info.flow.netFlow;
+
+      if (info.manualOpening !== null) {
+        info.openingBalance = Number(info.manualOpening.toFixed(2));
+        info.closingBalance = info.manualClosing !== null
+          ? Number(info.manualClosing.toFixed(2))
+          : Number((info.openingBalance + net).toFixed(2));
+        info.hasBalance = true;
+        info.source = "MANUAL";
+      } else if (prevClosing !== null) {
+        info.openingBalance = Number(prevClosing.toFixed(2));
+        info.closingBalance = info.manualClosing !== null
+          ? Number(info.manualClosing.toFixed(2))
+          : Number((info.openingBalance + net).toFixed(2));
+        info.hasBalance = true;
+        info.source = info.ofxClosing !== null ? "OFX_CHAIN" : "CHAIN";
+      } else if (info.manualClosing !== null) {
+        info.closingBalance = Number(info.manualClosing.toFixed(2));
+        info.openingBalance = Number((info.closingBalance - net).toFixed(2));
+        info.hasBalance = true;
+        info.source = "MANUAL";
+      } else if (info.ofxClosing !== null) {
+        // Verifica se todas as transações do mês são <= ofxBalanceDate (ou se não há data posterior)
+        const monthTxs = (this.state.transactions || []).filter(t => t.accountId === accId && t.competenceMonth === m);
+        let postCutoffFlow = 0;
+        if (info.ofxBalanceDate) {
+          monthTxs.forEach(t => {
+            if (t.transactionDate && t.transactionDate > info.ofxBalanceDate) {
+              const amt = Math.abs(Number(t.amount) || 0);
+              const isIn = this.isInternalOrInvoiceTransfer(t) ? this.getTransferDirection(t) === "IN" : t.type === "INCOME";
+              postCutoffFlow += isIn ? amt : -amt;
+            }
+          });
+        }
+        info.closingBalance = Number((info.ofxClosing + postCutoffFlow).toFixed(2));
+        info.openingBalance = Number((info.closingBalance - net).toFixed(2));
+        info.hasBalance = true;
+        info.source = "OFX";
+      }
+
+      if (info.hasBalance) {
+        prevClosing = info.closingBalance;
+      }
+    }
+
+    // Passada 3: propaga para trás caso meses anteriores ao primeiro marco existam
+    let nextOpening = null;
+    for (let i = sortedMonths.length - 1; i >= 0; i--) {
+      const info = resolved.get(sortedMonths[i]);
+      if (info.hasBalance) {
+        nextOpening = info.openingBalance;
+      } else if (nextOpening !== null) {
+        info.closingBalance = Number(nextOpening.toFixed(2));
+        info.openingBalance = Number((info.closingBalance - info.flow.netFlow).toFixed(2));
+        info.hasBalance = true;
+        info.source = "BACK_CHAIN";
+        nextOpening = info.openingBalance;
+      }
+    }
+
+    return resolved.get(monthYear) || {
+      month: monthYear,
+      flow: this.computeCheckingMonthFlow(accId, monthYear),
+      openingBalance: null,
+      closingBalance: null,
+      hasBalance: false,
+      ofxClosing: null,
+      ofxBalanceDate: null,
+      source: null
+    };
+  },
+
+  promptCheckingBalanceAdjustment(accId, monthYear = null) {
+    const targetMonth = monthYear || this.state.settings.activeMonth;
+    const acc = this.getAccount(accId);
+    const info = this.getCheckingAccountBalanceInfo(accId, targetMonth);
+    const currentClosing = info.hasBalance ? info.closingBalance.toFixed(2) : "";
+    const msg =
+      `Conciliação de Saldo — ${acc.name} (${this.getMonthLabel(targetMonth)}):\n\n` +
+      `• Entradas do extrato (+): ${this.formatBRL(info.flow.totalIn)}\n` +
+      `• Saídas do extrato (-): ${this.formatBRL(info.flow.totalOut)}\n` +
+      `• Movimentação líquida do mês: ${info.flow.netFlow >= 0 ? "+" : ""}${this.formatBRL(info.flow.netFlow)}\n` +
+      (info.hasBalance ? `• Saldo anterior calculado: ${this.formatBRL(info.openingBalance)}\n` : "") +
+      `\nInforme o SALDO FINAL da conta no extrato deste mês (ex: 272,13 ou -2,21), ou deixe em branco para usar apenas o cálculo automático do OFX/encadeamento:`;
+
+    const raw = prompt(msg, currentClosing);
+    if (raw === null) return;
+
+    if (!this.state.settings) this.state.settings = {};
+    if (!this.state.settings.accountMonthBalances) this.state.settings.accountMonthBalances = {};
+    const key = `${accId}__${targetMonth}`;
+    const cleaned = raw.replace(/\s+/g, "").replace(",", ".");
+
+    if (!cleaned) {
+      delete this.state.settings.accountMonthBalances[key];
+      this.saveState(true);
+      this.renderAll();
+      this.showToast(`⚖️ Saldo manual de "${acc.name}" removido (usando encadeamento automático do extrato).`, "info");
+      return;
+    }
+
+    const val = parseFloat(cleaned);
+    if (isNaN(val)) {
+      this.showToast("Valor inválido. Use números como 272,13 ou -2,21.", "error");
+      return;
+    }
+
+    const derivedOpening = Number((val - info.flow.netFlow).toFixed(2));
+    this.state.settings.accountMonthBalances[key] = {
+      openingBalance: derivedOpening,
+      closingBalance: Number(val.toFixed(2))
+    };
+    this.saveState(true);
+    this.renderAll();
+    this.showToast(`⚖️ Saldo final de "${acc.name}" conciliado em ${this.formatBRL(val)}!`, "success");
   },
 
   getAccount(accId) {
@@ -1261,11 +1527,11 @@ window.App = {
     const filteredProjs = monthProjs.filter(filterProjByUser);
 
     const incomeBruno = monthTxs
-      .filter(t => t.type === "INCOME" && t.paidByUserId === "bruno")
+      .filter(t => t.type === "INCOME" && !this.isInternalOrInvoiceTransfer(t) && t.paidByUserId === "bruno")
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const incomeNubia = monthTxs
-      .filter(t => t.type === "INCOME" && t.paidByUserId === "nubia")
+      .filter(t => t.type === "INCOME" && !this.isInternalOrInvoiceTransfer(t) && t.paidByUserId === "nubia")
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const totalIncome = userFilter === "bruno"
@@ -1274,7 +1540,7 @@ window.App = {
       ? incomeNubia
       : incomeBruno + incomeNubia;
 
-    const expenseTxs = filteredTxs.filter(t => t.type === "EXPENSE");
+    const expenseTxs = filteredTxs.filter(t => t.type === "EXPENSE" && !this.isInternalOrInvoiceTransfer(t));
     const totalActualExpenses = expenseTxs.reduce((acc, t) => acc + Number(t.amount), 0);
 
     const byAccount = this.state.accounts
@@ -1284,7 +1550,7 @@ window.App = {
         return true;
       })
       .map(acc => {
-        const accTxs = monthTxs.filter(t => t.type === "EXPENSE" && t.accountId === acc.id);
+        const accTxs = monthTxs.filter(t => t.type === "EXPENSE" && !this.isInternalOrInvoiceTransfer(t) && t.accountId === acc.id);
         const accProjs = monthProjs.filter(p => p.accountId === acc.id);
         const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
         const plannedSum = accProjs
@@ -1320,11 +1586,11 @@ window.App = {
       .reduce((acc, p) => acc + Number(p.plannedAmount), 0);
 
     const individualBrunoActual = monthTxs
-      .filter(t => t.type === "EXPENSE" && t.ownership === "INDIVIDUAL_BRUNO")
+      .filter(t => t.type === "EXPENSE" && !this.isInternalOrInvoiceTransfer(t) && t.ownership === "INDIVIDUAL_BRUNO")
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const individualNubiaActual = monthTxs
-      .filter(t => t.type === "EXPENSE" && t.ownership === "INDIVIDUAL_NUBIA")
+      .filter(t => t.type === "EXPENSE" && !this.isInternalOrInvoiceTransfer(t) && t.ownership === "INDIVIDUAL_NUBIA")
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const individualTotalActual = userFilter === "bruno"
@@ -1337,7 +1603,7 @@ window.App = {
       .filter(p => p.ownership !== "COLLECTIVE" && this.getProjectionType(p) === "EXPENSE")
       .reduce((acc, p) => acc + Number(p.plannedAmount), 0);
 
-    const allCollectiveTxs = monthTxs.filter(t => t.type === "EXPENSE" && t.ownership === "COLLECTIVE");
+    const allCollectiveTxs = monthTxs.filter(t => t.type === "EXPENSE" && !this.isInternalOrInvoiceTransfer(t) && t.ownership === "COLLECTIVE");
     const totalHouseholdCollective = allCollectiveTxs.reduce((acc, t) => acc + Number(t.amount), 0);
     const paidByBrunoCollective = allCollectiveTxs
       .filter(t => t.paidByUserId === "bruno")
@@ -2070,7 +2336,7 @@ window.App = {
         }
         return true;
       });
-      const expenseTxs = filteredTxs.filter(t => t.type === "EXPENSE");
+      const expenseTxs = filteredTxs.filter(t => t.type === "EXPENSE" && !this.isInternalOrInvoiceTransfer(t));
 
       // Agrupar por categoria macro
       const macroMap = new Map();
@@ -2595,6 +2861,7 @@ window.App = {
 
     const groups = [];
     (this.state.categories || []).forEach(cat => {
+      if (cat.type === "TRANSFER" || cat.id === "cat_transferencia" || cat.id === "cat_pagamento_fatura") return;
       const childSubs = (this.state.subcategories || []).filter(s => s.categoryId === cat.id && subIds.has(s.id));
       if (childSubs.length === 0) return;
 
@@ -3225,7 +3492,7 @@ window.App = {
 
   getInstallmentsInMonth(monthYear, userFilter = this.activeUserFilter) {
     const allInstTxs = (this.state.transactions || []).filter(tx => {
-      if (!tx || tx.type !== "EXPENSE" || (Number(tx.installmentTotal) || 1) <= 1) return false;
+      if (!tx || tx.type !== "EXPENSE" || this.isInternalOrInvoiceTransfer(tx) || (Number(tx.installmentTotal) || 1) <= 1) return false;
       if (tx.subcategoryId === "sub_financiamento_imob" || (tx.importHash && tx.importHash.startsWith("fin_"))) return false;
       if (userFilter === "bruno") return tx.paidByUserId === "bruno" || tx.ownership === "INDIVIDUAL_BRUNO";
       if (userFilter === "nubia") return tx.paidByUserId === "nubia" || tx.ownership === "INDIVIDUAL_NUBIA";
@@ -4041,13 +4308,13 @@ window.App = {
     const userLabel = userFilter === "bruno" ? "BRUNO" : userFilter === "nubia" ? "NÚBIA" : "CASAL (BRUNO & NÚBIA)";
 
     const monthTxs = this.state.transactions.filter(
-      t => t.competenceMonth === monthYear && t.type === "EXPENSE"
+      t => t.competenceMonth === monthYear && t.type === "EXPENSE" && !this.isInternalOrInvoiceTransfer(t)
     );
     const monthIncomeTxs = this.state.transactions.filter(
-      t => t.competenceMonth === monthYear && t.type === "INCOME"
+      t => t.competenceMonth === monthYear && t.type === "INCOME" && !this.isInternalOrInvoiceTransfer(t)
     );
     const monthTransferTxs = this.state.transactions.filter(
-      t => t.competenceMonth === monthYear && t.type === "TRANSFER"
+      t => t.competenceMonth === monthYear && this.isInternalOrInvoiceTransfer(t)
     );
     const monthProjs = this.state.projections.filter(p => p.monthYear === monthYear);
 
@@ -4175,8 +4442,8 @@ window.App = {
       const actual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
       const incomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
 
-      const accTransferInActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "IN").reduce((s, t) => s + Number(t.amount), 0);
-      const accTransferOutActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "OUT").reduce((s, t) => s + Number(t.amount), 0);
+      const accTransferInActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "IN").reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+      const accTransferOutActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "OUT").reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
 
       const accExpenseProjs = accProjs.filter(p => this.getProjectionType(p) === "EXPENSE");
       const accIncomeProjs = accProjs.filter(p => this.getProjectionType(p) === "INCOME");
@@ -4185,10 +4452,12 @@ window.App = {
       const incomeMeta = accIncomeProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
       const transferMeta = accTransferProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
 
-      // Saldo da conta corrente contabilizando receitas, transferências (entradas/saídas) e despesas
-      const netActual = (incomeActual + accTransferInActual) - (actual + accTransferOutActual);
+      const totalInActual = Number((incomeActual + accTransferInActual).toFixed(2));
+      const totalOutActual = Number((actual + accTransferOutActual).toFixed(2));
+      const netActual = Number((totalInActual - totalOutActual).toFixed(2));
       const netMeta = incomeMeta - expenseMeta - transferMeta;
       const netDiff = netActual - netMeta;
+      const balInfo = this.getCheckingAccountBalanceInfo(acc.id, monthYear);
 
       return {
         acc,
@@ -4196,22 +4465,28 @@ window.App = {
         incomeActual,
         accTransferInActual,
         accTransferOutActual,
+        totalInActual,
+        totalOutActual,
         expenseMeta,
         incomeMeta,
         transferMeta,
         netActual,
         netMeta,
-        netDiff
+        netDiff,
+        balInfo
       };
     });
 
     const totalCheckingSummaryNetActual = checkingSummaryRows.reduce((s, r) => s + r.netActual, 0);
     const totalCheckingSummaryNetMeta = checkingSummaryRows.reduce((s, r) => s + r.netMeta, 0);
     const totalCheckingSummaryNetDiff = checkingSummaryRows.reduce((s, r) => s + r.netDiff, 0);
+    const anyCheckingHasClosing = checkingSummaryRows.some(r => r.balInfo && r.balInfo.hasBalance);
+    const totalCheckingClosingSum = checkingSummaryRows.reduce((s, r) => s + (r.balInfo && r.balInfo.hasBalance ? r.balInfo.closingBalance : r.netActual), 0);
 
     const checkingSummaryRowsHTML = checkingSummaryRows
       .map(row => {
         const owner = this.getUser(row.acc.ownerId);
+        const b = row.balInfo;
         return `
           <tr class="border-b border-stone-200/70 hover:bg-stone-50 transition">
             <td class="py-2.5 px-2.5 sm:px-4">
@@ -4222,13 +4497,34 @@ window.App = {
                 >
                   <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${row.acc.color || "#0ea5e9"}"></span>
                   <span class="break-words">${this.escapeHTML(row.acc.name)}</span>
-                  <span class="text-[10px] font-semibold text-stone-400 normal-case">(ver categorias &darr;)</span>
+                  <span class="text-[10px] font-semibold text-stone-400 normal-case">(ver extrato &darr;)</span>
                 </a>
-                <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 font-semibold">${owner.name}</span>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 font-semibold">${owner.name}</span>
+                  <button
+                    type="button"
+                    onclick="App.promptCheckingBalanceAdjustment('${row.acc.id}', '${monthYear}')"
+                    class="px-1.5 py-0.5 rounded bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 text-[10px] font-bold transition cursor-pointer"
+                    title="Conciliar saldo oficial do extrato bancário"
+                  >
+                    ⚖️ Saldo
+                  </button>
+                </div>
+              </div>
+              <div class="text-[10px] text-stone-500 mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                ${b && b.hasBalance ? `<span>Saldo Ant.: <strong class="text-stone-700 tabular-nums">${this.formatBRL(b.openingBalance)}</strong></span><span>•</span>` : ""}
+                <span class="text-emerald-700 font-semibold tabular-nums">Entradas: +${this.formatBRL(row.totalInActual)}</span>
+                <span>•</span>
+                <span class="text-rose-700 font-semibold tabular-nums">Saídas: -${this.formatBRL(row.totalOutActual)}</span>
               </div>
             </td>
-            <td class="py-2.5 px-2 sm:px-4 text-right w-36 sm:w-48 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${row.netActual >= 0 ? "text-lime-700" : "text-rose-600"}">
+            <td class="py-2.5 px-2 sm:px-4 text-right w-36 sm:w-44 font-bold text-[10px] sm:text-xs whitespace-nowrap tabular-nums ${row.netActual >= 0 ? "text-lime-700" : "text-rose-600"}">
               ${row.netActual >= 0 ? "+" : ""}${this.formatBRL(row.netActual)}
+            </td>
+            <td class="py-2.5 px-2 sm:px-4 text-right w-36 sm:w-48 font-extrabold text-[10px] sm:text-sm whitespace-nowrap tabular-nums ${b && b.hasBalance ? (b.closingBalance >= 0 ? "text-sky-900" : "text-rose-600") : "text-stone-400"}">
+              ${b && b.hasBalance
+                ? `${this.formatBRL(b.closingBalance)} <div class="text-[9px] font-semibold text-emerald-700">✓ Extrato</div>`
+                : `<button type="button" onclick="App.promptCheckingBalanceAdjustment('${row.acc.id}', '${monthYear}')" class="text-[10px] font-bold text-sky-700 hover:underline cursor-pointer">Definir saldo</button>`}
             </td>
           </tr>
         `;
@@ -4239,9 +4535,19 @@ window.App = {
     const creditCardsBlocksHTML = creditCards
       .map(card => {
         const cardTxs = monthTxs.filter(t => t.accountId === card.id);
+        const cardTransferTxs = monthTransferTxs.filter(t => t.accountId === card.id);
         const cardProjs = monthProjs.filter(p => p.accountId === card.id);
         const metaInfo = this.getCardMetaInfo(monthYear, card.id);
-        const cardActual = cardTxs.reduce((s, t) => s + Number(t.amount), 0);
+        const cardActual = Number(cardTxs.reduce((s, t) => s + Number(t.amount), 0).toFixed(2));
+        const cardPriorInvoicePayments = Number(cardTransferTxs.reduce((s, t) => s + Math.abs(Number(t.amount)), 0).toFixed(2));
+        const cardBatches = (this.state.statementImports || [])
+          .filter(b => b.accountId === card.id && b.competenceMonth === monthYear)
+          .sort((a, b) => String(a.importedAt || "").localeCompare(String(b.importedAt || "")));
+        const latestCardBatch = cardBatches.length > 0 ? cardBatches[cardBatches.length - 1] : null;
+        const ofxCardInvoiceTotal = (latestCardBatch && typeof latestCardBatch.ledgerBalance === "number" && !isNaN(latestCardBatch.ledgerBalance))
+          ? Math.abs(Number(latestCardBatch.ledgerBalance))
+          : null;
+        const isCardReconciled = ofxCardInvoiceTotal !== null && Math.abs(ofxCardInvoiceTotal - cardActual) <= 0.05;
 
         const activeCardItems = [];
         const archivedCardSubs = [];
@@ -4289,6 +4595,7 @@ window.App = {
                     <span class="text-[11px] px-2 py-0.5 rounded-full bg-stone-200/75 text-stone-700 font-bold">
                       Vira dia ${card.closingDay || 9} • ${modeLabel}
                     </span>
+                    ${isCardReconciled ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 font-extrabold">✓ Fatura conciliada com OFX</span>` : ""}
                     ${vCardsCount > 0 ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-lime-100 text-lime-800 font-semibold" title="${(card.virtualCards || []).join(", ")}">${vCardsCount} cartões na conta</span>` : ""}
                   </div>
                 </div>
@@ -4329,11 +4636,22 @@ window.App = {
                 <tfoot>
                   <tr class="bg-emerald-100/70 border-t-2 border-emerald-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
                     <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">
-                      TOTAL ${card.name.split("(")[0].trim()}
+                      TOTAL DA FATURA — ${card.name.split("(")[0].trim()}
+                      <span class="block text-[10px] font-semibold text-emerald-900/75 normal-case">Compras − Estornos do período (${cardTxs.length} lanç.)</span>
                     </td>
                     <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums">${this.formatBRL(cardActual)}</td>
                     <td class="py-3 px-1 sm:px-3 text-right"></td>
                   </tr>
+                  ${cardTransferTxs.length > 0 ? `
+                    <tr class="bg-stone-50/90 border-t border-stone-200/80 text-[10px] sm:text-xs text-stone-500">
+                      <td class="py-2 px-2 sm:px-4">
+                        <span class="font-semibold text-stone-600">↳ Pagamento recebido da fatura anterior no extrato (${cardTransferTxs.length})</span>
+                        <span class="text-[10px] text-stone-400 ml-1">(informativo do OFX • desconsiderado das despesas gerais e do total desta fatura)</span>
+                      </td>
+                      <td class="py-2 px-1 sm:px-3 text-right font-bold text-sky-700 whitespace-nowrap tabular-nums">+${this.formatBRL(cardPriorInvoicePayments)}</td>
+                      <td class="py-2 px-1 sm:px-3 text-right"></td>
+                    </tr>
+                  ` : ""}
                 </tfoot>
               </table>
             </div>
@@ -4354,8 +4672,8 @@ window.App = {
         const accProjs = monthProjs.filter(p => p.accountId === acc.id);
         const accActual = accTxs.reduce((s, t) => s + Number(t.amount), 0);
         const accIncomeActual = accIncomeTxs.reduce((s, t) => s + Number(t.amount), 0);
-        const accTransferInActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "IN").reduce((s, t) => s + Number(t.amount), 0);
-        const accTransferOutActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "OUT").reduce((s, t) => s + Number(t.amount), 0);
+        const accTransferInActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "IN").reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+        const accTransferOutActual = accTransferTxs.filter(t => this.getTransferDirection(t) === "OUT").reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
 
         const accExpenseProjs = accProjs.filter(p => this.getProjectionType(p) === "EXPENSE");
         const accIncomeProjs = accProjs.filter(p => this.getProjectionType(p) === "INCOME");
@@ -4364,10 +4682,12 @@ window.App = {
         const accIncomeMeta = accIncomeProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
         const accTransferMeta = accTransferProjs.reduce((s, p) => s + Number(p.plannedAmount), 0);
 
-        // Somatório considerando receitas, transferências entre contas e despesas
-        const netActual = (accIncomeActual + accTransferInActual) - (accActual + accTransferOutActual);
+        const totalInActual = Number((accIncomeActual + accTransferInActual).toFixed(2));
+        const totalOutActual = Number((accActual + accTransferOutActual).toFixed(2));
+        const netActual = Number((totalInActual - totalOutActual).toFixed(2));
         const netMeta = accIncomeMeta - accExpenseMeta - accTransferMeta;
         const netDiff = netActual - netMeta;
+        const balInfo = this.getCheckingAccountBalanceInfo(acc.id, monthYear);
 
         const owner = this.getUser(acc.ownerId);
 
@@ -4474,11 +4794,20 @@ window.App = {
                   <span class="text-[11px] px-2 py-0.5 rounded-full bg-stone-200/75 text-stone-700 font-bold">
                     Conta Corrente • ${owner.name}
                   </span>
+                  ${balInfo && balInfo.hasBalance ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 font-extrabold">✓ Conciliada c/ extrato</span>` : ""}
                 </div>
               </div>
 
               <div class="flex flex-wrap items-center gap-2 self-start sm:self-center">
                 ${this.buildTreeSearchInputHTML(acc.id, "Filtrar na conta...")}
+                <button
+                  type="button"
+                  onclick="App.promptCheckingBalanceAdjustment('${acc.id}', '${monthYear}')"
+                  class="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-800 text-[11px] font-bold transition cursor-pointer"
+                  title="Definir ou revisar o Saldo Inicial / Final do extrato bancário"
+                >
+                  ⚖️ Saldo Extrato
+                </button>
                 <button
                   type="button"
                   onclick="App.expandAllTrees(true, '${acc.id}')"
@@ -4509,10 +4838,29 @@ window.App = {
                   ${this.buildCategoryTreeRowsHTML(acc.id, displayAccItems, monthYear)}
                 </tbody>
                 <tfoot>
+                  <tr class="bg-stone-50/90 border-t border-stone-200 text-[10px] sm:text-xs text-stone-600">
+                    <td class="py-2 px-2 sm:px-4" colspan="2">
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                          ${balInfo && balInfo.hasBalance ? `<span>Saldo Anterior: <strong class="text-stone-800 tabular-nums">${this.formatBRL(balInfo.openingBalance)}</strong></span>` : ""}
+                          <span class="text-emerald-700 font-semibold tabular-nums">Entradas (+): +${this.formatBRL(totalInActual)}</span>
+                          <span class="text-rose-700 font-semibold tabular-nums">Saídas (-): -${this.formatBRL(totalOutActual)}</span>
+                        </div>
+                        <span class="font-bold ${netActual >= 0 ? "text-lime-800" : "text-rose-700"} tabular-nums">
+                          Movimentação do Mês: ${netActual >= 0 ? "+" : ""}${this.formatBRL(netActual)}
+                        </span>
+                      </div>
+                    </td>
+                    <td class="py-2 px-1 sm:px-3"></td>
+                  </tr>
                   <tr class="bg-sky-100/70 border-t-2 border-sky-300/80 font-extrabold text-stone-900 text-[10px] sm:text-sm">
-                    <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">TOTAL ${this.escapeHTML(acc.name)}</td>
-                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${netActual >= 0 ? "text-lime-800" : "text-rose-700"}">
-                      ${netActual >= 0 ? "+" : ""}${this.formatBRL(netActual)}
+                    <td class="py-3 px-2 sm:px-4 uppercase tracking-wide break-words">
+                      ${balInfo && balInfo.hasBalance ? `SALDO FINAL NO EXTRATO — ${this.escapeHTML(acc.name)}` : `MOVIMENTAÇÃO LÍQUIDA — ${this.escapeHTML(acc.name)}`}
+                    </td>
+                    <td class="py-3 px-1 sm:px-3 text-right whitespace-nowrap tabular-nums ${(balInfo && balInfo.hasBalance ? balInfo.closingBalance : netActual) >= 0 ? "text-sky-900" : "text-rose-700"}">
+                      ${balInfo && balInfo.hasBalance
+                        ? this.formatBRL(balInfo.closingBalance)
+                        : `${netActual >= 0 ? "+" : ""}${this.formatBRL(netActual)}`}
                     </td>
                     <td class="py-3 px-1 sm:px-3 text-right"></td>
                   </tr>
@@ -4787,7 +5135,8 @@ window.App = {
               <thead>
                 <tr class="border-b border-stone-200/80 text-[10px] sm:text-[11px] font-extrabold uppercase text-stone-400 bg-white">
                   <th class="py-2.5 px-2 sm:px-4 w-auto">Conta Corrente</th>
-                  <th class="py-2.5 px-1 sm:px-4 text-right w-36 sm:w-48 whitespace-nowrap">Realizado</th>
+                  <th class="py-2.5 px-1 sm:px-4 text-right w-36 sm:w-44 whitespace-nowrap">Mov. do Mês</th>
+                  <th class="py-2.5 px-1 sm:px-4 text-right w-36 sm:w-48 whitespace-nowrap">Saldo Final (Extrato)</th>
                 </tr>
               </thead>
               <tbody>
@@ -4798,6 +5147,9 @@ window.App = {
                   <td class="py-3 px-2 sm:px-4 uppercase tracking-wider break-words">TOTAL CONTAS CORRENTES</td>
                   <td class="py-3 px-1 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingSummaryNetActual >= 0 ? "text-lime-300" : "text-rose-300"}">
                     ${totalCheckingSummaryNetActual >= 0 ? "+" : ""}${this.formatBRL(totalCheckingSummaryNetActual)}
+                  </td>
+                  <td class="py-3 px-1 sm:px-4 text-right whitespace-nowrap tabular-nums ${totalCheckingClosingSum >= 0 ? "text-sky-200" : "text-rose-300"}">
+                    ${anyCheckingHasClosing ? this.formatBRL(totalCheckingClosingSum) : "—"}
                   </td>
                 </tr>
               </tfoot>
@@ -4841,7 +5193,7 @@ window.App = {
   buildInstallmentSeries(monthYear) {
     const userFilter = this.activeUserFilter;
     const allInstTxs = (this.state.transactions || []).filter(tx => {
-      if (!tx || tx.type !== "EXPENSE" || (Number(tx.installmentTotal) || 1) <= 1) return false;
+      if (!tx || tx.type !== "EXPENSE" || this.isInternalOrInvoiceTransfer(tx) || (Number(tx.installmentTotal) || 1) <= 1) return false;
       if (tx.subcategoryId === "sub_financiamento_imob" || (tx.importHash && tx.importHash.startsWith("fin_"))) return false;
       if (userFilter === "bruno") return tx.paidByUserId === "bruno" || tx.ownership === "INDIVIDUAL_BRUNO";
       if (userFilter === "nubia") return tx.paidByUserId === "nubia" || tx.ownership === "INDIVIDUAL_NUBIA";
@@ -6129,9 +6481,9 @@ window.App = {
               </button>
             </td>
             <td class="py-3 px-4 text-right font-extrabold whitespace-nowrap tabular-nums text-xs sm:text-sm ${
-              tx.type === "TRANSFER" ? "text-sky-700" : tx.type === "INCOME" ? "text-lime-700" : isCredit ? "text-emerald-700" : "text-stone-900"
+              tx.type === "TRANSFER" ? (this.getTransferDirection(tx) === "IN" ? "text-emerald-700" : "text-sky-700") : tx.type === "INCOME" ? "text-lime-700" : isCredit ? "text-emerald-700" : "text-stone-900"
             }">
-              ${tx.type === "TRANSFER" ? `⇄ ${this.formatBRL(tx.amount)}` : tx.type === "INCOME" ? `+${this.formatBRL(tx.amount)}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : `-${this.formatBRL(tx.amount)}`}
+              ${tx.type === "TRANSFER" ? `⇄ ${this.getTransferDirection(tx) === "IN" ? "+" : "-"}${this.formatBRL(Math.abs(tx.amount))}` : tx.type === "INCOME" ? `+${this.formatBRL(tx.amount)}` : isCredit ? `-${this.formatBRL(Math.abs(tx.amount))}` : `-${this.formatBRL(tx.amount)}`}
             </td>
             <td class="py-3 px-4 text-right whitespace-nowrap">
               <button onclick="App.deleteTransaction('${tx.id}')" class="p-1.5 rounded-lg text-stone-300 hover:text-rose-600 transition" title="Excluir (Ctrl+Z para desfazer)">
@@ -6214,12 +6566,26 @@ window.App = {
   applySubcategoryToTx(tx, newSubId) {
     if (!tx || !newSubId) return;
     const acc = this.getAccount(tx.accountId);
+    const isCard = Boolean(acc && acc.type === "CREDIT_CARD");
     const sub = this.getSubcategory(newSubId);
     const cat = this.getCategory(sub.categoryId);
+    const priorDir = this.inferTxFlowDirection(tx);
 
+    tx.transferDirection = priorDir;
     tx.subcategoryId = newSubId;
     if (cat && (cat.type === "TRANSFER" || cat.type === "INCOME" || cat.type === "EXPENSE")) {
       tx.type = cat.type;
+      const absAmt = Math.abs(Number(tx.amount) || 0);
+      if (tx.type === "TRANSFER") {
+        tx.amount = absAmt;
+        tx.isInvoiceCredit = false;
+      } else if (isCard && tx.type === "EXPENSE") {
+        tx.amount = priorDir === "IN" ? -absAmt : absAmt;
+        tx.isInvoiceCredit = priorDir === "IN";
+      } else {
+        tx.amount = absAmt;
+        tx.isInvoiceCredit = false;
+      }
     }
     tx.ownership = this.resolveDefaultOwnership(newSubId, acc.ownerId || tx.paidByUserId);
     const monthProjs = this.state.projections.filter(p => p.monthYear === tx.competenceMonth);
@@ -7012,26 +7378,44 @@ window.App = {
     }
 
     const selectedItems = this.stagedImports.filter(i => i.selected);
+    const allStatementItems = this.stagedImports;
     const importTargetAcc = this.getAccount(this.importTargetAccountId);
     const isCheckingImport = importTargetAcc && importTargetAcc.type === "CHECKING";
     if (countSpan) {
-      const incomesTotal = selectedItems
-        .filter(i => i.type === "INCOME")
-        .reduce((s, i) => s + Math.abs(Number(i.amount)), 0);
-      const grossPurchases = selectedItems
-        .filter(i => i.type === "EXPENSE" && Number(i.amount) > 0)
-        .reduce((s, i) => s + Number(i.amount), 0);
-      const creditsTotal = selectedItems
-        .filter(i => i.type === "EXPENSE" && Number(i.amount) < 0)
-        .reduce((s, i) => s + Math.abs(Number(i.amount)), 0);
-      const netInvoice = grossPurchases - creditsTotal;
-      if (incomesTotal > 0) {
-        const netFlow = incomesTotal - grossPurchases;
-        countSpan.innerHTML = `${selectedItems.length} selecionado(s) • <span class="text-emerald-700">Entradas +${this.formatBRL(incomesTotal)}</span> • <span class="text-rose-700">Saídas -${this.formatBRL(grossPurchases)}</span> = <strong class="underline">Saldo: ${netFlow >= 0 ? "+" : ""}${this.formatBRL(netFlow)}</strong>`;
-      } else if (creditsTotal > 0) {
-        countSpan.innerHTML = `${selectedItems.length} selecionado(s) • Compras ${this.formatBRL(grossPurchases)} − Estornos <span class="text-emerald-700">${this.formatBRL(creditsTotal)}</span> = <strong class="underline">Líquido Fatura: ${this.formatBRL(netInvoice)}</strong>`;
+      if (isCheckingImport) {
+        const calcChecking = (list) => {
+          let totalIn = 0;
+          let totalOut = 0;
+          list.forEach(i => {
+            const amt = Math.abs(Number(i.amount) || 0);
+            const isIn = i.type === "TRANSFER"
+              ? (i.transferDirection ? i.transferDirection === "IN" : this.getTransferDirection(i) === "IN")
+              : i.type === "INCOME";
+            if (isIn) totalIn += amt;
+            else totalOut += amt;
+          });
+          return { totalIn, totalOut, netFlow: totalIn - totalOut };
+        };
+        const fullStmt = calcChecking(allStatementItems);
+        const ledgerTag = (this.stagedImportMeta && typeof this.stagedImportMeta.ledgerBalance === "number" && !isNaN(this.stagedImportMeta.ledgerBalance))
+          ? ` • <span class="text-sky-800 font-bold">Saldo Final OFX: ${this.formatBRL(this.stagedImportMeta.ledgerBalance)}</span>`
+          : "";
+        countSpan.innerHTML = `${selectedItems.length}/${allStatementItems.length} novos marcados • Extrato: <span class="text-emerald-700">Entradas +${this.formatBRL(fullStmt.totalIn)}</span> • <span class="text-rose-700">Saídas -${this.formatBRL(fullStmt.totalOut)}</span> = <strong class="underline">Mov. Mês: ${fullStmt.netFlow >= 0 ? "+" : ""}${this.formatBRL(fullStmt.netFlow)}</strong>${ledgerTag}`;
       } else {
-        countSpan.textContent = `${selectedItems.length} selecionado(s) (${this.formatBRL(netInvoice)})`;
+        const grossPurchases = allStatementItems
+          .filter(i => i.type === "EXPENSE" && Number(i.amount) > 0)
+          .reduce((s, i) => s + Number(i.amount), 0);
+        const creditsTotal = allStatementItems
+          .filter(i => i.type === "EXPENSE" && Number(i.amount) < 0)
+          .reduce((s, i) => s + Math.abs(Number(i.amount)), 0);
+        const priorPayments = allStatementItems
+          .filter(i => i.type === "TRANSFER")
+          .reduce((s, i) => s + Math.abs(Number(i.amount)), 0);
+        const netInvoice = grossPurchases - creditsTotal;
+        const priorTag = priorPayments > 0
+          ? ` • <span class="text-sky-700">Pag. fatura anterior +${this.formatBRL(priorPayments)} (neutro)</span>`
+          : "";
+        countSpan.innerHTML = `${selectedItems.length}/${allStatementItems.length} novos marcados • Compras ${this.formatBRL(grossPurchases)}${creditsTotal > 0 ? ` − Estornos <span class="text-emerald-700">${this.formatBRL(creditsTotal)}</span>` : ""} = <strong class="underline">Total da Fatura: ${this.formatBRL(netInvoice)}</strong>${priorTag}`;
       }
     }
 
@@ -7081,21 +7465,27 @@ window.App = {
         const shiftedToNext = item.competenceMonth > txMonthPrefix;
         const isCredit = Number(item.amount) < 0 || item.isInvoiceCredit;
         const isIncome = item.type === "INCOME";
+        const isTransfer = item.type === "TRANSFER";
+        const transferDir = isTransfer ? (item.transferDirection || this.getTransferDirection(item)) : null;
 
         const rowClass = item.alreadyExists
           ? "opacity-45 bg-stone-50"
-          : item.type === "TRANSFER"
-          ? "bg-stone-50 text-stone-400"
+          : isTransfer
+          ? "bg-sky-50/35 text-stone-600"
           : isIncome || isCredit
           ? "bg-emerald-50/50 hover:bg-emerald-50/80"
           : "hover:bg-stone-50/80";
 
-        const amountColorClass = isIncome || isCredit
+        const amountColorClass = isTransfer
+          ? (transferDir === "IN" ? "text-emerald-700" : "text-sky-700")
+          : isIncome || isCredit
           ? "text-emerald-700"
           : isCheckingImport && item.type === "EXPENSE"
           ? "text-rose-700"
           : "text-stone-900";
-        const amountFormatted = isIncome
+        const amountFormatted = isTransfer
+          ? `⇄ ${transferDir === "IN" ? "+" : "-"}${this.formatBRL(Math.abs(item.amount))}`
+          : isIncome
           ? `+${this.formatBRL(Math.abs(item.amount))}`
           : isCredit
           ? `-${this.formatBRL(Math.abs(item.amount))}`
@@ -7142,7 +7532,7 @@ window.App = {
               ${!isIncome && isCheckingImport && item.type === "EXPENSE" && !item.alreadyExists ? `<span class="inline-block px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-bold mt-0.5 mr-1">↑ Saída</span>` : ""}
               ${isCredit && !item.isCardInvoicePayment ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold mt-0.5">Estorno / Desconto (Abate Fatura)</span>` : ""}
               ${item.alreadyExists ? `<span class="text-[10px] text-amber-600 font-semibold">Já importado (Ignorado)</span>` : ""}
-              ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">${item.subcategoryId === "sub_pag_fatura" ? (item.isCardInvoicePayment ? "💳 Quitação de fatura anterior no cartão (Ignorado p/ não duplicar)" : "💳 Pagamento de fatura (Abate saldo da Conta Corrente sem duplicar despesas)") : "⇄ Transferência entre contas próprias"}</span>` : ""}
+              ${item.type === "TRANSFER" ? `<span class="text-[10px] text-sky-700 font-semibold">${item.subcategoryId === "sub_pag_fatura" ? (item.isCardInvoicePayment ? "💳 Pagamento da fatura anterior no extrato (Neutro • fora das despesas gerais e do total desta fatura)" : "💳 Pagamento de fatura (Compõe o saldo do extrato da Conta Corrente • fora das despesas gerais)") : `⇄ Transferência interna (${transferDir === "IN" ? "Entrada +" : "Saída -"} na conta • fora das análises gerais)`}</span>` : ""}
             </td>
             <td class="py-2.5 px-3">
               <button
@@ -7202,10 +7592,14 @@ window.App = {
       b => b.accountId === meta.accountId && b.status === "PARTIAL" &&
         this.stagedImports.some(i => i.competenceMonth === b.competenceMonth)
     );
+    const hasExistingInScope = (this.state.transactions || []).some(
+      t => t.accountId === meta.accountId && this.stagedImports.some(i => i.competenceMonth === t.competenceMonth)
+    );
     const parser = window.StatementParser;
     const cov = parser && parser.evaluateStatementCoverage
       ? parser.evaluateStatementCoverage(acc, meta.primaryMonth || this.state.settings.activeMonth, meta.cutoffDate, meta.status)
       : { pct: meta.status === "COMPLETE" ? 100 : 50 };
+    const hasLedger = typeof meta.ledgerBalance === "number" && !isNaN(meta.ledgerBalance);
 
     bar.innerHTML = `
       <div class="flex flex-wrap items-center gap-2.5">
@@ -7213,6 +7607,12 @@ window.App = {
           <span>📄</span>
           <span class="truncate max-w-[200px]" title="${this.escapeHTML(meta.fileName)}">${this.escapeHTML(meta.fileName)}</span>
         </span>
+        ${hasLedger ? `
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-extrabold text-xs">
+            <span>⚖️ Saldo OFX:</span>
+            <span class="tabular-nums">${this.formatBRL(acc && acc.type === "CREDIT_CARD" ? Math.abs(meta.ledgerBalance) : meta.ledgerBalance)}</span>
+          </span>
+        ` : ""}
         <div class="flex items-center gap-1.5">
           <span class="font-bold text-stone-600">Situação:</span>
           <select
@@ -7233,17 +7633,30 @@ window.App = {
           />
         </div>
       </div>
-      ${hasExistingPartial ? `
-        <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 font-bold cursor-pointer">
-          <input
-            type="checkbox"
-            ${meta.consolidatePartial !== false ? "checked" : ""}
-            onchange="App.updateStagedMeta('consolidatePartial', this.checked)"
-            class="w-3.5 h-3.5 rounded border-sky-400 text-lime-700"
-          />
-          <span>Consolidar com parcial anterior (preserva categorias/notas já editadas)</span>
-        </label>
-      ` : ""}
+      <div class="flex flex-wrap items-center gap-2">
+        ${hasExistingPartial ? `
+          <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 font-bold cursor-pointer">
+            <input
+              type="checkbox"
+              ${meta.consolidatePartial !== false ? "checked" : ""}
+              onchange="App.updateStagedMeta('consolidatePartial', this.checked)"
+              class="w-3.5 h-3.5 rounded border-sky-400 text-lime-700"
+            />
+            <span>Consolidar com parcial anterior</span>
+          </label>
+        ` : ""}
+        ${hasExistingInScope ? `
+          <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold cursor-pointer" title="Remove duplicidades ou sobras antigas da mesma conta/competência dentro do período deste extrato, preservando categorias e notas que você já editou">
+            <input
+              type="checkbox"
+              ${meta.reconcileExactMirror ? "checked" : ""}
+              onchange="App.updateStagedMeta('reconcileExactMirror', this.checked)"
+              class="w-3.5 h-3.5 rounded border-emerald-400 text-lime-700"
+            />
+            <span>Espelho fiel deste extrato no período (preserva edições)</span>
+          </label>
+        ` : ""}
+      </div>
     `;
   },
 
@@ -7275,8 +7688,12 @@ window.App = {
       periodStart,
       periodEnd,
       cutoffDate,
+      ledgerBalance: typeof explicitRange.ledgerBalance === "number" ? explicitRange.ledgerBalance : null,
+      balanceDate: explicitRange.balanceDate || null,
+      ledgerByAccount: explicitRange.ledgerByAccount || {},
       status: inferredStatus,
-      consolidatePartial: true
+      consolidatePartial: true,
+      reconcileExactMirror: false
     };
     this.lastSavedSnapshot = JSON.stringify({
       state: this.state,
@@ -7713,6 +8130,19 @@ window.App = {
                 const r = window.StatementParser.extractOFXDateRange(content);
                 if (r && r.dtStart && (!combinedRange.dtStart || r.dtStart < combinedRange.dtStart)) combinedRange.dtStart = r.dtStart;
                 if (r && r.dtEnd && (!combinedRange.dtEnd || r.dtEnd > combinedRange.dtEnd)) combinedRange.dtEnd = r.dtEnd;
+                if (r && typeof r.ledgerBalance === "number" && !isNaN(r.ledgerBalance)) {
+                  if (!combinedRange.ledgerByAccount) combinedRange.ledgerByAccount = {};
+                  const targetAccKey = fileAccount ? fileAccount.id : defaultAccId;
+                  const targetCompMonth = parsed[parsed.length - 1]?.competenceMonth || monthYear;
+                  combinedRange.ledgerByAccount[`${targetAccKey}__${targetCompMonth}`] = {
+                    ledgerBalance: r.ledgerBalance,
+                    balanceDate: r.balanceDate || r.dtEnd || null
+                  };
+                  if (files.length === 1 || i === 0) {
+                    combinedRange.ledgerBalance = r.ledgerBalance;
+                    combinedRange.balanceDate = r.balanceDate || r.dtEnd || null;
+                  }
+                }
               }
             }
           }
@@ -7741,11 +8171,11 @@ window.App = {
       }
     }
 
-    // Deduplicação inteligente de transações no lote
+    // Deduplicação inteligente de transações entre arquivos idênticos enviados juntos (preservando ocorrências _2, _3 do mesmo dia dentro do extrato)
     const seenKeys = new Set();
     const deduplicatedTxs = [];
     for (const tx of allParsedTxs) {
-      const key = tx.fitid || tx.importHash || `${tx.accountId || ""}_${tx.transactionDate}_${Math.round((tx.amount || 0) * 100)}_${(tx.rawDescription || "").trim().toUpperCase()}`;
+      const key = tx.importHash || `${tx.accountId || ""}_${tx.competenceMonth || ""}_${tx.transactionDate}_${Math.round((tx.amount || 0) * 100)}_${(tx.description || "").trim().toUpperCase()}`;
       if (!seenKeys.has(key)) {
         seenKeys.add(key);
         deduplicatedTxs.push(tx);
@@ -7875,10 +8305,25 @@ window.App = {
     const monthProjs = this.state.projections.filter(p => p.monthYear === this.state.settings.activeMonth);
 
     selectedItems.forEach(item => {
+      const priorDir = item.transferDirection || this.inferTxFlowDirection(item);
+      item.transferDirection = priorDir;
       item.subcategoryId = newSubId;
+      const itemAcc = this.getAccount(item.accountId);
+      const isCard = Boolean(itemAcc && itemAcc.type === "CREDIT_CARD");
       const newCat = this.getCategory(newSub.categoryId);
       if (newCat && (newCat.type === "TRANSFER" || newCat.type === "INCOME" || newCat.type === "EXPENSE")) {
         item.type = newCat.type;
+        const absAmt = Math.abs(Number(item.amount) || 0);
+        if (item.type === "TRANSFER") {
+          item.amount = absAmt;
+          item.isInvoiceCredit = false;
+        } else if (isCard && item.type === "EXPENSE") {
+          item.amount = priorDir === "IN" ? -absAmt : absAmt;
+          item.isInvoiceCredit = priorDir === "IN";
+        } else {
+          item.amount = absAmt;
+          item.isInvoiceCredit = false;
+        }
       }
       item.ownership = this.resolveDefaultOwnership(newSubId, item.paidByUserId);
       const match = item.type === "TRANSFER"
@@ -7936,10 +8381,25 @@ window.App = {
     item[field] = value || null;
 
     if (field === "subcategoryId") {
+      const priorDir = item.transferDirection || this.inferTxFlowDirection(item);
+      item.transferDirection = priorDir;
+      const itemAcc = this.getAccount(item.accountId);
+      const isCard = Boolean(itemAcc && itemAcc.type === "CREDIT_CARD");
       const sub = this.getSubcategory(value);
       const cat = this.getCategory(sub.categoryId);
       if (cat && (cat.type === "TRANSFER" || cat.type === "INCOME" || cat.type === "EXPENSE")) {
         item.type = cat.type;
+        const absAmt = Math.abs(Number(item.amount) || 0);
+        if (item.type === "TRANSFER") {
+          item.amount = absAmt;
+          item.isInvoiceCredit = false;
+        } else if (isCard && item.type === "EXPENSE") {
+          item.amount = priorDir === "IN" ? -absAmt : absAmt;
+          item.isInvoiceCredit = priorDir === "IN";
+        } else {
+          item.amount = absAmt;
+          item.isInvoiceCredit = false;
+        }
       }
       item.ownership = this.resolveDefaultOwnership(value, item.paidByUserId);
       const monthProjs = this.state.projections.filter(p => p.monthYear === this.state.settings.activeMonth);
@@ -7971,22 +8431,43 @@ window.App = {
     const metaStatus = meta.status || "PARTIAL";
     const metaCutoff = meta.cutoffDate || meta.periodEnd || "";
     const consolidatePartial = meta.consolidatePartial !== false;
+    const reconcileExactMirror = Boolean(meta.reconcileExactMirror);
+    const ledgerByAccount = meta.ledgerByAccount || {};
     const nowISO = new Date().toISOString();
     const fallbackIds = new Set(["sub_parceladas", "sub_outros"]);
 
     // Agrupa os lançamentos selecionados por (accountId, competenceMonth)
     const batchGroups = new Map();
-    for (const item of selected) {
-      const groupKey = `${item.accountId}__${item.competenceMonth}`;
+    const ensureGroup = (accountId, competenceMonth) => {
+      const groupKey = `${accountId}__${competenceMonth}`;
       if (!batchGroups.has(groupKey)) {
         batchGroups.set(groupKey, {
           batchId: "imp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
-          accountId: item.accountId,
-          competenceMonth: item.competenceMonth,
-          txs: []
+          accountId,
+          competenceMonth,
+          txs: [],
+          matchedExistingIds: []
         });
       }
-      const grp = batchGroups.get(groupKey);
+      return batchGroups.get(groupKey);
+    };
+
+    // Vincula também os itens que já existiam no banco (ex: vindos de parcial anterior ou CSV) ao lote atual e atualiza hash canônico
+    for (const item of this.stagedImports) {
+      if (item.alreadyExists && item.matchedExistingId && item.accountId && item.competenceMonth) {
+        const grp = ensureGroup(item.accountId, item.competenceMonth);
+        const exTx = this.state.transactions.find(t => t.id === item.matchedExistingId);
+        if (exTx) {
+          if (item.importHash) exTx.importHash = item.importHash;
+          if (item.transferDirection && !exTx.transferDirection) exTx.transferDirection = item.transferDirection;
+          exTx.importBatchId = grp.batchId;
+          grp.matchedExistingIds.push(exTx.id);
+        }
+      }
+    }
+
+    for (const item of selected) {
+      const grp = ensureGroup(item.accountId, item.competenceMonth);
       const newTx = {
         id: "tx_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
         transactionDate: item.transactionDate,
@@ -7998,6 +8479,7 @@ window.App = {
         destinationLabel: (item.destinationLabel || "").trim(),
         amount: item.amount,
         isInvoiceCredit: Boolean(item.isInvoiceCredit),
+        transferDirection: item.transferDirection || this.inferTxFlowDirection(item),
         type: item.type,
         accountId: item.accountId,
         paidByUserId: item.paidByUserId,
@@ -8030,18 +8512,12 @@ window.App = {
       }
     }
 
-    // Caso o usuário tenha reenviado um arquivo em que tudo já existia (ex: apenas atualizar data de corte ou fechar mês)
+    // Caso o usuário tenha reenviado um arquivo em que tudo já existia (ex: apenas atualizar data de corte, LEDGERBAL ou fechar mês)
     if (batchGroups.size === 0 && hasAlreadyImported) {
       const targetAccId = meta.accountId || this.importTargetAccountId;
       const targetMonths = Array.from(new Set(this.stagedImports.filter(i => i.alreadyExists).map(i => i.competenceMonth).filter(Boolean)));
       targetMonths.forEach(m => {
-        const key = `${targetAccId}__${m}`;
-        batchGroups.set(key, {
-          batchId: "imp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
-          accountId: targetAccId,
-          competenceMonth: m,
-          txs: []
-        });
+        ensureGroup(targetAccId, m);
       });
     }
 
@@ -8074,19 +8550,62 @@ window.App = {
       }
 
       const newTxIds = grp.txs.map(t => t.id);
-      const mergedTxIds = Array.from(new Set([...inheritedTxIds, ...newTxIds]));
+      const matchedIds = grp.matchedExistingIds || [];
+
+      // Se "Espelho fiel deste extrato no período" estiver ativo, remove lançamentos avulsos/duplicados no intervalo do arquivo
+      if (reconcileExactMirror) {
+        const keepSet = new Set([...newTxIds, ...matchedIds]);
+        const fileDates = this.stagedImports
+          .filter(i => i.accountId === grp.accountId && i.competenceMonth === grp.competenceMonth && /^\d{4}-\d{2}-\d{2}$/.test(i.transactionDate))
+          .map(i => i.transactionDate)
+          .sort();
+        const minFileDate = fileDates[0] || meta.periodStart || "";
+        const maxFileDate = fileDates[fileDates.length - 1] || meta.periodEnd || "";
+        this.state.transactions = this.state.transactions.filter(t => {
+          if (t.accountId !== grp.accountId || t.competenceMonth !== grp.competenceMonth) return true;
+          if (keepSet.has(t.id)) return true;
+          if (minFileDate && maxFileDate && t.transactionDate && (t.transactionDate < minFileDate || t.transactionDate > maxFileDate)) {
+            return true;
+          }
+          return false;
+        });
+      }
+
+      const liveIdsSet = new Set(this.state.transactions.map(t => t.id));
+      const mergedTxIds = Array.from(new Set([...inheritedTxIds, ...matchedIds, ...newTxIds])).filter(id => liveIdsSet.has(id));
       const allBatchTxs = this.state.transactions.filter(t => mergedTxIds.includes(t.id));
       const allDates = allBatchTxs.map(t => t.transactionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
 
       const periodStart = [inheritedStart, allDates[0], meta.periodStart].filter(Boolean).sort()[0] || expected.periodStart;
       const periodEnd = [inheritedEnd, allDates[allDates.length - 1], meta.periodEnd].filter(Boolean).sort().slice(-1)[0] || periodStart;
       const cutoffDate = [metaCutoff, periodEnd].filter(Boolean).sort().slice(-1)[0] || periodEnd;
-      const totalAmount = allBatchTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      const totalAmount = acc && acc.type === "CREDIT_CARD"
+        ? allBatchTxs.filter(t => t.type === "EXPENSE").reduce((s, t) => s + (Number(t.amount) || 0), 0)
+        : allBatchTxs.reduce((s, t) => {
+            const amt = Math.abs(Number(t.amount) || 0);
+            const isIn = this.isInternalOrInvoiceTransfer(t) ? this.getTransferDirection(t) === "IN" : t.type === "INCOME";
+            return s + (isIn ? amt : -amt);
+          }, 0);
 
       // Se a competência de saída for diferente do mês principal analisado, reavalia status para aquela competência específica quando pertinente
       const resolvedStatus = batchGroups.size > 1 && parser && parser.inferStatementImportStatus
         ? (grp.competenceMonth === meta.primaryMonth ? metaStatus : parser.inferStatementImportStatus(acc, grp.competenceMonth, cutoffDate))
         : metaStatus;
+
+      const ledgerEntry = ledgerByAccount[`${grp.accountId}__${grp.competenceMonth}`] ||
+        (grp.accountId === meta.accountId && grp.competenceMonth === meta.primaryMonth && typeof meta.ledgerBalance === "number"
+          ? { ledgerBalance: meta.ledgerBalance, balanceDate: meta.balanceDate || cutoffDate }
+          : null);
+
+      // Se consolidar ou reenviar para a mesma conta/competência com novo LEDGERBAL, atualiza também lotes anteriores completos se mesmo mês
+      if (ledgerEntry && typeof ledgerEntry.ledgerBalance === "number") {
+        this.state.statementImports.forEach(b => {
+          if (b.accountId === grp.accountId && b.competenceMonth === grp.competenceMonth && b.status === "COMPLETE" && newTxIds.length === 0) {
+            b.ledgerBalance = ledgerEntry.ledgerBalance;
+            b.balanceDate = ledgerEntry.balanceDate;
+          }
+        });
+      }
 
       this.state.statementImports.push({
         id: grp.batchId,
@@ -8099,6 +8618,8 @@ window.App = {
         periodEnd,
         cutoffDate,
         expectedCloseDate: expected.closeDate,
+        ledgerBalance: ledgerEntry ? ledgerEntry.ledgerBalance : null,
+        balanceDate: ledgerEntry ? ledgerEntry.balanceDate : null,
         txCount: mergedTxIds.length,
         totalAmount: Number(totalAmount.toFixed(2)),
         txIds: mergedTxIds,
